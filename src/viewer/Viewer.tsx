@@ -1,6 +1,6 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls, Environment, useGLTF, Grid } from '@react-three/drei';
+import { OrbitControls, useGLTF, useEnvironment, Grid } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { PALETTE, LIGHTING } from '../theme';
@@ -19,6 +19,22 @@ function frameObject(camera: THREE.PerspectiveCamera, controls: any, obj: THREE.
   camera.far = dist * 10;
   camera.updateProjectionMatrix();
   if (controls) { controls.target.copy(sphere.center); controls.update(); }
+}
+
+/**
+ * PBR reflections via the useEnvironment HOOK (assigns scene.environment
+ * directly), NOT drei's <Environment> component. The component's render-target
+ * machinery leaves the scene rendering black in this drei 10.7 / three 0.185
+ * combo; the hook gives the same IBL for the PBR KitBash metal/glass without it.
+ */
+function EnvMap() {
+  const texture = useEnvironment({ preset: 'night' });
+  const { scene } = useThree();
+  useEffect(() => {
+    scene.environment = texture;
+    return () => { scene.environment = null; };
+  }, [scene, texture]);
+  return null;
 }
 
 function KitbashAsset({ src, onReady }: { src: string; onReady(o: THREE.Object3D): void }) {
@@ -122,11 +138,11 @@ export default function Viewer() {
         <directionalLight position={[10, 20, 10]} intensity={LIGHTING.keyIntensity} />
         <directionalLight position={[-15, 8, -5]} intensity={LIGHTING.fillIntensity} color={PALETTE.blue} />
         <directionalLight position={[0, 5, -20]} intensity={LIGHTING.rimIntensity} color={PALETTE.magenta} />
-        <Environment preset="night" />
-        <Grid args={[200, 200]} cellColor={PALETTE.panel} sectionColor={PALETTE.violet} fadeDistance={120} infiniteGrid position={[0, 0, 0]} />
         <Suspense fallback={null}>
+          <EnvMap />
           {entry && <Stage key={entry.id} entry={entry} onStats={setStats} />}
         </Suspense>
+        <Grid args={[200, 200]} cellColor={PALETTE.panel} sectionColor={PALETTE.violet} fadeDistance={120} infiniteGrid position={[0, 0, 0]} />
         <OrbitControls makeDefault />
         <EffectComposer>
           <Bloom intensity={hud.bloomIntensity} luminanceThreshold={hud.bloomThreshold} radius={hud.bloomRadius} mipmapBlur />

@@ -5,3 +5,4 @@ public/models/neocity/manifest.json
 public/models/characters/
 *.local
 .DS_Store
+.playwright-mcp/
