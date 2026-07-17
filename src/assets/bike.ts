@@ -47,13 +47,14 @@ export interface BikeAsset {
 // Dimensions (1 unit = 1 m)
 // ---------------------------------------------------------------------------
 
-const WHEEL_R = 0.55;
-const WHEEL_TUBE = 0.09;
-const WHEEL_OUTER = WHEEL_R + WHEEL_TUBE; // 0.64 → axle height so tire kisses y=0
-const AXLE_X = 0.66; // hoops clear each other: 2*0.66 > 2*0.64
+// TRON Legacy light-cycle proportions: big dominant wheels, long low wheelbase.
+const WHEEL_R = 0.6;
+const WHEEL_TUBE = 0.13; // fat tire
+const WHEEL_OUTER = WHEEL_R + WHEEL_TUBE; // 0.73 → axle height so tire kisses y=0
+const AXLE_X = 0.92; // long wheelbase (front +X, rear -X, both inline at z=0)
 const AXLE_Y = WHEEL_OUTER;
-const BODY_HALF_W = 0.2;
-const PITCH_PIVOT_Y = 0.66;
+const BODY_HALF_W = 0.16; // narrow motorcycle body
+const PITCH_PIVOT_Y = 0.72;
 
 const LEAN_MAX = THREE.MathUtils.degToRad(35);
 
@@ -66,9 +67,10 @@ const SHOULDER_UP = 0.32; // shoulder offset above spine bone, along spine
 const SHOULDER_OUT = 0.185;
 const SPINE_UP = 0.1; // spine bone above hips bone
 
-// Contact points (bikeBody/riderRig local space, ground at y=0)
-const GRIP = new THREE.Vector3(0.3, 0.96, 0.18);
-const PEG = new THREE.Vector3(-0.18, 0.4, 0.17);
+// Contact points (bikeBody/riderRig local space, ground at y=0). Reference has
+// the rider stretched prone: hands far forward & low on the bars, feet far back.
+const GRIP = new THREE.Vector3(0.72, 0.86, 0.17);
+const PEG = new THREE.Vector3(-0.5, 0.56, 0.16);
 const ANKLE_LIFT = 0.05; // ankle sits just above the peg
 
 // ---------------------------------------------------------------------------
@@ -219,298 +221,203 @@ const PROFILE: Array<[number, number]> = [
   [-0.55, 0.62]
 ];
 
-// Top edge (tail → nose) traced by the cyan light channels.
-const TOP_EDGE: Array<[number, number]> = [
-  [-0.62, 0.8],
-  [-0.35, 0.92],
-  [-0.1, 0.78],
-  [0.15, 0.82],
-  [0.42, 1.0],
-  [0.75, 0.95],
-  [1.18, 0.7]
-];
-// Nose underside accent.
-const NOSE_EDGE: Array<[number, number]> = [
-  [1.18, 0.7],
-  [0.95, 0.62],
-  [0.45, 0.55]
-];
 
-const M = { metal: 0, glow: 1, head: 2, tail: 3 } as const;
+const M = { metal: 0, glow: 1, head: 2, tail: 3, core: 4 } as const;
 
+/**
+ * TRON: Legacy light-cycle, rebuilt from the reference photo. Forward = +X.
+ * Key reference features, front (+X) to rear (-X):
+ *   - two huge hubless wheels of near-equal size on a long low wheelbase
+ *   - each wheel wrapped by a black fender/fairing over the top, with a bright
+ *     white light-band on the tire circumference + inner rim glow
+ *   - a low horizontal chassis beam linking the wheels at ~axle height
+ *   - a bright engine core (the brightest non-wheel mass) low and central
+ *   - a swept front cowl rising from the front wheel to low clip-on bars
+ *   - a short rear tail cowl over the back wheel with a red tail light
+ * Palette: matte near-black body, thin cyan seam piping, white wheel bands.
+ */
 function buildBikeStatic(rng: Rng): Part[] {
   const parts: Part[] = [];
+  const add = (geom: THREE.BufferGeometry, matrix: THREE.Matrix4, mat: number): void => {
+    parts.push({ geom, matrix, mat });
+  };
 
-  // --- main body spar: extruded dagger profile ---
-  const shape = new THREE.Shape(PROFILE.map(([x, y]) => new THREE.Vector2(x, y)));
-  const body = new THREE.ExtrudeGeometry(shape, {
-    depth: BODY_HALF_W * 2,
-    bevelEnabled: false
-  });
-  parts.push({ geom: body, matrix: xform(0, 0, -BODY_HALF_W), mat: M.metal });
-
-  // --- hubless wheels (TRON Legacy reference): fat matte tire + bright
-  //     white-cyan rim-band on each side face + black fender sweeping over the
-  //     top to tie the wheel into the body (kills the "bare floating hoop" read).
-  for (const s of [1, -1]) {
+  // =========================================================================
+  // WHEELS — big fat hubless tires, white circumference band, black fender.
+  // =========================================================================
+  // A default TorusGeometry rings in the XY plane with its hole-axis along Z —
+  // exactly a wheel that rolls forward (+X) and spins about Z. No base rotation.
+  for (const s of [1, -1] as const) {
     const ax = s * AXLE_X;
-    // fat matte-black tire
-    parts.push({
-      geom: new THREE.TorusGeometry(WHEEL_R, WHEEL_TUBE, 16, 44),
-      matrix: xform(ax, AXLE_Y, 0),
-      mat: M.metal
-    });
-    // bright white-cyan rim-band on each side face — the signature Tron glow ring
+    const isFront = s > 0;
+
+    // fat matte tire
+    add(new THREE.TorusGeometry(WHEEL_R, WHEEL_TUBE, 18, 48),
+      xform(ax, AXLE_Y, 0), M.metal);
+
+    // bright WHITE light band around the tire circumference (both side faces) —
+    // the signature TRON glow. Thin torus just proud of the tread, offset in Z.
     for (const z of [1, -1]) {
-      parts.push({
-        geom: new THREE.TorusGeometry(WHEEL_R - 0.03, 0.03, 8, 48),
-        matrix: xform(ax, AXLE_Y, z * (WHEEL_TUBE - 0.008)),
-        mat: M.head
-      });
+      add(new THREE.TorusGeometry(WHEEL_R + 0.005, 0.03, 8, 56),
+        xform(ax, AXLE_Y, z * (WHEEL_TUBE - 0.02)), M.head);
     }
-    // inner cyan glow ring (rim interior, seen through the hubless centre)
-    parts.push({
-      geom: new THREE.TorusGeometry(WHEEL_R - WHEEL_TUBE - 0.02, 0.02, 8, 40),
-      matrix: xform(ax, AXLE_Y, 0),
-      mat: M.glow
-    });
-    // black fender: sleek partial torus fitted over the top ~215°, only lightly
-    // wider than the tire in Z so it hugs the wheel like the reference bodywork.
-    parts.push({
-      geom: new THREE.TorusGeometry(WHEEL_R + 0.06, 0.11, 12, 36, Math.PI * 1.2),
-      matrix: new THREE.Matrix4().compose(
+    // inner rim glow rings (cyan interior, visible through the hubless center)
+    add(new THREE.TorusGeometry(WHEEL_R - WHEEL_TUBE - 0.02, 0.022, 8, 48),
+      xform(ax, AXLE_Y, 0), M.glow);
+    add(new THREE.TorusGeometry(WHEEL_R - WHEEL_TUBE - 0.16, 0.014, 6, 48),
+      xform(ax, AXLE_Y, 0), M.glow);
+
+    // BLACK FENDER — partial torus in the same XY plane covering the top arc.
+    // TorusGeometry's arc starts at +X and sweeps CCW; rotate about Z to center
+    // it on top (+Y). A fwd/back bias makes the front fender sweep forward and
+    // the rear sweep back, like the reference bodywork.
+    const fenderArc = Math.PI * 0.82;
+    const bias = isFront ? 0.3 : -0.3;
+    const fenderPhi = Math.PI / 2 - fenderArc / 2 + bias;
+    // slim fender that hugs the tread (tube slightly wider than the tire so it
+    // covers it, but not bulbous), scaled a touch wider in Z to cap the sides.
+    add(new THREE.TorusGeometry(WHEEL_R + 0.04, 0.155, 12, 36, fenderArc),
+      new THREE.Matrix4().compose(
         new THREE.Vector3(ax, AXLE_Y, 0),
-        new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -0.1)),
-        new THREE.Vector3(1, 1, 1.12)
-      ),
-      mat: M.metal
-    });
-    // thin cyan light channel running along the outer edge of the fender
-    parts.push({
-      geom: new THREE.TorusGeometry(WHEEL_R + 0.15, 0.012, 6, 36, Math.PI * 1.1),
-      matrix: new THREE.Matrix4().compose(
-        new THREE.Vector3(ax, AXLE_Y, 0),
-        new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -0.08)),
-        new THREE.Vector3(1, 1, 1)
-      ),
-      mat: M.glow
-    });
-    // faint red brake ring + cyan hub "eye" dot
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, fenderPhi)),
+        new THREE.Vector3(1, 1, 0.55)
+      ), M.metal);
+    // cyan seam line along the fender crown
+    add(new THREE.TorusGeometry(WHEEL_R + 0.15, 0.012, 6, 36, fenderArc),
+      xform(ax, AXLE_Y, 0, 0, 0, fenderPhi), M.glow);
+
+    // hub center: small dark disc (axle along Z → rotate cylinder about X) +
+    // faint red brake ring in the wheel plane.
     for (const z of [1, -1]) {
-      parts.push({
-        geom: new THREE.TorusGeometry(0.17, 0.012, 6, 24),
-        matrix: xform(ax, AXLE_Y, z * 0.11),
-        mat: M.tail
-      });
-      parts.push({
-        geom: new THREE.CylinderGeometry(0.045, 0.045, 0.01, 14),
-        matrix: xform(ax, AXLE_Y, z * 0.115, Math.PI / 2, 0, 0),
-        mat: M.glow
-      });
+      add(new THREE.CylinderGeometry(0.12, 0.12, 0.02, 20),
+        xform(ax, AXLE_Y, z * 0.02, Math.PI / 2, 0, 0), M.metal);
+      add(new THREE.TorusGeometry(0.16, 0.01, 6, 24),
+        xform(ax, AXLE_Y, z * 0.03), M.tail);
     }
   }
 
-  // --- central engine core: the bright cylindrical mass low between the
-  //     wheels (reference's brightest non-wheel element, anchors the middle).
-  //     Cylinder axis along X (forward), sitting at ~axle height, centred.
-  parts.push({
-    geom: new THREE.CylinderGeometry(0.19, 0.19, 0.66, 20),
-    matrix: xform(0.05, 0.52, 0, 0, 0, Math.PI / 2),
-    mat: M.metal
-  });
-  // glowing core sleeve (emissive band around the cylinder)
-  parts.push({
-    geom: new THREE.CylinderGeometry(0.205, 0.205, 0.34, 20, 1, true),
-    matrix: xform(0.05, 0.52, 0, 0, 0, Math.PI / 2),
-    mat: M.head
-  });
-  // bright end caps where the core glows through
-  for (const ex of [0.4, -0.3]) {
-    parts.push({
-      geom: new THREE.CylinderGeometry(0.15, 0.15, 0.04, 20),
-      matrix: xform(ex, 0.52, 0, 0, 0, Math.PI / 2),
-      mat: M.head
-    });
-  }
-
-  // --- spine beam: substantial box bridging the wheels at core height, so the
-  //     middle reads as a continuous structural mass (not a thin dagger). ---
-  parts.push({
-    geom: new THREE.BoxGeometry(1.5, 0.16, 0.34),
-    matrix: xform(0.05, 0.66, 0),
-    mat: M.metal
-  });
-  // cyan light channel along both flanks of the spine beam
+  // =========================================================================
+  // CHASSIS BEAM — low horizontal body linking the two wheels at axle height.
+  // Tapered box: fuller in the middle, narrowing toward each wheel.
+  // =========================================================================
+  const beamLen = AXLE_X * 2 - 0.5;
+  add(new THREE.BoxGeometry(beamLen, 0.2, 0.26),
+    xform(0.0, AXLE_Y - 0.02, 0), M.metal);
+  // lower belly plate (narrow, sits just under the beam; kept short in X so it
+  // doesn't box in the engine core below).
+  add(new THREE.BoxGeometry(0.9, 0.09, 0.18),
+    xform(0.15, AXLE_Y - 0.16, 0), M.metal);
+  // cyan light channels along both flanks of the beam, full length
   for (const z of [1, -1]) {
-    parts.push({
-      geom: new THREE.BoxGeometry(1.5, 0.03, 0.012),
-      matrix: xform(0.05, 0.62, z * 0.171),
-      mat: M.glow
-    });
+    add(new THREE.BoxGeometry(beamLen, 0.035, 0.012),
+      xform(0.0, AXLE_Y - 0.02, z * 0.131), M.glow);
+    // second thinner channel lower down
+    add(new THREE.BoxGeometry(beamLen + 0.1, 0.02, 0.012),
+      xform(0.0, AXLE_Y - 0.16, z * 0.101), M.glow);
   }
 
-  // --- hoop-holder side blades (Shotaro fork/swingarm covers) ---
+  // =========================================================================
+  // ENGINE CORE — the bright cylindrical mass low & central (brightest
+  // non-wheel element in the reference). Axis along X.
+  // =========================================================================
+  // dark cylinder substrate
+  add(new THREE.CylinderGeometry(0.15, 0.15, 0.7, 22),
+    xform(-0.05, AXLE_Y - 0.26, 0, 0, 0, Math.PI / 2), M.metal);
+  // glowing amber sleeve covering most of the core (the reference's warm glow)
+  add(new THREE.CylinderGeometry(0.165, 0.165, 0.62, 22, 1, true),
+    xform(-0.05, AXLE_Y - 0.26, 0, 0, 0, Math.PI / 2), M.core);
+  // dark rib bands segmenting the amber glow
+  for (const cx of [0.12, -0.05, -0.22]) {
+    add(new THREE.TorusGeometry(0.168, 0.02, 6, 20),
+      xform(cx, AXLE_Y - 0.26, 0, 0, Math.PI / 2, 0), M.metal);
+  }
+  // bright amber end caps
+  for (const ex of [0.31, -0.41]) {
+    add(new THREE.CircleGeometry(0.15, 20),
+      xform(ex, AXLE_Y - 0.26, 0, 0, ex > 0 ? Math.PI / 2 : -Math.PI / 2, 0), M.core);
+  }
+
+  // =========================================================================
+  // FRONT COWL — swept fairing rising from the front wheel to the low bars.
+  // A wedge that tapers up-and-back from just behind the front wheel.
+  // =========================================================================
+  const frontCowl: Array<[number, number]> = [
+    [AXLE_X - 0.15, AXLE_Y - 0.18],
+    [AXLE_X - 0.05, AXLE_Y + 0.28],
+    [AXLE_X - 0.5, AXLE_Y + 0.36],
+    [AXLE_X - 0.62, AXLE_Y - 0.06],
+    [AXLE_X - 0.4, AXLE_Y - 0.2]
+  ];
+  {
+    const shape = new THREE.Shape(frontCowl.map(([x, y]) => new THREE.Vector2(x, y)));
+    add(new THREE.ExtrudeGeometry(shape, { depth: BODY_HALF_W * 2, bevelEnabled: false }),
+      xform(0, 0, -BODY_HALF_W), M.metal);
+  }
+  // cyan trim along the top edge of the front cowl, both flanks
   for (const z of [1, -1]) {
-    parts.push({
-      geom: new THREE.BoxGeometry(0.74, 0.32, 0.03),
-      matrix: xform(0.6, 0.68, z * 0.145, 0, 0, -0.18),
-      mat: M.metal
-    });
-    parts.push({
-      geom: new THREE.BoxGeometry(0.66, 0.28, 0.03),
-      matrix: xform(-0.56, 0.66, z * 0.145, 0, 0, 0.15),
-      mat: M.metal
-    });
-    // blade edge light channels
-    const b1 = strip([0.28, 0.82], [0.92, 0.7], z * 0.163, 0.016);
-    parts.push({ ...b1, mat: M.glow });
-    const b2 = strip([-0.88, 0.72], [-0.26, 0.82], z * 0.163, 0.016);
-    parts.push({ ...b2, mat: M.glow });
-    // fork struts: body flank → hub axle centers (kills the "floating hoop" read)
-    for (const ax of [AXLE_X, -AXLE_X]) {
-      const from: [number, number] = [ax > 0 ? 0.55 : -0.5, 0.66];
-      const s = strip(from, [ax, AXLE_Y], z * 0.15, 0.05, 0.05);
-      parts.push({ ...s, mat: M.metal });
-    }
+    const e1 = strip([AXLE_X - 0.05, AXLE_Y + 0.28], [AXLE_X - 0.5, AXLE_Y + 0.36], z * (BODY_HALF_W + 0.006), 0.02);
+    parts.push({ ...e1, mat: M.glow });
+    const e2 = strip([AXLE_X - 0.5, AXLE_Y + 0.36], [AXLE_X - 0.62, AXLE_Y - 0.06], z * (BODY_HALF_W + 0.006), 0.02);
+    parts.push({ ...e2, mat: M.glow });
   }
 
-  // --- body edge light channels, both flanks ---
+  // =========================================================================
+  // REAR TAIL COWL — short raised cowl over the back wheel with red tail light.
+  // =========================================================================
+  const tailCowl: Array<[number, number]> = [
+    [-AXLE_X + 0.5, AXLE_Y - 0.16],
+    [-AXLE_X + 0.42, AXLE_Y + 0.24],
+    [-AXLE_X + 0.02, AXLE_Y + 0.28],
+    [-AXLE_X + 0.05, AXLE_Y - 0.12]
+  ];
+  {
+    const shape = new THREE.Shape(tailCowl.map(([x, y]) => new THREE.Vector2(x, y)));
+    add(new THREE.ExtrudeGeometry(shape, { depth: BODY_HALF_W * 1.7, bevelEnabled: false }),
+      xform(0, 0, -BODY_HALF_W * 0.85), M.metal);
+  }
+  // red tail light bar across the back of the tail cowl
+  add(new THREE.BoxGeometry(0.03, 0.06, 0.24),
+    xform(-AXLE_X + 0.04, AXLE_Y + 0.06, 0), M.tail);
+  // cyan trim along the tail cowl top, both flanks
   for (const z of [1, -1]) {
-    for (let i = 0; i < TOP_EDGE.length - 1; i++) {
-      const s = strip(TOP_EDGE[i], TOP_EDGE[i + 1], z * (BODY_HALF_W + 0.006));
-      parts.push({ ...s, mat: M.glow });
-    }
-    for (let i = 0; i < NOSE_EDGE.length - 1; i++) {
-      const s = strip(NOSE_EDGE[i], NOSE_EDGE[i + 1], z * (BODY_HALF_W + 0.006), 0.016);
-      parts.push({ ...s, mat: M.glow });
-    }
-    // angled flank vent slits (cyan) behind the console
-    for (let i = 0; i < 3; i++) {
-      parts.push({
-        geom: new THREE.BoxGeometry(0.09, 0.014, 0.01),
-        matrix: xform(0.14 + i * 0.13, 0.64, z * (BODY_HALF_W + 0.004), 0, 0, -0.45),
-        mat: M.glow
-      });
-    }
+    const t1 = strip([-AXLE_X + 0.42, AXLE_Y + 0.24], [-AXLE_X + 0.02, AXLE_Y + 0.28], z * (BODY_HALF_W * 0.85 + 0.006), 0.018);
+    parts.push({ ...t1, mat: M.glow });
   }
 
-  // --- headlight slit + flare glints (merged quads, no extra draw call) ---
-  parts.push({
-    geom: new THREE.BoxGeometry(0.02, 0.05, 0.2),
-    matrix: xform(1.14, 0.7, 0),
-    mat: M.head
-  });
-  parts.push({
-    geom: new THREE.PlaneGeometry(0.05, 0.34),
-    matrix: xform(1.165, 0.7, 0, 0, Math.PI / 2, 0),
-    mat: M.head
-  });
-  parts.push({
-    geom: new THREE.PlaneGeometry(0.4, 0.035),
-    matrix: xform(1.165, 0.7, 0, 0, Math.PI / 2, 0),
-    mat: M.head
-  });
-
-  // --- tail slit (red) + twin cyan tail fins flanking the cowl ---
-  parts.push({
-    geom: new THREE.BoxGeometry(0.015, 0.045, 0.18),
-    matrix: xform(-0.635, 0.79, 0),
-    mat: M.tail
-  });
+  // =========================================================================
+  // HANDLEBARS — low clip-on bars reaching forward off the front cowl.
+  // =========================================================================
+  const barX = GRIP.x, barY = GRIP.y;
+  add(new THREE.CylinderGeometry(0.02, 0.02, GRIP.z * 2 + 0.12, 10),
+    xform(barX, barY, 0, Math.PI / 2, 0, 0), M.metal);
   for (const z of [1, -1]) {
-    parts.push({
-      geom: new THREE.BoxGeometry(0.16, 0.11, 0.016),
-      matrix: xform(-0.5, 0.9, z * 0.1, 0, 0, 0.35),
-      mat: M.metal
-    });
-    const fin = strip([-0.58, 0.86], [-0.42, 0.96], z * 0.11, 0.016);
-    parts.push({ ...fin, mat: M.glow });
+    // riser stub from cowl down to bar
+    add(new THREE.CylinderGeometry(0.016, 0.02, 0.16, 8),
+      xform(barX - 0.06, barY + 0.06, z * 0.08, 0, 0, 0.5), M.metal);
+    // glowing bar-end grip cap
+    add(new THREE.CylinderGeometry(0.026, 0.026, 0.05, 12),
+      xform(barX, barY, z * (GRIP.z + 0.05), Math.PI / 2, 0, 0), M.glow);
   }
 
-  // --- handlebars: clip-on bar, risers, glowing bar-end caps ---
-  parts.push({
-    geom: new THREE.CylinderGeometry(0.02, 0.02, 0.46, 10),
-    matrix: xform(0.3, 0.96, 0, Math.PI / 2, 0, 0),
-    mat: M.metal
-  });
+  // =========================================================================
+  // HEADLIGHT — bright forward slit on the front cowl nose.
+  // =========================================================================
+  add(new THREE.BoxGeometry(0.06, 0.05, 0.22),
+    xform(AXLE_X - 0.08, AXLE_Y + 0.12, 0), M.head);
+
+  // =========================================================================
+  // FOOTPEGS — rear-set pegs the rider's feet rest on.
+  // =========================================================================
   for (const z of [1, -1]) {
-    parts.push({
-      geom: new THREE.CylinderGeometry(0.016, 0.02, 0.12, 8),
-      matrix: xform(0.33, 0.9, z * 0.1, 0, 0, 0.3),
-      mat: M.metal
-    });
-    parts.push({
-      geom: new THREE.CylinderGeometry(0.024, 0.024, 0.025, 10),
-      matrix: xform(0.3, 0.96, z * 0.235, Math.PI / 2, 0, 0),
-      mat: M.glow
-    });
-    // mirror stubs
-    parts.push({
-      geom: new THREE.CylinderGeometry(0.011, 0.011, 0.09, 6),
-      matrix: xform(0.34, 1.0, z * 0.16, z * -0.7, 0, 0.4),
-      mat: M.metal
-    });
-    parts.push({
-      geom: new THREE.BoxGeometry(0.012, 0.032, 0.055),
-      matrix: xform(0.355, 1.035, z * 0.19, 0, 0, 0.3),
-      mat: M.metal
-    });
+    add(new THREE.BoxGeometry(0.06, 0.03, 0.1),
+      xform(PEG.x, PEG.y - 0.02, z * (PEG.z + 0.04)), M.metal);
   }
 
-  // --- small windscreen, raked back over the console ---
-  parts.push({
-    geom: new THREE.BoxGeometry(0.018, 0.2, 0.22),
-    matrix: xform(0.55, 1.03, 0, 0, 0, 0.5),
-    mat: M.metal
-  });
-
-  // --- seat pad + belly keel ---
-  parts.push({
-    geom: new THREE.BoxGeometry(0.3, 0.045, 0.24),
-    matrix: xform(-0.14, 0.79, 0),
-    mat: M.metal
-  });
-  parts.push({
-    geom: new THREE.BoxGeometry(0.5, 0.1, 0.024),
-    matrix: xform(0.12, 0.49, 0),
-    mat: M.metal
-  });
-  // underbelly ground-glow strip (down-facing cyan bar — the Tron floor wash)
-  parts.push({
-    geom: new THREE.BoxGeometry(0.66, 0.012, 0.05),
-    matrix: xform(0.1, 0.445, 0),
-    mat: M.glow
-  });
-  // nose chevron: cyan V accent on the dagger tip, both flanks
-  for (const z of [1, -1]) {
-    const c1 = strip([0.86, 0.58], [1.14, 0.7], z * (BODY_HALF_W + 0.006), 0.018);
-    parts.push({ ...c1, mat: M.glow });
-    const c2 = strip([0.86, 0.82], [1.14, 0.7], z * (BODY_HALF_W + 0.006), 0.018);
-    parts.push({ ...c2, mat: M.glow });
-  }
-
-  // --- footpegs ---
-  for (const z of [1, -1]) {
-    parts.push({
-      geom: new THREE.BoxGeometry(0.05, 0.025, 0.12),
-      matrix: xform(PEG.x, PEG.y - 0.012, z * (PEG.z - 0.02)),
-      mat: M.metal
-    });
-  }
-
-  // --- chain-side greeble (right side, rng-varied cluster) ---
-  parts.push({
-    geom: new THREE.CylinderGeometry(0.1, 0.1, 0.028, 16),
-    matrix: xform(-0.34, 0.56, -0.155, Math.PI / 2, 0, 0),
-    mat: M.metal
-  });
-  const nGreeble = rng.int(3, 5);
+  // small rng greeble on the core underside so repeated builds vary slightly
+  const nGreeble = rng.int(2, 4);
   for (let i = 0; i < nGreeble; i++) {
-    parts.push({
-      geom: new THREE.BoxGeometry(rng.range(0.06, 0.14), rng.range(0.03, 0.07), 0.02),
-      matrix: xform(rng.range(-0.25, 0.15), rng.range(0.5, 0.6), -0.15, 0, 0, rng.range(-0.2, 0.2)),
-      mat: M.metal
-    });
+    add(new THREE.BoxGeometry(rng.range(0.05, 0.1), rng.range(0.03, 0.05), 0.02),
+      xform(rng.range(-0.3, 0.1), AXLE_Y - 0.38, -0.12, 0, 0, rng.range(-0.2, 0.2)), M.metal);
   }
 
   return parts;
@@ -801,6 +708,14 @@ export function buildBike(rng: Rng): BikeAsset {
     emissive: tailRed,
     emissiveIntensity: 0.9
   });
+  // Engine core: warm amber glow — the bike's one non-cyan light, the bright
+  // reactor mass hanging under the chassis in the reference.
+  const coreMat = new THREE.MeshStandardMaterial({
+    color: 0x140a02,
+    emissive: new THREE.Color(0xffb347),
+    emissiveIntensity: 1.7,
+    side: THREE.DoubleSide
+  });
   // Rider suit is a distinctly lighter, warmer grey than the near-black bike
   // metal so the figure reads as its own silhouette instead of melding in.
   const suitMat = new THREE.MeshStandardMaterial({
@@ -832,12 +747,13 @@ export function buildBike(rng: Rng): BikeAsset {
   bikeBody.position.y = -PITCH_PIVOT_Y;
   pitchPivot.add(bikeBody);
 
-  // static merged bike (4 material groups = 4 draw calls)
+  // static merged bike (5 material groups)
   const staticMesh = new THREE.Mesh(mergeParts(buildBikeStatic(rng), false), [
     metalMat,
     glowMat,
     headMat,
-    tailMat
+    tailMat,
+    coreMat
   ]);
   staticMesh.name = 'bikeStatic';
   bikeBody.add(staticMesh);
@@ -884,17 +800,19 @@ export function buildBike(rng: Rng): BikeAsset {
     const c = THREE.MathUtils.clamp(crouch, 0, 1);
     const leanN = THREE.MathUtils.clamp(lean / LEAN_MAX, -1, 1);
 
-    // hips: tuck low & rearward → standing higher & forward; shift 0.1m into the turn
+    // hips: full prone tuck sits low & well rearward (over the rear wheel), a
+    // more upright stance rises and comes forward. Shift into the turn on lean.
     const hip = new THREE.Vector3(
-      THREE.MathUtils.lerp(-0.18, -0.1, c),
-      THREE.MathUtils.lerp(0.84, 1.02, c),
+      THREE.MathUtils.lerp(-0.34, -0.1, c),
+      THREE.MathUtils.lerp(0.78, 1.02, c),
       0.1 * leanN
     );
     bones[B.hips].position.copy(hip);
     bones[B.hips].quaternion.identity();
 
-    // spine: forward pitch 64°(tuck)→36°(standing), rolled into the turn (inside shoulder dips)
-    const a = THREE.MathUtils.degToRad(THREE.MathUtils.lerp(64, 36, c));
+    // spine: near-horizontal prone pitch 82°(tuck)→36°(standing), rolled into
+    // the turn (inside shoulder dips).
+    const a = THREE.MathUtils.degToRad(THREE.MathUtils.lerp(82, 36, c));
     const dip = THREE.MathUtils.degToRad(9) * leanN;
     const spineQ = new THREE.Quaternion()
       .setFromAxisAngle(new THREE.Vector3(1, 0, 0), dip)
@@ -944,7 +862,7 @@ export function buildBike(rng: Rng): BikeAsset {
 
   // neutral riding pose: near-prone racing tuck like the TRON reference —
   // chest low over the console, arms stretched forward to the bars, legs back.
-  pose({ lean: 0, pitch: 0, crouch: 0.12, wheelSpin: 0 });
+  pose({ lean: 0, pitch: 0, crouch: 0.0, wheelSpin: 0 });
 
   return { group, pose, ghostGeometry: buildGhostGeometry() };
 }
