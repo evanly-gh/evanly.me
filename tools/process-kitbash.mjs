@@ -14,6 +14,12 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
+import { NodeIO } from '@gltf-transform/core';
+import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
+import draco3d from 'draco3dgltf';
+import { cloneDocument, getBounds, weld, dedup, prune, draco, simplify } from '@gltf-transform/functions';
+import { MeshoptSimplifier } from 'meshoptimizer';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -66,11 +72,6 @@ console.log(`Mode       : ${flags.ktx2 ? 'KTX2' : 'embedded PNG'}${flags.only ? 
 
 // Tasks 7-9 append conversion/split/optimize/write below.
 
-import { createRequire } from 'module';
-import { NodeIO } from '@gltf-transform/core';
-import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import draco3d from 'draco3dgltf';
-
 const require = createRequire(import.meta.url);
 
 console.log('\n[1/4] Converting OBJ -> GLB (PBR preserved, ~25s) ...');
@@ -91,9 +92,6 @@ fullGlb = null;
 const masterScene = masterDoc.getRoot().listScenes()[0];
 const masterNodes = masterScene.listChildren();
 console.log(`  ${masterNodes.length} scene children (expect 47)`);
-
-import { cloneDocument, getBounds, weld, dedup, prune, draco, simplify } from '@gltf-transform/functions';
-import { MeshoptSimplifier } from 'meshoptimizer';
 
 /** Category + simplify ratio from the KB3D piece-name prefix. */
 function categoryOf(name) {
@@ -145,13 +143,19 @@ for (let i = 0; i < masterNodes.length; i++) {
   const { category, ratio } = categoryOf(name);
 
   // Optimize geometry ONLY — materials/textures preserved as-is.
-  await pieceDoc.transform(
+  const transforms = [
     prune(),
     weld({ tolerance: 1e-4 }),
     simplify({ simplifier: MeshoptSimplifier, ratio, error: 0.01 }),
     dedup(),
-    draco({ quantizationVolume: 'scene' }),
-  );
+  ];
+  if (flags.ktx2) {
+    const { textureCompress } = await import('@gltf-transform/functions');
+    const sharp = (await import('sharp')).default;
+    transforms.push(textureCompress({ encoder: sharp, targetFormat: 'ktx2', resize: [2048, 2048] }));
+  }
+  transforms.push(draco({ quantizationVolume: 'scene' }));
+  await pieceDoc.transform(...transforms);
 
   const tris = countTris(pieceDoc);
   const outFile = path.join(outDir, `${name}.glb`);
@@ -161,3 +165,17 @@ for (let i = 0; i < masterNodes.length; i++) {
   manifest.push({ name, file: `neocity/${name}.glb`, bbox, hasEmissive, tris, category });
   console.log(`  [${String(i+1).padStart(2,'0')}] ${name.padEnd(40)} ${(glb.byteLength/1024).toFixed(0).padStart(7)} KB  tris=${tris}${hasEmissive?' [E]':''}`);
 }
+
+console.log('\n[4/4] Writing manifest.json ...');
+manifest.sort((a, b) => a.name.localeCompare(b.name));
+fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
+
+const totalKB = manifest.reduce((s, m) => {
+  try { return s + fs.statSync(path.join(outDir, path.basename(m.file))).size / 1024; } catch { return s; }
+}, 0);
+console.log(`\n=== Summary ===`);
+console.log(`  Pieces written : ${manifest.length}`);
+console.log(`  Total size     : ${totalKB.toFixed(0)} KB`);
+console.log(`  With emissive  : ${manifest.filter(m => m.hasEmissive).length}`);
+console.log(`  Output         : ${outDir}`);
+console.log('\nDone.');
