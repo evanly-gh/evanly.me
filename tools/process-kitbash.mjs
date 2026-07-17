@@ -65,3 +65,29 @@ console.log(`Output dir : ${outDir}`);
 console.log(`Mode       : ${flags.ktx2 ? 'KTX2' : 'embedded PNG'}${flags.only ? `  only=[${flags.only.join(',')}]` : ''}`);
 
 // Tasks 7-9 append conversion/split/optimize/write below.
+
+import { createRequire } from 'module';
+import { NodeIO } from '@gltf-transform/core';
+import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
+import draco3d from 'draco3dgltf';
+
+const require = createRequire(import.meta.url);
+
+console.log('\n[1/4] Converting OBJ -> GLB (PBR preserved, ~25s) ...');
+const obj2gltf = require('obj2gltf');
+const t0 = Date.now();
+// NOTE: no `unlit`. PBR materials + texture maps are preserved.
+let fullGlb = await obj2gltf(srcObj, { binary: true, checkTransparency: false });
+console.log(`  Done, GLB ${(fullGlb.length / 1048576).toFixed(1)} MB`);
+
+console.log('[2/4] Loading into gltf-transform ...');
+const encoder = await draco3d.createEncoderModule({});
+const decoder = await draco3d.createDecoderModule({});
+const io = new NodeIO()
+  .registerExtensions(ALL_EXTENSIONS)
+  .registerDependencies({ 'draco3d.encoder': encoder, 'draco3d.decoder': decoder });
+const masterDoc = await io.readBinary(new Uint8Array(fullGlb));
+fullGlb = null;
+const masterScene = masterDoc.getRoot().listScenes()[0];
+const masterNodes = masterScene.listChildren();
+console.log(`  ${masterNodes.length} scene children (expect 47)`);
