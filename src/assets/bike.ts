@@ -249,41 +249,104 @@ function buildBikeStatic(rng: Rng): Part[] {
   });
   parts.push({ geom: body, matrix: xform(0, 0, -BODY_HALF_W), mat: M.metal });
 
-  // --- hoop wheels: static rim torus + inner emissive cyan ring ---
+  // --- hubless wheels (TRON Legacy reference): fat matte tire + bright
+  //     white-cyan rim-band on each side face + black fender sweeping over the
+  //     top to tie the wheel into the body (kills the "bare floating hoop" read).
   for (const s of [1, -1]) {
     const ax = s * AXLE_X;
+    // fat matte-black tire
     parts.push({
-      geom: new THREE.TorusGeometry(WHEEL_R, WHEEL_TUBE, 14, 40),
+      geom: new THREE.TorusGeometry(WHEEL_R, WHEEL_TUBE, 16, 44),
       matrix: xform(ax, AXLE_Y, 0),
       mat: M.metal
     });
+    // bright white-cyan rim-band on each side face — the signature Tron glow ring
+    for (const z of [1, -1]) {
+      parts.push({
+        geom: new THREE.TorusGeometry(WHEEL_R - 0.03, 0.03, 8, 48),
+        matrix: xform(ax, AXLE_Y, z * (WHEEL_TUBE - 0.008)),
+        mat: M.head
+      });
+    }
+    // inner cyan glow ring (rim interior, seen through the hubless centre)
     parts.push({
       geom: new THREE.TorusGeometry(WHEEL_R - WHEEL_TUBE - 0.02, 0.02, 8, 40),
       matrix: xform(ax, AXLE_Y, 0),
       mat: M.glow
     });
-    // cyan wheel arcs on both faces, centered over the top of the hoop
-    for (const z of [1, -1]) {
-      parts.push({
-        geom: new THREE.TorusGeometry(WHEEL_R - 0.045, 0.013, 6, 24, 1.9),
-        matrix: xform(ax, AXLE_Y, z * (WHEEL_TUBE + 0.022), 0, 0, Math.PI / 2 - 0.95),
-        mat: M.glow
-      });
-    }
-    // faint red brake ring at the hub (glows softly through the disc gap)
+    // black fender: sleek partial torus fitted over the top ~215°, only lightly
+    // wider than the tire in Z so it hugs the wheel like the reference bodywork.
+    parts.push({
+      geom: new THREE.TorusGeometry(WHEEL_R + 0.06, 0.11, 12, 36, Math.PI * 1.2),
+      matrix: new THREE.Matrix4().compose(
+        new THREE.Vector3(ax, AXLE_Y, 0),
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -0.1)),
+        new THREE.Vector3(1, 1, 1.12)
+      ),
+      mat: M.metal
+    });
+    // thin cyan light channel running along the outer edge of the fender
+    parts.push({
+      geom: new THREE.TorusGeometry(WHEEL_R + 0.15, 0.012, 6, 36, Math.PI * 1.1),
+      matrix: new THREE.Matrix4().compose(
+        new THREE.Vector3(ax, AXLE_Y, 0),
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -0.08)),
+        new THREE.Vector3(1, 1, 1)
+      ),
+      mat: M.glow
+    });
+    // faint red brake ring + cyan hub "eye" dot
     for (const z of [1, -1]) {
       parts.push({
         geom: new THREE.TorusGeometry(0.17, 0.012, 6, 24),
         matrix: xform(ax, AXLE_Y, z * 0.11),
         mat: M.tail
       });
-      // cyan hub-center "eye" dot (Tron wheel look)
       parts.push({
         geom: new THREE.CylinderGeometry(0.045, 0.045, 0.01, 14),
         matrix: xform(ax, AXLE_Y, z * 0.115, Math.PI / 2, 0, 0),
         mat: M.glow
       });
     }
+  }
+
+  // --- central engine core: the bright cylindrical mass low between the
+  //     wheels (reference's brightest non-wheel element, anchors the middle).
+  //     Cylinder axis along X (forward), sitting at ~axle height, centred.
+  parts.push({
+    geom: new THREE.CylinderGeometry(0.19, 0.19, 0.66, 20),
+    matrix: xform(0.05, 0.52, 0, 0, 0, Math.PI / 2),
+    mat: M.metal
+  });
+  // glowing core sleeve (emissive band around the cylinder)
+  parts.push({
+    geom: new THREE.CylinderGeometry(0.205, 0.205, 0.34, 20, 1, true),
+    matrix: xform(0.05, 0.52, 0, 0, 0, Math.PI / 2),
+    mat: M.head
+  });
+  // bright end caps where the core glows through
+  for (const ex of [0.4, -0.3]) {
+    parts.push({
+      geom: new THREE.CylinderGeometry(0.15, 0.15, 0.04, 20),
+      matrix: xform(ex, 0.52, 0, 0, 0, Math.PI / 2),
+      mat: M.head
+    });
+  }
+
+  // --- spine beam: substantial box bridging the wheels at core height, so the
+  //     middle reads as a continuous structural mass (not a thin dagger). ---
+  parts.push({
+    geom: new THREE.BoxGeometry(1.5, 0.16, 0.34),
+    matrix: xform(0.05, 0.66, 0),
+    mat: M.metal
+  });
+  // cyan light channel along both flanks of the spine beam
+  for (const z of [1, -1]) {
+    parts.push({
+      geom: new THREE.BoxGeometry(1.5, 0.03, 0.012),
+      matrix: xform(0.05, 0.62, z * 0.171),
+      mat: M.glow
+    });
   }
 
   // --- hoop-holder side blades (Shotaro fork/swingarm covers) ---
@@ -879,9 +942,9 @@ export function buildBike(rng: Rng): BikeAsset {
     poseRider(p.lean, p.crouch);
   }
 
-  // neutral riding pose so the asset never renders in bind pose. A slightly
-  // more upright crouch reads as a rider figure rather than a tucked blob.
-  pose({ lean: 0, pitch: 0, crouch: 0.5, wheelSpin: 0 });
+  // neutral riding pose: near-prone racing tuck like the TRON reference —
+  // chest low over the console, arms stretched forward to the bars, legs back.
+  pose({ lean: 0, pitch: 0, crouch: 0.12, wheelSpin: 0 });
 
   return { group, pose, ghostGeometry: buildGhostGeometry() };
 }
