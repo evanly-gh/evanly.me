@@ -91,3 +91,73 @@ fullGlb = null;
 const masterScene = masterDoc.getRoot().listScenes()[0];
 const masterNodes = masterScene.listChildren();
 console.log(`  ${masterNodes.length} scene children (expect 47)`);
+
+import { cloneDocument, getBounds, weld, dedup, prune, draco, simplify } from '@gltf-transform/functions';
+import { MeshoptSimplifier } from 'meshoptimizer';
+
+/** Category + simplify ratio from the KB3D piece-name prefix. */
+function categoryOf(name) {
+  if (name.includes('BldgLG')) return { category: 'LG', ratio: 0.6 };
+  if (name.includes('BldgMD')) return { category: 'MD', ratio: 0.45 };
+  if (name.includes('BldgSM')) return { category: 'SM', ratio: 0.3 };
+  return { category: 'prop', ratio: 0.3 };
+}
+
+/** Emissive if any material name hints light/glass/neon/banner/letters/decal/screen. */
+const EMISSIVE_PATTERNS = ['light','glass','banner','letters','neon','decal','screen'];
+function pieceHasEmissive(doc) {
+  for (const m of doc.getRoot().listMaterials()) {
+    const n = (m.getName() || '').toLowerCase();
+    if (EMISSIVE_PATTERNS.some(p => n.includes(p))) return true;
+  }
+  return false;
+}
+
+function countTris(doc) {
+  let t = 0;
+  for (const mesh of doc.getRoot().listMeshes())
+    for (const prim of mesh.listPrimitives()) {
+      const idx = prim.getIndices();
+      const pos = prim.getAttribute('POSITION');
+      t += idx ? idx.getCount() / 3 : (pos ? pos.getCount() / 3 : 0);
+    }
+  return Math.round(t);
+}
+
+console.log('\n[3/4] Splitting + optimizing pieces ...\n');
+const manifest = [];
+for (let i = 0; i < masterNodes.length; i++) {
+  const name = masterNodes[i].getName();
+  if (flags.only && !flags.only.some(s => name.includes(s))) continue;
+
+  const pieceDoc = cloneDocument(masterDoc);
+  const scene = pieceDoc.getRoot().listScenes()[0];
+  for (const ch of scene.listChildren()) if (ch.getName() !== name) ch.dispose();
+
+  // bbox from original geometry
+  let bbox = [0, 0, 0];
+  try {
+    const b = getBounds(scene);
+    bbox = [b.max[0]-b.min[0], b.max[1]-b.min[1], b.max[2]-b.min[2]].map(v => +v.toFixed(3));
+  } catch { /* leave zeros */ }
+
+  const hasEmissive = pieceHasEmissive(pieceDoc);
+  const { category, ratio } = categoryOf(name);
+
+  // Optimize geometry ONLY — materials/textures preserved as-is.
+  await pieceDoc.transform(
+    prune(),
+    weld({ tolerance: 1e-4 }),
+    simplify({ simplifier: MeshoptSimplifier, ratio, error: 0.01 }),
+    dedup(),
+    draco({ quantizationVolume: 'scene' }),
+  );
+
+  const tris = countTris(pieceDoc);
+  const outFile = path.join(outDir, `${name}.glb`);
+  const glb = await io.writeBinary(pieceDoc);
+  fs.writeFileSync(outFile, Buffer.from(glb));
+
+  manifest.push({ name, file: `neocity/${name}.glb`, bbox, hasEmissive, tris, category });
+  console.log(`  [${String(i+1).padStart(2,'0')}] ${name.padEnd(40)} ${(glb.byteLength/1024).toFixed(0).padStart(7)} KB  tris=${tris}${hasEmissive?' [E]':''}`);
+}
