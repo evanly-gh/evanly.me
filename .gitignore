@@ -1,0 +1,6 @@
+node_modules/
+dist/
+public/models/neocity/*.glb
+public/models/neocity/manifest.json
+*.local
+.DS_Store
