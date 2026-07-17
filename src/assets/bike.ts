@@ -52,7 +52,7 @@ const WHEEL_TUBE = 0.09;
 const WHEEL_OUTER = WHEEL_R + WHEEL_TUBE; // 0.64 → axle height so tire kisses y=0
 const AXLE_X = 0.66; // hoops clear each other: 2*0.66 > 2*0.64
 const AXLE_Y = WHEEL_OUTER;
-const BODY_HALF_W = 0.14;
+const BODY_HALF_W = 0.2;
 const PITCH_PIVOT_Y = 0.66;
 
 const LEAN_MAX = THREE.MathUtils.degToRad(35);
@@ -508,11 +508,13 @@ function buildRiderParts(): Part[] {
   const p: Part[] = [];
   const HEAD_Y = SPINE_UP + 0.38; // head bone world y (bind)
 
-  // pelvis
-  p.push({ geom: new THREE.BoxGeometry(0.2, 0.16, 0.26), matrix: xform(0, 0.03, 0), mat: RM.suit, bone: B.hips });
-  // torso: lower + chest
-  p.push({ geom: new THREE.BoxGeometry(0.22, 0.24, 0.26), matrix: xform(0, 0.22, 0), mat: RM.suit, bone: B.spine });
-  p.push({ geom: new THREE.BoxGeometry(0.24, 0.22, 0.3), matrix: xform(0.02, 0.4, 0), mat: RM.suit, bone: B.spine });
+  // pelvis (rounded)
+  p.push({ geom: new THREE.SphereGeometry(0.13, 16, 12), matrix: new THREE.Matrix4().compose(new THREE.Vector3(0, 0.04, 0), new THREE.Quaternion(), new THREE.Vector3(0.85, 0.7, 1)), mat: RM.suit, bone: B.hips });
+  // torso: rounded lower abdomen + tapered chest (capsule reads as a human
+  // trunk, not stacked slabs). Scaled to keep the athletic taper.
+  p.push({ geom: new THREE.CapsuleGeometry(0.12, 0.14, 6, 16), matrix: new THREE.Matrix4().compose(new THREE.Vector3(0, 0.25, 0), new THREE.Quaternion(), new THREE.Vector3(1, 1, 0.82)), mat: RM.suit, bone: B.spine });
+  // chest: broader at the shoulders, tapering to the waist
+  p.push({ geom: new THREE.SphereGeometry(0.15, 18, 14), matrix: new THREE.Matrix4().compose(new THREE.Vector3(0.02, 0.42, 0), new THREE.Quaternion(), new THREE.Vector3(0.95, 0.85, 1.05)), mat: RM.suit, bone: B.spine });
   // spine ridge plate (back armor hump)
   p.push({ geom: new THREE.BoxGeometry(0.05, 0.26, 0.14), matrix: xform(-0.13, 0.32, 0), mat: RM.suit, bone: B.spine });
 
@@ -716,9 +718,9 @@ export function buildBike(rng: Rng): BikeAsset {
   tailRed.b *= 0.15;
 
   const metalMat = new THREE.MeshStandardMaterial({
-    color: 0x1c202c,
-    metalness: 0.9,
-    roughness: 0.3
+    color: 0x141824,
+    metalness: 0.92,
+    roughness: 0.28
   });
   const glowMat = new THREE.MeshStandardMaterial({
     color: 0x021014,
@@ -736,15 +738,19 @@ export function buildBike(rng: Rng): BikeAsset {
     emissive: tailRed,
     emissiveIntensity: 0.9
   });
+  // Rider suit is a distinctly lighter, warmer grey than the near-black bike
+  // metal so the figure reads as its own silhouette instead of melding in.
   const suitMat = new THREE.MeshStandardMaterial({
-    color: 0x14161f,
-    metalness: 0.15,
-    roughness: 0.85
+    color: 0x3a3f4d,
+    metalness: 0.25,
+    roughness: 0.7
   });
+  // Rider piping glows brighter than the bike channels so the body's contours
+  // (spine, limbs, helmet visor) pop against the chassis.
   const pipeMat = new THREE.MeshStandardMaterial({
     color: 0x021014,
     emissive: cyan,
-    emissiveIntensity: 0.8
+    emissiveIntensity: 1.6
   });
 
   // --- hierarchy ---
@@ -873,8 +879,9 @@ export function buildBike(rng: Rng): BikeAsset {
     poseRider(p.lean, p.crouch);
   }
 
-  // neutral riding pose so the asset never renders in bind pose
-  pose({ lean: 0, pitch: 0, crouch: 0.25, wheelSpin: 0 });
+  // neutral riding pose so the asset never renders in bind pose. A slightly
+  // more upright crouch reads as a rider figure rather than a tucked blob.
+  pose({ lean: 0, pitch: 0, crouch: 0.5, wheelSpin: 0 });
 
   return { group, pose, ghostGeometry: buildGhostGeometry() };
 }
