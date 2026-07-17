@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Environment, useGLTF, Grid } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
@@ -51,7 +51,7 @@ function CharacterAsset({ src, onReady }: { src: string; onReady(o: THREE.Object
 
 function Stage({ entry, onStats }: { entry: AssetEntry; onStats(s: { tris: number; calls: number; dims: string }): void }) {
   const { camera, controls, gl, scene } = useThree() as any;
-  const onReady = (obj: THREE.Object3D) => {
+  const onReady = useCallback((obj: THREE.Object3D) => {
     frameObject(camera, controls, obj);
     const box = new THREE.Box3().setFromObject(obj);
     const size = box.getSize(new THREE.Vector3());
@@ -67,7 +67,7 @@ function Stage({ entry, onStats }: { entry: AssetEntry; onStats(s: { tris: numbe
       gl.render(scene, camera);
       onStats({ tris: Math.round(tris), calls: gl.info.render.calls, dims: `${size.x.toFixed(1)}×${size.y.toFixed(1)}×${size.z.toFixed(1)}m` });
     });
-  };
+  }, [camera, controls, gl, scene, onStats]);
   if (entry.kind === 'bike') return <BikeAsset onReady={onReady} />;
   if (entry.kind === 'character') return <CharacterAsset src={entry.src!} onReady={onReady} />;
   return <KitbashAsset src={entry.src!} onReady={onReady} />;
@@ -97,8 +97,7 @@ export default function Viewer() {
   }, []);
 
   const registry = useMemo(() => pieces ? buildRegistry(pieces) : [], [pieces]);
-  if (pieces === null) return null;
-  const entry = registry[Math.min(index, registry.length - 1)];
+  const entry = pieces !== null ? registry[Math.min(index, registry.length - 1)] : undefined;
 
   // reflect selection in URL
   useEffect(() => {
@@ -108,6 +107,8 @@ export default function Viewer() {
       history.replaceState(null, '', u);
     }
   }, [entry]);
+
+  if (pieces === null) return null;
 
   return (
     <>
