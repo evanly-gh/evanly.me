@@ -97,6 +97,8 @@ function ExposureSync({ value }: { value: number }) {
 
 
 
+
+
 export default function Viewer() {
   const [pieces, setPieces] = useState<KitPiece[] | null>(null);
   const [err, setErr] = useState<string | null>(null);

@@ -47,16 +47,18 @@ export interface BikeAsset {
 // Dimensions (1 unit = 1 m)
 // ---------------------------------------------------------------------------
 
-// TRON Legacy light-cycle proportions (from the reference size chart:
-// length 2.8m, wheel Ø1.05m, height 1.12m — so wheel-top ≈ body-top, and the
-// wheels are ~half the length). Tuned so the sculpted body fills to wheel height.
-const WHEEL_R = 0.44; // torus centerline radius
-const WHEEL_TUBE = 0.085; // tube radius → outer 0.525, wheel Ø 1.05
-const WHEEL_OUTER = WHEEL_R + WHEEL_TUBE; // 0.525 → axle height so tire kisses y=0
-const AXLE_X = 0.88; // wheelbase 1.76 between axles (+ wheels → ~2.8 length)
+// TRON Legacy light-cycle proportions, tuned to the promo photo: the wheels
+// are ENORMOUS (their tops reach almost the full bike height) and the body is a
+// thin blade threaded between them with lots of open air above the spine.
+// Photo proportions: big wheels but a real gap between them (~1 wheel-diameter
+// of body sits between the tires). Total length ~2.9 (wheelbase 2.0 + 2 radii).
+const WHEEL_R = 0.55; // torus centerline radius
+const WHEEL_TUBE = 0.085; // tube radius → outer 0.635
+const WHEEL_OUTER = WHEEL_R + WHEEL_TUBE; // 0.635 → axle height so tire kisses y=0
+const AXLE_X = 1.0; // axles far apart → gap between tires ≈ 2*(1.0-0.635)=0.73
 const AXLE_Y = WHEEL_OUTER;
-const BODY_HALF_W = 0.15; // narrow motorcycle body half-width
-const PITCH_PIVOT_Y = 0.52;
+const BODY_HALF_W = 0.22; // wider body so the bike has real girth (was too thin)
+const PITCH_PIVOT_Y = 0.63;
 
 const LEAN_MAX = THREE.MathUtils.degToRad(35);
 
@@ -69,10 +71,11 @@ const SHOULDER_UP = 0.32; // shoulder offset above spine bone, along spine
 const SHOULDER_OUT = 0.185;
 const SPINE_UP = 0.1; // spine bone above hips bone
 
-// Contact points (bikeBody/riderRig local space, ground at y=0). Rider tucks
-// low into the fairing: hands forward on low grips, feet back on rear pegs.
-const GRIP = new THREE.Vector3(0.78, 0.62, 0.15);
-const PEG = new THREE.Vector3(-0.52, 0.44, 0.14);
+// Contact points (bikeBody/riderRig local space, ground at y=0). Rider sits ON
+// TOP of the spine (not inside it): hands forward/up on the bars, feet back on
+// pegs set OUTSIDE the body width so legs don't clip the fenders.
+const GRIP = new THREE.Vector3(0.72, 0.92, 0.16);
+const PEG = new THREE.Vector3(-0.4, 0.66, 0.26);
 const ANKLE_LIFT = 0.05; // ankle sits just above the peg
 
 // ---------------------------------------------------------------------------
@@ -253,60 +256,54 @@ function buildBikeStatic(rng: Rng): Part[] {
   // closed polygon in X (fwd) / Y (up), traced clockwise from the front nose.
   // Reference: long, low, near-level top line; body top ≈ wheel top.
   // =========================================================================
-  const TOP = AXLE_Y + WHEEL_R - 0.02;   // body crest ≈ wheel top
-  const WT = AXLE_Y + WHEEL_R + WHEEL_TUBE; // actual wheel top
-  // The fender covers only the TOP arc of each wheel; the body cuts UP and away
-  // over the front/rear of the wheels and rises between them, so the big glowing
-  // wheel rings stay exposed (like the reference).
-  const FEDGE = AXLE_Y + WHEEL_R * 0.42;  // where the fender meets the wheel front/back
+  // Blade body: a low faceted mass — a downward-thrusting front fairing over the
+  // front wheel, a thin spine, and a big sharp rear haunch over the rear wheel.
+  // Crest stays below wheel-top so open air shows above the thin spine.
+  // Two chunky faceted masses (front fairing + rear haunch) joined by a thin
+  // high spine. Open air ABOVE the spine and BELOW the body between the wheels,
+  // exactly like the photo. Traced clockwise from the low front nose.
+  const SPINE_TOP = AXLE_Y + 0.16;
+  const SPINE_BOT = AXLE_Y + 0.06;   // spine underside sits ABOVE axle → open air below
+  // The smooth fender DOMES (built in the wheel loop) now provide the over-wheel
+  // mass, so the BODY is just the connecting blade: a low nose, a thin spine, and
+  // a low tail. Keeps the top near-level (no competing tents over the wheels).
   const BODY: Array<[number, number]> = [
-    // front fender crest — covers only the top of the front wheel
-    [AXLE_X + WHEEL_R * 0.55, FEDGE],                  // leading edge, high on the wheel
-    [AXLE_X + 0.22, WT - 0.02],                         // crest over front wheel
-    [AXLE_X - 0.14, TOP],
-    // dip down into the low central spine (arches ABOVE the wheels between them)
-    [AXLE_X - 0.52, AXLE_Y + 0.20],
-    [0.05, AXLE_Y + 0.12],
-    // rise into the big rear haunch over the rear wheel
-    [-AXLE_X + 0.58, AXLE_Y + 0.28],
-    [-AXLE_X + 0.24, WT],                               // crest over rear wheel
-    [-AXLE_X - 0.16, AXLE_Y + 0.30],
-    // rear fender trailing edge — high on the wheel, wheel ring shows below
-    [-AXLE_X - WHEEL_R * 0.55, FEDGE],
-    // underside return: a slim spine tube linking the two fender wells, kept
-    // ABOVE axle height so it never crosses the wheels.
-    [-AXLE_X + 0.36, AXLE_Y + 0.06],
-    [0.0, AXLE_Y - 0.02],
-    [AXLE_X - 0.36, AXLE_Y + 0.06]
+    // ---- front nose (low, reaches toward the front wheel) ----
+    [AXLE_X + WHEEL_R * 0.5, AXLE_Y - 0.14],           // nose tip, low & forward
+    [AXLE_X - 0.06, SPINE_TOP + 0.06],
+    // ---- THIN SPINE across the middle (near level) ----
+    [AXLE_X - 0.5, SPINE_TOP + 0.02],
+    [-AXLE_X + 0.72, SPINE_TOP + 0.02],
+    // ---- low tail reaching toward the rear wheel ----
+    [-AXLE_X + 0.06, SPINE_TOP + 0.06],
+    [-AXLE_X - WHEEL_R * 0.5, AXLE_Y - 0.14],          // tail tip, low
+    // ---- underside return (thin, above axle → wheels show through below) ----
+    [-AXLE_X + 0.2, SPINE_BOT - 0.02],
+    [0.0, SPINE_BOT - 0.06],
+    [AXLE_X - 0.2, SPINE_BOT - 0.02],
+    [AXLE_X + 0.34, AXLE_Y - 0.10]
   ];
   {
     const shape = new THREE.Shape(BODY.map(([x, y]) => new THREE.Vector2(x, y)));
-    // beveled extrude gives the body soft edges rather than a flat slab
-    add(new THREE.ExtrudeGeometry(shape, {
-      depth: BODY_HALF_W * 2, bevelEnabled: true,
-      bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 2
-    }), xform(0, 0, -BODY_HALF_W), M.metal);
+    // NO bevel — hard knife-edge facets like the reference.
+    add(new THREE.ExtrudeGeometry(shape, { depth: BODY_HALF_W * 2, bevelEnabled: false }),
+      xform(0, 0, -BODY_HALF_W), M.metal);
   }
-  // thin cyan seam lines tracing the body's top contour, both flanks. Thin —
-  // the neon is line-work, not fat tubes.
-  const seamZ = BODY_HALF_W + 0.05;
-  const topContour = BODY.slice(0, 9); // nose → rear tail point (the upper edge)
+  // thin cyan seams — sparse, mostly following the spine's long lines.
+  const seamZ = BODY_HALF_W + 0.02;
+  const topContour = BODY.slice(0, 6); // nose tip → tail tip (upper edge)
   for (const z of [1, -1]) {
     for (let i = 0; i < topContour.length - 1; i++) {
-      const s = strip(topContour[i], topContour[i + 1], z * seamZ, 0.014, 0.02);
+      const s = strip(topContour[i], topContour[i + 1], z * seamZ, 0.012, 0.02);
       parts.push({ ...s, mat: M.glow });
     }
-    // a second lower seam line running the length (spine accent)
+    // one long lower spine accent line running the full length
     const lower: Array<[number, number]> = [
-      [AXLE_X + 0.12, AXLE_Y - 0.14],
-      [0.1, AXLE_Y - 0.12],
-      [-AXLE_X + 0.2, AXLE_Y - 0.06],
-      [-AXLE_X - 0.2, AXLE_Y - 0.02]
+      [AXLE_X + 0.2, AXLE_Y - 0.08],
+      [-AXLE_X - 0.1, AXLE_Y - 0.04]
     ];
-    for (let i = 0; i < lower.length - 1; i++) {
-      const s = strip(lower[i], lower[i + 1], z * seamZ, 0.012, 0.02);
-      parts.push({ ...s, mat: M.glow });
-    }
+    const s = strip(lower[0], lower[1], z * seamZ, 0.012, 0.02);
+    parts.push({ ...s, mat: M.glow });
   }
 
   // =========================================================================
@@ -315,6 +312,7 @@ function buildBikeStatic(rng: Rng): Part[] {
   // =========================================================================
   for (const s of [1, -1] as const) {
     const ax = s * AXLE_X;
+    const inward = -s; // toward the body center
     // matte tire
     add(new THREE.TorusGeometry(WHEEL_R, WHEEL_TUBE, 16, 48),
       xform(ax, AXLE_Y, 0), M.metal);
@@ -333,11 +331,50 @@ function buildBikeStatic(rng: Rng): Part[] {
       add(new THREE.TorusGeometry(0.12, 0.009, 6, 24),
         xform(ax, AXLE_Y, z * 0.03), M.tail);
     }
-    // short swingarm connecting the wheel hub into the body mass (kills any
-    // remaining "floating wheel" read on the underside)
-    const armFrom: [number, number] = [s > 0 ? AXLE_X - 0.4 : -AXLE_X + 0.4, AXLE_Y - 0.02];
-    const armStrut = strip(armFrom, [ax, AXLE_Y], 0, 0.05, BODY_HALF_W * 1.4);
-    parts.push({ ...armStrut, mat: M.metal });
+
+    // WHEEL MELD — a thin curved fender SHELL hugging the top ~third of the tire
+    // (a partial torus following the tread), full body-width so wheel+body read
+    // as one block. It does NOT balloon: the big glowing wheel ring stays fully
+    // visible below it. A short wedge blends the fender into the spine.
+    // Torus arc: authored in XY starting at +X; rotate about Z to center the
+    // covered arc on top. Cover ~110° over the crown.
+    const coverArc = Math.PI * 0.62;
+    const fenderPhi = Math.PI / 2 - coverArc / 2;  // center the arc on +Y (top)
+    const fenderMat = new THREE.Matrix4()
+      .makeTranslation(ax, AXLE_Y, 0)
+      .multiply(new THREE.Matrix4().makeRotationZ(fenderPhi));
+    // shell: partial torus slightly larger than the tire, flattened in Z to
+    // full body width so it caps the wheel sides.
+    add(new THREE.TorusGeometry(WHEEL_OUTER + 0.02, 0.11, 10, 28, coverArc),
+      new THREE.Matrix4().compose(
+        new THREE.Vector3(ax, AXLE_Y, 0),
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, fenderPhi)),
+        new THREE.Vector3(1, 1, BODY_HALF_W / 0.11 * 1.9)  // scale tube to body width
+      ), M.metal);
+    void fenderMat;
+    // short wedge blending the fender crown into the spine
+    const blend: Array<[number, number]> = [
+      [ax - inward * (WHEEL_R * 0.1), AXLE_Y + 0.42],
+      [ax - inward * (WHEEL_R * 0.6), AXLE_Y + 0.22],
+      [ax - inward * (WHEEL_R * 0.75), AXLE_Y - 0.02],
+      [ax - inward * (WHEEL_R * 0.2), AXLE_Y - 0.04]
+    ];
+    const bShape = new THREE.Shape(blend.map(([x, y]) => new THREE.Vector2(x, y)));
+    add(new THREE.ExtrudeGeometry(bShape, { depth: BODY_HALF_W * 2, bevelEnabled: false }),
+      xform(0, 0, -BODY_HALF_W), M.metal);
+    // cyan seam along the fender crown (both flanks)
+    for (const z of [1, -1]) {
+      const arcPt = (t: number, r: number): [number, number] => {
+        const a = fenderPhi + coverArc * t;
+        return [ax + Math.cos(a) * r, AXLE_Y + Math.sin(a) * r];
+      };
+      const M2 = 6;
+      for (let i = 0; i < M2; i++) {
+        const fa = strip(arcPt(i / M2, WHEEL_OUTER + 0.14), arcPt((i + 1) / M2, WHEEL_OUTER + 0.14),
+          z * (BODY_HALF_W + 0.02), 0.012, 0.02);
+        parts.push({ ...fa, mat: M.glow });
+      }
+    }
   }
 
   // =========================================================================
@@ -638,10 +675,14 @@ export function buildBike(rng: Rng): BikeAsset {
   tailRed.g *= 0.4;
   tailRed.b *= 0.15;
 
+  // Dark body that still READS as a lit surface (not a black void): moderate
+  // metalness + a lighter-than-pitch base so key/fill light reveals the facets.
+  // The reference is near-black but shown under strong studio light; this
+  // approximates that so the sculpted panels are visible, not just the seams.
   const metalMat = new THREE.MeshStandardMaterial({
-    color: 0x141824,
-    metalness: 0.92,
-    roughness: 0.28
+    color: 0x2a3242,
+    metalness: 0.55,
+    roughness: 0.42
   });
   const glowMat = new THREE.MeshStandardMaterial({
     color: 0x021014,
@@ -751,11 +792,11 @@ export function buildBike(rng: Rng): BikeAsset {
     const c = THREE.MathUtils.clamp(crouch, 0, 1);
     const leanN = THREE.MathUtils.clamp(lean / LEAN_MAX, -1, 1);
 
-    // hips: full prone tuck sits low & well rearward (over the rear wheel), a
-    // more upright stance rises and comes forward. Shift into the turn on lean.
+    // hips: seated in the central spine dip, ON TOP of the body (raised so the
+    // torso rides above the spine crest, not clipping through it).
     const hip = new THREE.Vector3(
-      THREE.MathUtils.lerp(-0.34, -0.1, c),
-      THREE.MathUtils.lerp(0.78, 1.02, c),
+      THREE.MathUtils.lerp(-0.14, -0.05, c),
+      THREE.MathUtils.lerp(0.9, 1.1, c),
       0.1 * leanN
     );
     bones[B.hips].position.copy(hip);
