@@ -246,166 +246,156 @@ function buildBikeStatic(rng: Rng): Part[] {
   const add = (geom: THREE.BufferGeometry, matrix: THREE.Matrix4, mat: number): void => {
     parts.push({ geom, matrix, mat });
   };
-
   void rng;
 
+  // Extrude a 2D side-profile Shape to the body width, centered in Z.
+  const HW = BODY_HALF_W;
+  const extrudeSide = (shape: THREE.Shape, mat: number, halfW = HW, bevel = 0.03): void => {
+    add(new THREE.ExtrudeGeometry(shape, {
+      depth: halfW * 2, bevelEnabled: bevel > 0,
+      bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2
+    }), xform(0, 0, -halfW), mat);
+  };
+
   // =========================================================================
-  // ONE CONTINUOUS SCULPTED BODY (the key change): a single side-profile
-  // silhouette extruded to width, flowing front-wheel → low spine → rear
-  // haunch, enclosing the middle so there's no see-through gap. Built as a
-  // closed polygon in X (fwd) / Y (up), traced clockwise from the front nose.
-  // Reference: long, low, near-level top line; body top ≈ wheel top.
+  // FROM-SCRATCH BODY built with SMOOTH CURVES (absarc + bezier), not jagged
+  // polygons. Three flowing masses like the TRON reference:
+  //   1. front fender — a smooth crescent hugging the front+top of the front wheel
+  //   2. rear fender  — a bulkier crescent hugging the back+top of the rear wheel
+  //   3. tank/spine   — a smooth bezier body sweeping fender→seat-dip→fender
+  // plus a long tapered light-beam spar spearing through at axle height.
   // =========================================================================
-  // Blade body: a low faceted mass — a downward-thrusting front fairing over the
-  // front wheel, a thin spine, and a big sharp rear haunch over the rear wheel.
-  // Crest stays below wheel-top so open air shows above the thin spine.
-  // Two chunky faceted masses (front fairing + rear haunch) joined by a thin
-  // high spine. Open air ABOVE the spine and BELOW the body between the wheels,
-  // exactly like the photo. Traced clockwise from the low front nose.
-  const SPINE_TOP = AXLE_Y + 0.16;
-  const SPINE_BOT = AXLE_Y + 0.06;   // spine underside sits ABOVE axle → open air below
-  // The smooth fender DOMES (built in the wheel loop) now provide the over-wheel
-  // mass, so the BODY is just the connecting blade: a low nose, a thin spine, and
-  // a low tail. Keeps the top near-level (no competing tents over the wheels).
-  const BODY: Array<[number, number]> = [
-    // ---- front nose (low, reaches toward the front wheel) ----
-    [AXLE_X + WHEEL_R * 0.5, AXLE_Y - 0.14],           // nose tip, low & forward
-    [AXLE_X - 0.06, SPINE_TOP + 0.06],
-    // ---- THIN SPINE across the middle (near level) ----
-    [AXLE_X - 0.5, SPINE_TOP + 0.02],
-    [-AXLE_X + 0.72, SPINE_TOP + 0.02],
-    // ---- low tail reaching toward the rear wheel ----
-    [-AXLE_X + 0.06, SPINE_TOP + 0.06],
-    [-AXLE_X - WHEEL_R * 0.5, AXLE_Y - 0.14],          // tail tip, low
-    // ---- underside return (thin, above axle → wheels show through below) ----
-    [-AXLE_X + 0.2, SPINE_BOT - 0.02],
-    [0.0, SPINE_BOT - 0.06],
-    [AXLE_X - 0.2, SPINE_BOT - 0.02],
-    [AXLE_X + 0.34, AXLE_Y - 0.10]
-  ];
+
+  /** A smooth crescent fender: outer arc (radius Ro) over the wheel, closed by
+   *  an inner arc (radius Ri) hugging the tire. angA→angB in radians (CCW). */
+  const fenderCrescent = (cx: number, cy: number, Ri: number, Ro: number, angA: number, angB: number): THREE.Shape => {
+    const sh = new THREE.Shape();
+    sh.absarc(cx, cy, Ro, angA, angB, false);   // outer edge, CCW
+    sh.absarc(cx, cy, Ri, angB, angA, true);    // inner edge back, CW
+    sh.closePath();
+    return sh;
+  };
+
+  const D = Math.PI / 180;
+  // Helper to lay the cyan seam along a fender's outer crown across an arc.
+  const fenderSeam = (cx: number, cy: number, Ro: number, aStart: number, aEnd: number): void => {
+    for (const z of [1, -1]) {
+      const N = 14;
+      for (let i = 0; i < N; i++) {
+        const a0 = aStart + (aEnd - aStart) * (i / N), a1 = aStart + (aEnd - aStart) * ((i + 1) / N);
+        const p0: [number, number] = [cx + Math.cos(a0) * (Ro + 0.015), cy + Math.sin(a0) * (Ro + 0.015)];
+        const p1: [number, number] = [cx + Math.cos(a1) * (Ro + 0.015), cy + Math.sin(a1) * (Ro + 0.015)];
+        parts.push({ ...strip(p0, p1, z * (HW + 0.03), 0.013, 0.02), mat: M.glow });
+      }
+    }
+  };
+  // ---- FRONT FENDER: sleek crescent over the top+front of the front wheel,
+  //      tapering forward to a point (reference nose). Covers ~top third only.
   {
-    const shape = new THREE.Shape(BODY.map(([x, y]) => new THREE.Vector2(x, y)));
-    // NO bevel — hard knife-edge facets like the reference.
-    add(new THREE.ExtrudeGeometry(shape, { depth: BODY_HALF_W * 2, bevelEnabled: false }),
-      xform(0, 0, -BODY_HALF_W), M.metal);
+    const cx = AXLE_X, cy = AXLE_Y;
+    const Ri = WHEEL_OUTER + 0.012;
+    const Ro = WHEEL_OUTER + 0.16;
+    const a0 = 18 * D, a1 = 150 * D;        // front-upper → over top → inner-upper
+    extrudeSide(fenderCrescent(cx, cy, Ri, Ro, a0, a1), M.metal);
+    fenderSeam(cx, cy, Ro, a0, a1);
   }
-  // thin cyan seams — sparse, mostly following the spine's long lines.
-  const seamZ = BODY_HALF_W + 0.02;
-  const topContour = BODY.slice(0, 6); // nose tip → tail tip (upper edge)
-  for (const z of [1, -1]) {
-    for (let i = 0; i < topContour.length - 1; i++) {
-      const s = strip(topContour[i], topContour[i + 1], z * seamZ, 0.012, 0.02);
-      parts.push({ ...s, mat: M.glow });
-    }
-    // one long lower spine accent line running the full length
-    const lower: Array<[number, number]> = [
-      [AXLE_X + 0.2, AXLE_Y - 0.08],
-      [-AXLE_X - 0.1, AXLE_Y - 0.04]
-    ];
-    const s = strip(lower[0], lower[1], z * seamZ, 0.012, 0.02);
-    parts.push({ ...s, mat: M.glow });
+  // ---- REAR FENDER: bulkier crescent over the top+back of the rear wheel.
+  {
+    const cx = -AXLE_X, cy = AXLE_Y;
+    const Ri = WHEEL_OUTER + 0.012;
+    const Ro = WHEEL_OUTER + 0.2;           // rear a bit bulkier (reference)
+    const a0 = 30 * D, a1 = 162 * D;        // inner-upper → over top → back-upper
+    extrudeSide(fenderCrescent(cx, cy, Ri, Ro, a0, a1), M.metal);
+    fenderSeam(cx, cy, Ro, a0, a1);
   }
 
-  // =========================================================================
-  // WHEELS — hubless tires with a thin bright rim-band + cyan inner rings.
-  // The body (above) already provides the fender mass wrapping each wheel.
-  // =========================================================================
-  for (const s of [1, -1] as const) {
-    const ax = s * AXLE_X;
-    const inward = -s; // toward the body center
-    // matte tire
-    add(new THREE.TorusGeometry(WHEEL_R, WHEEL_TUBE, 16, 48),
-      xform(ax, AXLE_Y, 0), M.metal);
-    // thin bright rim-band on each side face — the signature TRON glow ring
+  // ---- TANK / SPINE: smooth bezier body sweeping front-fender → seat-dip →
+  //      rear-haunch. Top edge curves up into a seat, bottom edge near-flat.
+  {
+    const fX = AXLE_X - 0.05, fY = AXLE_Y + 0.34;  // front connection (overlaps front fender)
+    const rX = -AXLE_X + 0.05, rY = AXLE_Y + 0.40; // rear connection (overlaps rear fender)
+    const humpY = AXLE_Y + 0.46;                    // tank crest between wheels
+    const seatY = AXLE_Y + 0.30;                    // seat dip (rider sits here)
+    const botY = AXLE_Y - 0.06;                     // belly (just above axle → wheels show below)
+    const sh = new THREE.Shape();
+    sh.moveTo(fX, fY);
+    // top: front rises to a tank hump, dips to the seat, rises into rear haunch
+    sh.bezierCurveTo(AXLE_X - 0.5, humpY, 0.55, humpY, 0.30, seatY + 0.02);   // hump → seat front
+    sh.bezierCurveTo(0.0, seatY - 0.03, -0.35, seatY + 0.04, rX + 0.55, rY - 0.02); // seat → rear rise
+    sh.bezierCurveTo(rX + 0.30, rY, rX + 0.12, rY, rX, rY);                    // into rear fender
+    // rear down to belly
+    sh.lineTo(rX + 0.02, botY);
+    // bottom: near-flat belly back to front
+    sh.bezierCurveTo(-0.3, botY - 0.05, 0.3, botY - 0.05, fX - 0.02, botY);
+    sh.closePath();
+    extrudeSide(sh, M.metal);
+    // cyan seam tracing the tank's top curve
     for (const z of [1, -1]) {
-      add(new THREE.TorusGeometry(WHEEL_R + 0.004, 0.02, 8, 56),
-        xform(ax, AXLE_Y, z * (WHEEL_TUBE - 0.012)), M.head);
-    }
-    // cyan inner rim rings (through the hubless center)
-    add(new THREE.TorusGeometry(WHEEL_R - WHEEL_TUBE - 0.02, 0.014, 6, 48),
-      xform(ax, AXLE_Y, 0), M.glow);
-    add(new THREE.TorusGeometry(WHEEL_R - WHEEL_TUBE - 0.12, 0.01, 6, 48),
-      xform(ax, AXLE_Y, 0), M.glow);
-    // faint red brake glow at the hub, both faces
-    for (const z of [1, -1]) {
-      add(new THREE.TorusGeometry(0.12, 0.009, 6, 24),
-        xform(ax, AXLE_Y, z * 0.03), M.tail);
-    }
-
-    // WHEEL MELD — a thin curved fender SHELL hugging the top ~third of the tire
-    // (a partial torus following the tread), full body-width so wheel+body read
-    // as one block. It does NOT balloon: the big glowing wheel ring stays fully
-    // visible below it. A short wedge blends the fender into the spine.
-    // Torus arc: authored in XY starting at +X; rotate about Z to center the
-    // covered arc on top. Cover ~110° over the crown.
-    const coverArc = Math.PI * 0.62;
-    const fenderPhi = Math.PI / 2 - coverArc / 2;  // center the arc on +Y (top)
-    const fenderMat = new THREE.Matrix4()
-      .makeTranslation(ax, AXLE_Y, 0)
-      .multiply(new THREE.Matrix4().makeRotationZ(fenderPhi));
-    // shell: partial torus slightly larger than the tire, flattened in Z to
-    // full body width so it caps the wheel sides.
-    add(new THREE.TorusGeometry(WHEEL_OUTER + 0.02, 0.11, 10, 28, coverArc),
-      new THREE.Matrix4().compose(
-        new THREE.Vector3(ax, AXLE_Y, 0),
-        new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, fenderPhi)),
-        new THREE.Vector3(1, 1, BODY_HALF_W / 0.11 * 1.9)  // scale tube to body width
-      ), M.metal);
-    void fenderMat;
-    // short wedge blending the fender crown into the spine
-    const blend: Array<[number, number]> = [
-      [ax - inward * (WHEEL_R * 0.1), AXLE_Y + 0.42],
-      [ax - inward * (WHEEL_R * 0.6), AXLE_Y + 0.22],
-      [ax - inward * (WHEEL_R * 0.75), AXLE_Y - 0.02],
-      [ax - inward * (WHEEL_R * 0.2), AXLE_Y - 0.04]
-    ];
-    const bShape = new THREE.Shape(blend.map(([x, y]) => new THREE.Vector2(x, y)));
-    add(new THREE.ExtrudeGeometry(bShape, { depth: BODY_HALF_W * 2, bevelEnabled: false }),
-      xform(0, 0, -BODY_HALF_W), M.metal);
-    // cyan seam along the fender crown (both flanks)
-    for (const z of [1, -1]) {
-      const arcPt = (t: number, r: number): [number, number] => {
-        const a = fenderPhi + coverArc * t;
-        return [ax + Math.cos(a) * r, AXLE_Y + Math.sin(a) * r];
-      };
-      const M2 = 6;
-      for (let i = 0; i < M2; i++) {
-        const fa = strip(arcPt(i / M2, WHEEL_OUTER + 0.14), arcPt((i + 1) / M2, WHEEL_OUTER + 0.14),
-          z * (BODY_HALF_W + 0.02), 0.012, 0.02);
-        parts.push({ ...fa, mat: M.glow });
+      const pts: Array<[number, number]> = [
+        [fX, fY + 0.02], [AXLE_X - 0.5, humpY], [0.30, seatY + 0.03],
+        [-0.35, seatY + 0.03], [rX + 0.4, rY - 0.02], [rX, rY + 0.02]
+      ];
+      for (let i = 0; i < pts.length - 1; i++) {
+        parts.push({ ...strip(pts[i], pts[i + 1], z * (HW + 0.03), 0.013, 0.02), mat: M.glow });
       }
     }
   }
 
-  // =========================================================================
-  // FRONT FORK + LOW BARS — thin struts from the front fairing to low grips.
-  // =========================================================================
-  const barX = GRIP.x, barY = GRIP.y;
-  add(new THREE.CylinderGeometry(0.018, 0.018, GRIP.z * 2 + 0.1, 10),
-    xform(barX, barY, 0, Math.PI / 2, 0, 0), M.metal);
-  for (const z of [1, -1]) {
-    // fork strut from front fairing down-forward to the grip
-    const fork = strip([AXLE_X - 0.1, AXLE_Y + 0.12], [barX, barY], z * 0.09, 0.03, 0.05);
-    parts.push({ ...fork, mat: M.metal });
-    // glowing grip cap
-    add(new THREE.CylinderGeometry(0.024, 0.024, 0.045, 12),
-      xform(barX, barY, z * (GRIP.z + 0.04), Math.PI / 2, 0, 0), M.glow);
+  // ---- LIGHT-BEAM SPAR: the long tapered blade spearing through at axle height,
+  //      forward past the front wheel and back past the rear (signature TRON line).
+  {
+    const spar = new THREE.Shape();
+    const y = AXLE_Y - 0.03;
+    spar.moveTo(AXLE_X + WHEEL_OUTER + 0.34, y);        // sharp front point
+    spar.lineTo(AXLE_X - 0.2, y + 0.11);
+    spar.lineTo(-AXLE_X + 0.2, y + 0.11);
+    spar.lineTo(-AXLE_X - WHEEL_OUTER - 0.34, y);       // sharp rear point
+    spar.lineTo(-AXLE_X + 0.2, y - 0.09);
+    spar.lineTo(AXLE_X - 0.2, y - 0.09);
+    spar.closePath();
+    extrudeSide(spar, M.metal, HW * 0.7, 0.02);
+    // the bright cyan light line running the full length of the spar, both flanks
+    for (const z of [1, -1]) {
+      parts.push({ ...strip([AXLE_X + WHEEL_OUTER + 0.3, y + 0.01], [-AXLE_X - WHEEL_OUTER - 0.3, y + 0.01],
+        z * (HW * 0.7 + 0.02), 0.02, 0.02), mat: M.glow });
+    }
   }
 
   // =========================================================================
-  // HEADLIGHT slit (front) + RED TAIL bar (rear).
+  // WHEELS — hubless tires with bright rim-bands + cyan inner rings.
   // =========================================================================
-  add(new THREE.BoxGeometry(0.05, 0.04, 0.18),
-    xform(AXLE_X + 0.28, AXLE_Y + 0.06, 0), M.head);
-  add(new THREE.BoxGeometry(0.03, 0.05, 0.2),
-    xform(-AXLE_X - 0.34, AXLE_Y + 0.02, 0), M.tail);
+  for (const s of [1, -1] as const) {
+    const ax = s * AXLE_X;
+    add(new THREE.TorusGeometry(WHEEL_R, WHEEL_TUBE, 16, 52),
+      xform(ax, AXLE_Y, 0), M.metal);
+    for (const z of [1, -1]) {
+      add(new THREE.TorusGeometry(WHEEL_R + 0.004, 0.022, 8, 60),
+        xform(ax, AXLE_Y, z * (WHEEL_TUBE - 0.014)), M.head);
+    }
+    add(new THREE.TorusGeometry(WHEEL_R - WHEEL_TUBE - 0.02, 0.016, 6, 52),
+      xform(ax, AXLE_Y, 0), M.glow);
+    add(new THREE.TorusGeometry(WHEEL_R - WHEEL_TUBE - 0.13, 0.011, 6, 52),
+      xform(ax, AXLE_Y, 0), M.glow);
+    for (const z of [1, -1]) {
+      add(new THREE.TorusGeometry(0.11, 0.009, 6, 24),
+        xform(ax, AXLE_Y, z * 0.03), M.tail);
+    }
+  }
 
-  // =========================================================================
-  // FOOTPEGS — rear-set pegs the rider's feet rest on.
-  // =========================================================================
+  // ---- low forward grips (thin) ----
+  const barX = GRIP.x, barY = GRIP.y;
+  add(new THREE.CylinderGeometry(0.016, 0.016, GRIP.z * 2 + 0.08, 10),
+    xform(barX, barY, 0, Math.PI / 2, 0, 0), M.metal);
   for (const z of [1, -1]) {
-    add(new THREE.BoxGeometry(0.06, 0.03, 0.09),
-      xform(PEG.x, PEG.y - 0.02, z * (PEG.z + 0.04)), M.metal);
+    add(new THREE.CylinderGeometry(0.022, 0.022, 0.04, 12),
+      xform(barX, barY, z * (GRIP.z + 0.03), Math.PI / 2, 0, 0), M.glow);
+  }
+  // ---- headlight + red tail ----
+  add(new THREE.BoxGeometry(0.05, 0.04, 0.16), xform(AXLE_X + WHEEL_OUTER + 0.1, AXLE_Y - 0.02, 0), M.head);
+  add(new THREE.BoxGeometry(0.04, 0.05, 0.18), xform(-AXLE_X - WHEEL_OUTER - 0.1, AXLE_Y - 0.02, 0), M.tail);
+  // ---- footpegs ----
+  for (const z of [1, -1]) {
+    add(new THREE.BoxGeometry(0.06, 0.03, 0.09), xform(PEG.x, PEG.y - 0.02, z * (PEG.z + 0.04)), M.metal);
   }
 
   return parts;
