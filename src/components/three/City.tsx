@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls, FlyControls, useEnvironment } from '@react-three/drei';
+import { Canvas, useThree, useFrame } from '@react-three/fiber';
+import { OrbitControls, PointerLockControls, useEnvironment } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { PALETTE, LIGHTING } from '../../theme';
@@ -56,6 +56,37 @@ function ExposureSync() {
   const { gl } = useThree();
   useEffect(() => { gl.toneMappingExposure = LIGHTING.exposure; }, [gl]);
   return null;
+}
+
+/**
+ * FPS-style fly camera: pointer-lock mouse-look (yaw/pitch only, no roll) +
+ * frame-rate-independent WASD movement, Q/E for down/up, Shift to boost.
+ */
+function FreeCam() {
+  const { camera } = useThree();
+  const keys = useRef<Record<string, boolean>>({});
+  useEffect(() => {
+    const dn = (e: KeyboardEvent) => { keys.current[e.code] = true; };
+    const up = (e: KeyboardEvent) => { keys.current[e.code] = false; };
+    window.addEventListener('keydown', dn);
+    window.addEventListener('keyup', up);
+    return () => { window.removeEventListener('keydown', dn); window.removeEventListener('keyup', up); };
+  }, []);
+  const dir = useRef(new THREE.Vector3());
+  const right = useRef(new THREE.Vector3());
+  useFrame((_, dt) => {
+    const k = keys.current;
+    const speed = (k['ShiftLeft'] || k['ShiftRight'] ? 520 : 170) * Math.min(dt, 0.05);
+    camera.getWorldDirection(dir.current).normalize();
+    right.current.crossVectors(dir.current, camera.up).normalize();
+    if (k['KeyW']) camera.position.addScaledVector(dir.current, speed);
+    if (k['KeyS']) camera.position.addScaledVector(dir.current, -speed);
+    if (k['KeyD']) camera.position.addScaledVector(right.current, speed);
+    if (k['KeyA']) camera.position.addScaledVector(right.current, -speed);
+    if (k['KeyE'] || k['Space']) camera.position.y += speed;
+    if (k['KeyQ']) camera.position.y -= speed;
+  });
+  return <PointerLockControls makeDefault pointerSpeed={0.9} />;
 }
 
 // ── Roads: deck + sidewalks (raised curbs) + glowing edge/centre lines ──
@@ -232,6 +263,7 @@ function Moon() {
 
 export default function City() {
   return (
+    <>
     <Canvas
       gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
       camera={{ position: [-60, 150, 260], fov: 55, near: 1, far: 8000 }}
@@ -256,11 +288,22 @@ export default function City() {
       <Skyline />
       <Moon />
       {FREECAM
-        ? <FlyControls makeDefault movementSpeed={150} rollSpeed={0.5} dragToLook />
+        ? <FreeCam />
         : <OrbitControls makeDefault target={[40, 0, -160]} maxDistance={4000} />}
       <EffectComposer>
         <Bloom intensity={LIGHTING.bloomIntensity} luminanceThreshold={LIGHTING.bloomThreshold} radius={LIGHTING.bloomRadius} mipmapBlur />
       </EffectComposer>
     </Canvas>
+    {FREECAM && (
+      <div style={{
+        position: 'fixed', bottom: 12, left: 12, zIndex: 10,
+        font: '12px/1.5 ui-monospace, monospace', color: PALETTE.cyan,
+        background: 'rgba(10,11,30,0.8)', border: `1px solid ${PALETTE.panel}`,
+        padding: '8px 12px', borderRadius: 6, pointerEvents: 'none',
+      }}>
+        click to look · <b>WASD</b> move · <b>Q/E</b> down/up · <b>Shift</b> boost · <b>Esc</b> release
+      </div>
+    )}
+    </>
   );
 }
