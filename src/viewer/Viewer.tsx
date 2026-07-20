@@ -120,6 +120,18 @@ export default function Viewer() {
   const registry = useMemo(() => pieces ? buildRegistry(pieces) : [], [pieces]);
   const entry = pieces !== null ? registry[Math.min(index, registry.length - 1)] : undefined;
 
+  // deep-link: on first load, select the asset named in ?asset=<id>
+  const [deepLinked, setDeepLinked] = useState(false);
+  useEffect(() => {
+    if (deepLinked || registry.length === 0) return;
+    const want = new URLSearchParams(location.search).get('asset');
+    if (want) {
+      const i = registry.findIndex(a => a.id === want);
+      if (i >= 0) setIndex(i);
+    }
+    setDeepLinked(true);
+  }, [registry, deepLinked]);
+
   // reflect selection in URL
   useEffect(() => {
     if (entry) {

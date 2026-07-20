@@ -25,10 +25,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // --- CLI parsing ---
 const argv = process.argv.slice(2);
-const flags = { only: null, ktx2: false, obj: null };
+// --compress (a.k.a. --webp): resize + WebP-compress textures via sharp for
+//   web delivery (embedded 4K PNG is ~500MB/piece; WebP@1K is a few MB).
+// --res=<n>: texture resize target (default 1024).
+const flags = { only: null, compress: false, res: 1024, obj: null };
 for (const a of argv) {
   if (a.startsWith('--only=')) flags.only = a.slice(7).split(',').map(s => s.trim()).filter(Boolean);
-  else if (a === '--ktx2') flags.ktx2 = true;
+  else if (a === '--compress' || a === '--webp' || a === '--ktx2') flags.compress = true;
+  else if (a.startsWith('--res=')) flags.res = parseInt(a.slice(6), 10) || 1024;
   else if (!a.startsWith('--')) flags.obj = a;
 }
 
@@ -68,7 +72,7 @@ fs.mkdirSync(outDir, { recursive: true });
 console.log(`Source OBJ : ${srcObj}`);
 console.log(`Textures   : ${texDir}`);
 console.log(`Output dir : ${outDir}`);
-console.log(`Mode       : ${flags.ktx2 ? 'KTX2' : 'embedded PNG'}${flags.only ? `  only=[${flags.only.join(',')}]` : ''}`);
+console.log(`Mode       : ${flags.compress ? `WebP @${flags.res}` : 'embedded PNG'}${flags.only ? `  only=[${flags.only.join(',')}]` : ''}`);
 
 // Tasks 7-9 append conversion/split/optimize/write below.
 
@@ -149,10 +153,10 @@ for (let i = 0; i < masterNodes.length; i++) {
     simplify({ simplifier: MeshoptSimplifier, ratio, error: 0.01 }),
     dedup(),
   ];
-  if (flags.ktx2) {
+  if (flags.compress) {
     const { textureCompress } = await import('@gltf-transform/functions');
     const sharp = (await import('sharp')).default;
-    transforms.push(textureCompress({ encoder: sharp, targetFormat: 'ktx2', resize: [2048, 2048] }));
+    transforms.push(textureCompress({ encoder: sharp, targetFormat: 'webp', quality: 85, resize: [flags.res, flags.res] }));
   }
   transforms.push(draco({ quantizationVolume: 'scene' }));
   await pieceDoc.transform(...transforms);
