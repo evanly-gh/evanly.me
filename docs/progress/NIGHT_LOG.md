@@ -82,3 +82,26 @@ documented Phase-1 deviation; the character covers the non-KitBash load path.
 
 Everything except Evan's visual sign-off (#5) is done. Assets are deep-linkable
 in `?viewer&asset=<id>` for review.
+
+## Review set for Evan (open each in `?viewer&asset=<id>`)
+- `KB3D_NEC_BldgLG_C_Main` — 143 m tower + "KITBASH" neon sign
+- `KB3D_NEC_BldgLG_A_Main` — office tower, rooftop mech
+- `KB3D_NEC_BldgMD_C_Main` — mid tower, podium + glass
+- `KB3D_NEC_BldgSM_B_Main` — street vendor shelf (street-level detail)
+- `KB3D_NEC_BldgSM_C_NeonSignA` — emissive "CHINESE MEDICINE" sign
+- `char-0` — Quaternius character
+- `bike` — hero bike + rider
+Screenshots for all of the above: `docs/progress/phase1/`.
+
+## Phase 2 groundwork (planning only — gated on Evan's sign-off)
+- Drafted `docs/superpowers/specs/2026-07-20-phase2-city-design.md` (route
+  spline port, road, art-directed building placement w/ clearance clamp,
+  set-pieces, skyline+moon, `?freecam`, instancing, sign-off gate).
+- Updated `HANDOFF.md` with a "Current status" block.
+- Did NOT start Phase 2 implementation — the build order gates it on Evan's
+  visual sign-off of the Phase 1 assets.
+
+## Suggested next steps when you're back
+1. Review the assets in `?viewer` (list above) and sign off / request tweaks.
+2. Approve or edit the Phase 2 city spec.
+3. Then I can port `route.ts` + build the road and start placing buildings.
