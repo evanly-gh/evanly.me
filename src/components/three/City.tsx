@@ -1,10 +1,42 @@
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls, useEnvironment } from '@react-three/drei';
+import { OrbitControls, FlyControls, useEnvironment } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { PALETTE, LIGHTING } from '../../theme';
 import { ROADS, buildCurveRibbon } from '../../world/roads';
+
+const FREECAM = new URLSearchParams(location.search).has('freecam');
+
+/** Small procedural asphalt texture: dark base + noise speckle + patches. */
+function makeAsphaltTexture(): THREE.CanvasTexture {
+  const s = 256;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = s;
+  const ctx = cv.getContext('2d')!;
+  ctx.fillStyle = '#0c0e16';
+  ctx.fillRect(0, 0, s, s);
+  // fine noise speckle
+  for (let i = 0; i < 6000; i++) {
+    const v = 8 + Math.floor(Math.random() * 26);
+    ctx.fillStyle = `rgba(${v},${v},${v + 4},${Math.random() * 0.5})`;
+    ctx.fillRect(Math.random() * s, Math.random() * s, 1.4, 1.4);
+  }
+  // a few darker patches / seams
+  for (let i = 0; i < 10; i++) {
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = 1 + Math.random() * 2;
+    ctx.beginPath();
+    ctx.moveTo(Math.random() * s, Math.random() * s);
+    ctx.lineTo(Math.random() * s, Math.random() * s);
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(2, 2);
+  tex.anisotropy = 4;
+  return tex;
+}
 import { MOON_POS, MOON_RADIUS } from '../../world/route';
 import { buildCityLayout, buildProps, buildSkyline } from '../../world/cityLayout';
 import { buildRampGeometry, RAMPS, SCAFFOLD } from '../../world/setpieces';
@@ -27,8 +59,34 @@ function ExposureSync() {
 }
 
 // ── Roads: deck + sidewalks (raised curbs) + glowing edge/centre lines ──
+function Pillars() {
+  const mat = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x0d0f18, roughness: 0.7, metalness: 0.4 }), []);
+  const pillars = useMemo(() => {
+    const out: { x: number; z: number; h: number }[] = [];
+    for (const r of ROADS) {
+      if (r.ground) continue;
+      const n = Math.max(6, Math.floor(r.curve.getLength() / 55));
+      for (let i = 1; i < n; i++) {
+        const p = r.curve.getPointAt(i / n);
+        out.push({ x: p.x, z: p.z, h: p.y });
+      }
+    }
+    return out;
+  }, []);
+  return (
+    <group>
+      {pillars.map((p, i) => (
+        <mesh key={i} material={mat} position={[p.x, p.h / 2, p.z]}>
+          <cylinderGeometry args={[2.2, 3, p.h, 8]} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
 function Roads() {
-  const deckMat = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x0a0c16, roughness: 0.6, metalness: 0.3 }), []);
+  const asphalt = useMemo(() => makeAsphaltTexture(), []);
+  const deckMat = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x14161f, map: asphalt, roughness: 0.7, metalness: 0.3 }), [asphalt]);
   const walkMat = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x161924, roughness: 0.85, metalness: 0.1 }), []);
   const magenta = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x1a0616, emissive: new THREE.Color(PALETTE.magenta), emissiveIntensity: 2.2, toneMapped: false }), []);
   const amber = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x1a1206, emissive: new THREE.Color(PALETTE.amber), emissiveIntensity: 1.8, toneMapped: false }), []);
@@ -190,13 +248,16 @@ export default function City() {
         <meshStandardMaterial color={0x05060d} roughness={0.95} metalness={0.1} />
       </mesh>
       <Roads />
+      <Pillars />
       <Ramps />
       <Suspense fallback={null}><Buildings /></Suspense>
       <Suspense fallback={null}><Props /></Suspense>
       <Suspense fallback={null}><Scaffold /></Suspense>
       <Skyline />
       <Moon />
-      <OrbitControls makeDefault target={[40, 0, -160]} maxDistance={4000} />
+      {FREECAM
+        ? <FlyControls makeDefault movementSpeed={150} rollSpeed={0.5} dragToLook />
+        : <OrbitControls makeDefault target={[40, 0, -160]} maxDistance={4000} />}
       <EffectComposer>
         <Bloom intensity={LIGHTING.bloomIntensity} luminanceThreshold={LIGHTING.bloomThreshold} radius={LIGHTING.bloomRadius} mipmapBlur />
       </EffectComposer>
