@@ -38,9 +38,42 @@ function makeAsphaltTexture(): THREE.CanvasTexture {
   return tex;
 }
 import { MOON_POS, MOON_RADIUS } from '../../world/route';
-import { buildCityLayout, buildProps, buildSkyline } from '../../world/cityLayout';
+import { buildCityLayout, buildProps, buildSkyline, buildStreetFurniture } from '../../world/cityLayout';
 import { buildRampGeometry, RAMPS, SCAFFOLD } from '../../world/setpieces';
 import { KitPiece } from './KitPiece';
+import { InstancedPieces } from './InstancedPieces';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+/** Procedural concrete texture for the ground (grime + cracks + faint blocks). */
+function makeConcreteTexture(): THREE.CanvasTexture {
+  const s = 256;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = s;
+  const ctx = cv.getContext('2d')!;
+  ctx.fillStyle = '#23262e';
+  ctx.fillRect(0, 0, s, s);
+  for (let i = 0; i < 9000; i++) {
+    const v = 24 + Math.floor(Math.random() * 34);
+    ctx.fillStyle = `rgba(${v},${v},${v + 6},${Math.random() * 0.5})`;
+    ctx.fillRect(Math.random() * s, Math.random() * s, 1.5, 1.5);
+  }
+  ctx.strokeStyle = 'rgba(10,10,14,0.6)'; // block seams
+  ctx.lineWidth = 2;
+  ctx.strokeRect(0, 0, s, s);
+  for (let i = 0; i < 14; i++) { // cracks
+    ctx.strokeStyle = 'rgba(8,8,12,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(Math.random() * s, Math.random() * s);
+    ctx.lineTo(Math.random() * s, Math.random() * s);
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(90, 90);
+  tex.anisotropy = 4;
+  return tex;
+}
 
 function EnvMap() {
   const texture = useEnvironment({ preset: 'night' });
@@ -153,18 +186,62 @@ function Roads() {
 
 function Buildings() {
   const layout = useMemo(() => buildCityLayout(), []);
-  return (
-    <group>
-      {layout.map((p, i) => <KitPiece key={i} file={p.file} position={p.position} rotationY={p.rotationY} />)}
-    </group>
-  );
+  return <InstancedPieces placements={layout} />;
 }
 
 function Props() {
   const props = useMemo(() => buildProps(), []);
+  return <InstancedPieces placements={props} />;
+}
+
+function Ground() {
+  const tex = useMemo(() => makeConcreteTexture(), []);
+  return (
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.15, -300]}>
+      <planeGeometry args={[6000, 6000]} />
+      <meshStandardMaterial map={tex} roughness={0.95} metalness={0.05} />
+    </mesh>
+  );
+}
+
+/** Lamp posts + powerline poles/cables along the roads. */
+function StreetFurniture() {
+  const { lamps, poles, cables } = useMemo(() => buildStreetFurniture(), []);
+  const poleRef = useRef<THREE.InstancedMesh>(null);
+  const headRef = useRef<THREE.InstancedMesh>(null);
+  const ppoleRef = useRef<THREE.InstancedMesh>(null);
+  useLayoutEffect(() => {
+    const m = new THREE.Matrix4(); const q = new THREE.Quaternion(); const s = new THREE.Vector3(1, 1, 1); const v = new THREE.Vector3();
+    lamps.forEach((l, i) => {
+      m.compose(v.set(l.pos.x, 4.5, l.pos.z), q, s); poleRef.current?.setMatrixAt(i, m);
+      m.compose(v.set(l.pos.x + Math.sin(l.rotationY) * 1.5, 9, l.pos.z + Math.cos(l.rotationY) * 1.5), q, s); headRef.current?.setMatrixAt(i, m);
+    });
+    poles.forEach((p, i) => { m.compose(v.set(p.x, 6.5, p.z), q, s); ppoleRef.current?.setMatrixAt(i, m); });
+    for (const r of [poleRef, headRef, ppoleRef]) if (r.current) r.current.instanceMatrix.needsUpdate = true;
+  }, [lamps, poles]);
+  const cableGeo = useMemo(() => {
+    if (!cables.length) return null;
+    const geos = cables.map((c) => {
+      const mid = c.a.clone().add(c.b).multiplyScalar(0.5); mid.y -= 2.2;
+      return new THREE.TubeGeometry(new THREE.CatmullRomCurve3([c.a, mid, c.b]), 10, 0.1, 4, false);
+    });
+    return mergeGeometries(geos);
+  }, [cables]);
   return (
     <group>
-      {props.map((p, i) => <KitPiece key={i} file={p.file} position={p.position} rotationY={p.rotationY} />)}
+      <instancedMesh ref={poleRef} args={[undefined, undefined, lamps.length]} frustumCulled={false}>
+        <cylinderGeometry args={[0.2, 0.26, 9, 6]} />
+        <meshStandardMaterial color={0x14161f} roughness={0.6} metalness={0.5} />
+      </instancedMesh>
+      <instancedMesh ref={headRef} args={[undefined, undefined, lamps.length]} frustumCulled={false}>
+        <boxGeometry args={[0.7, 0.28, 0.5]} />
+        <meshStandardMaterial color={0x201607} emissive={new THREE.Color(PALETTE.amber)} emissiveIntensity={2.4} toneMapped={false} />
+      </instancedMesh>
+      <instancedMesh ref={ppoleRef} args={[undefined, undefined, poles.length]} frustumCulled={false}>
+        <cylinderGeometry args={[0.28, 0.34, 13, 6]} />
+        <meshStandardMaterial color={0x121420} roughness={0.6} metalness={0.5} />
+      </instancedMesh>
+      {cableGeo && <mesh geometry={cableGeo}><meshStandardMaterial color={0x0a0a0e} roughness={0.9} /></mesh>}
     </group>
   );
 }
@@ -197,19 +274,32 @@ function Skyline() {
 }
 
 function Ramps() {
-  const mat = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x12141d, roughness: 0.5, metalness: 0.4 }), []);
-  const glow = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x1a0616, emissive: new THREE.Color(PALETTE.magenta), emissiveIntensity: 2, toneMapped: false }), []);
+  const deckMat = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x12141d, roughness: 0.5, metalness: 0.45 }), []);
+  const railMat = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x1a0616, emissive: new THREE.Color(PALETTE.magenta), emissiveIntensity: 2, toneMapped: false }), []);
+  const stripeMat = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x1a1206, emissive: new THREE.Color(PALETTE.amber), emissiveIntensity: 1.8, toneMapped: false }), []);
+  const strutMat = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x0d0f17, roughness: 0.6, metalness: 0.5 }), []);
   return (
     <group>
       {RAMPS.map((r, i) => {
         const geo = buildRampGeometry(r.length, r.width, r.rise);
+        const ang = Math.atan2(r.rise, r.length);
+        const hyp = Math.hypot(r.length, r.rise);
         return (
           <group key={i} position={r.position} rotation={[0, r.rotationY, 0]}>
-            <mesh geometry={geo} material={mat} />
-            {/* side glow strips along the up-slope */}
+            <mesh geometry={geo} material={deckMat} />
             {[1, -1].map((s) => (
-              <mesh key={s} material={glow} position={[r.length / 2, r.rise / 2, s * (r.width / 2 + 0.05)]}>
-                <boxGeometry args={[r.length * 1.02, 0.14, 0.1]} />
+              <mesh key={'rail' + s} material={railMat} position={[r.length / 2, r.rise / 2 + 0.28, s * (r.width / 2)]} rotation={[0, 0, ang]}>
+                <boxGeometry args={[hyp, 0.16, 0.16]} />
+              </mesh>
+            ))}
+            {[0.2, 0.4, 0.6, 0.8].map((f, j) => (
+              <mesh key={'st' + j} material={stripeMat} position={[r.length * f, r.rise * f + 0.13, 0]} rotation={[0, 0, ang]}>
+                <boxGeometry args={[0.5, 0.05, r.width * 0.85]} />
+              </mesh>
+            ))}
+            {[0.45, 0.8].map((f, j) => (
+              <mesh key={'ub' + j} material={strutMat} position={[r.length * f, (r.rise * f) / 2, 0]}>
+                <boxGeometry args={[0.6, r.rise * f, r.width * 0.85]} />
               </mesh>
             ))}
           </group>
@@ -219,34 +309,42 @@ function Ramps() {
   );
 }
 
+/** A supported scaffold lattice against a tall building's road-facing wall. */
 function Scaffold() {
   const metal = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x14161f, roughness: 0.5, metalness: 0.6 }), []);
-  const rail = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x03231f, emissive: new THREE.Color('#b7f5e9'), emissiveIntensity: 1.4, toneMapped: false }), []);
-  const [cx, cy, cz] = SCAFFOLD.deckCenter;
-  const L = SCAFFOLD.deckLen, W = SCAFFOLD.deckWidth;
+  const rail = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x03231f, emissive: new THREE.Color('#b7f5e9'), emissiveIntensity: 1.6, toneMapped: false }), []);
+  const S = SCAFFOLD;
+  const w = S.deckX1 - S.deckX0, l = S.deckZ1 - S.deckZ0;
+  const cx = (S.deckX0 + S.deckX1) / 2, cz = (S.deckZ0 + S.deckZ1) / 2, y = S.deckY;
+  const poleZs = [S.deckZ0 + 2, cz, S.deckZ1 - 2];
+  const braceLen = Math.hypot(y, l * 0.4);
   return (
     <group>
       <Suspense fallback={null}>
-        <KitPiece file={`neocity/${SCAFFOLD.building}.glb`} position={SCAFFOLD.buildingPos} rotationY={SCAFFOLD.buildingRot} />
+        <KitPiece file={`neocity/${S.building}.glb`} position={S.buildingPos} rotationY={S.buildingRot} />
       </Suspense>
-      {/* deck */}
-      <mesh material={metal} position={[cx, cy, cz]}>
-        <boxGeometry args={[W, SCAFFOLD.deckThick, L]} />
-      </mesh>
-      {/* cyan rail line along the road-facing edge */}
-      <mesh material={rail} position={[cx - W / 2, cy + 0.5, cz]}>
-        <boxGeometry args={[0.12, 0.12, L]} />
-      </mesh>
-      {/* legs + diagonal braces down to the ground on the outer edge */}
-      {[-1, 1].map((s) => (
-        <group key={s}>
-          <mesh material={metal} position={[cx - W / 2, cy / 2, cz + s * (L / 2 - 2)]}>
-            <boxGeometry args={[0.5, cy, 0.5]} />
-          </mesh>
-          <mesh material={metal} position={[cx, cy / 2, cz + s * (L / 2 - 2)]} rotation={[0, 0, Math.atan2(W, cy)]}>
-            <boxGeometry args={[0.35, Math.hypot(cy, W), 0.35]} />
-          </mesh>
+      {/* deck slab */}
+      <mesh material={metal} position={[cx, y, cz]}><boxGeometry args={[w, S.deckThick, l]} /></mesh>
+      {/* outer guard rail (cyan) + kickboard along the road edge */}
+      <mesh material={rail} position={[S.deckX0, y + 0.8, cz]}><boxGeometry args={[0.14, 0.14, l]} /></mesh>
+      <mesh material={metal} position={[S.deckX0, y + 0.4, cz]}><boxGeometry args={[0.22, 0.9, l]} /></mesh>
+      {/* vertical support poles (outer edge → ground) + mid-depth poles */}
+      {poleZs.map((zc, i) => (
+        <group key={'pz' + i}>
+          <mesh material={metal} position={[S.deckX0, y / 2, zc]}><boxGeometry args={[0.6, y, 0.6]} /></mesh>
+          <mesh material={metal} position={[cx, y / 2, zc]}><boxGeometry args={[0.5, y, 0.5]} /></mesh>
+          {/* cross beam tying outer→building at mid height */}
+          <mesh material={metal} position={[cx, y * 0.55, zc]}><boxGeometry args={[w, 0.28, 0.28]} /></mesh>
         </group>
+      ))}
+      {/* long horizontal rails along z */}
+      <mesh material={metal} position={[S.deckX0, y * 0.55, cz]}><boxGeometry args={[0.3, 0.3, l]} /></mesh>
+      <mesh material={metal} position={[cx, y * 0.55, cz]}><boxGeometry args={[0.3, 0.3, l]} /></mesh>
+      {/* diagonal cross-braces on the outer face */}
+      {[0.28, 0.72].map((f, i) => (
+        <mesh key={'br' + i} material={metal} position={[S.deckX0, y * 0.5, S.deckZ0 + l * f]} rotation={[Math.atan2(l * 0.4, y), 0, 0]}>
+          <boxGeometry args={[0.25, braceLen, 0.25]} />
+        </mesh>
       ))}
     </group>
   );
@@ -275,12 +373,10 @@ export default function City() {
       <directionalLight position={[200, 300, 100]} intensity={LIGHTING.keyIntensity} />
       <directionalLight position={[-200, 120, -400]} intensity={LIGHTING.fillIntensity} color={PALETTE.blue} />
       <Suspense fallback={null}><EnvMap /></Suspense>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.15, -300]}>
-        <planeGeometry args={[6000, 6000]} />
-        <meshStandardMaterial color={0x05060d} roughness={0.95} metalness={0.1} />
-      </mesh>
+      <Ground />
       <Roads />
       <Pillars />
+      <StreetFurniture />
       <Ramps />
       <Suspense fallback={null}><Buildings /></Suspense>
       <Suspense fallback={null}><Props /></Suspense>
