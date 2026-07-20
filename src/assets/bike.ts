@@ -47,18 +47,17 @@ export interface BikeAsset {
 // Dimensions (1 unit = 1 m)
 // ---------------------------------------------------------------------------
 
-// TRON Legacy light-cycle proportions, tuned to the promo photo: the wheels
-// are ENORMOUS (their tops reach almost the full bike height) and the body is a
-// thin blade threaded between them with lots of open air above the spine.
-// Photo proportions: big wheels but a real gap between them (~1 wheel-diameter
-// of body sits between the tires). Total length ~2.9 (wheelbase 2.0 + 2 radii).
-const WHEEL_R = 0.55; // torus centerline radius
-const WHEEL_TUBE = 0.085; // tube radius → outer 0.635
-const WHEEL_OUTER = WHEEL_R + WHEEL_TUBE; // 0.635 → axle height so tire kisses y=0
-const AXLE_X = 1.0; // axles far apart → gap between tires ≈ 2*(1.0-0.635)=0.73
+// TRON: Legacy light-cycle proportions, rebuilt from the 4-angle reference:
+// two ENORMOUS near-equal hubless wheels wrapped in a bright cyan ring, joined
+// by a long, low blade body. A single bright cyan light-beam spears the full
+// length at axle height. Total length ≈ 2*(AXLE_X + WHEEL_OUTER) ≈ 2.9m.
+const WHEEL_R = 0.475; // tyre centerline radius
+const WHEEL_TUBE = 0.12; // FAT tyre body → outer 0.595 (thick & wide, per reference)
+const WHEEL_OUTER = WHEEL_R + WHEEL_TUBE; // 0.595 → axle height so tire kisses y=0
+const AXLE_X = 1.05; // half wheelbase → long body between the wheels (reference)
 const AXLE_Y = WHEEL_OUTER;
-const BODY_HALF_W = 0.22; // wider body so the bike has real girth (was too thin)
-const PITCH_PIVOT_Y = 0.63;
+const BODY_HALF_W = 0.24; // half-width of the central body (thicker overall)
+const PITCH_PIVOT_Y = 0.6;
 
 const LEAN_MAX = THREE.MathUtils.degToRad(35);
 
@@ -66,7 +65,7 @@ const LEAN_MAX = THREE.MathUtils.degToRad(35);
 const ARM_A = 0.3; // upper arm
 const ARM_B = 0.3; // forearm
 const LEG_A = 0.4; // thigh
-const LEG_B = 0.44; // calf
+const LEG_B = 0.1; // calf
 const SHOULDER_UP = 0.32; // shoulder offset above spine bone, along spine
 const SHOULDER_OUT = 0.185;
 const SPINE_UP = 0.1; // spine bone above hips bone
@@ -74,8 +73,11 @@ const SPINE_UP = 0.1; // spine bone above hips bone
 // Contact points (bikeBody/riderRig local space, ground at y=0). Rider sits ON
 // TOP of the spine (not inside it): hands forward/up on the bars, feet back on
 // pegs set OUTSIDE the body width so legs don't clip the fenders.
-const GRIP = new THREE.Vector3(0.72, 0.92, 0.16);
-const PEG = new THREE.Vector3(-0.4, 0.66, 0.26);
+// Seat sits in the shell's mid dip (top ≈ AXLE_Y+0.34). Hands reach forward/up
+// to the bars above the front hump; feet rest on pegs set OUTSIDE the shell
+// width so the legs straddle the body instead of clipping into it.
+const GRIP = new THREE.Vector3(0.7, 0.98, 0.19);
+const PEG = new THREE.Vector3(-0.44, 0.72, 0.32);
 const ANKLE_LIFT = 0.05; // ankle sits just above the peg
 
 // ---------------------------------------------------------------------------
@@ -209,37 +211,40 @@ function aim(from: THREE.Vector3, to: THREE.Vector3): THREE.Quaternion {
 // Bike body (static merged mesh)
 // ---------------------------------------------------------------------------
 
-// Dagger side profile (CCW): belly → nose tip → console peak → seat trough →
-// tail cowl kick-up → rear underside.
+// Rough side silhouette (for the low-poly ghost trail only): belly → nose →
+// cockpit crest → seat dip → rear-cowl dome → tail.
 const PROFILE: Array<[number, number]> = [
-  [-0.4, 0.54],
-  [-0.1, 0.52],
-  [0.45, 0.55],
-  [0.95, 0.62],
-  [1.18, 0.7], // dagger nose tip
-  [0.75, 0.95],
-  [0.42, 1.0], // console peak
-  [0.15, 0.82],
-  [-0.1, 0.78], // rider trough (seat)
-  [-0.35, 0.92], // tail cowl hump
-  [-0.62, 0.8], // tail tip
-  [-0.55, 0.62]
+  [-1.1, 0.45],
+  [0.0, 0.42],
+  [0.9, 0.5],
+  [1.1, 0.62], // nose
+  [0.55, 0.82],
+  [0.38, 0.9], // cockpit crest
+  [0.1, 0.72],
+  [-0.1, 0.7], // seat dip
+  [-0.55, 0.9],
+  [-0.82, 0.96], // rear-cowl dome
+  [-1.2, 0.78],
+  [-1.28, 0.55]
 ];
 
-
-const M = { metal: 0, glow: 1, head: 2, tail: 3, core: 4 } as const;
+const M = { metal: 0, glow: 1, head: 2, tail: 3, core: 4, seat: 5 } as const;
 
 /**
- * TRON: Legacy light-cycle, rebuilt from the reference photo. Forward = +X.
- * Key reference features, front (+X) to rear (-X):
- *   - two huge hubless wheels of near-equal size on a long low wheelbase
- *   - each wheel wrapped by a black fender/fairing over the top, with a bright
- *     white light-band on the tire circumference + inner rim glow
- *   - a low horizontal chassis beam linking the wheels at ~axle height
- *   - a bright engine core (the brightest non-wheel mass) low and central
- *   - a swept front cowl rising from the front wheel to low clip-on bars
- *   - a short rear tail cowl over the back wheel with a red tail light
- * Palette: matte near-black body, thin cyan seam piping, white wheel bands.
+ * TRON: Legacy light-cycle, rebuilt from the 4-view orthographic reference.
+ * Forward = +X. Material channels: metal (dark glossy body), glow (cyan
+ * seams/piping/spine/beam), head (unused slot), tail (red brake accents), core
+ * (BRIGHTEST cyan — the wheel-face rings), seat (matte-black cushions).
+ *
+ * Reference read, front (+X) → rear (-X):
+ *   - ONE angular continuous shell (faceted panels, softly-rounded edges — not
+ *     a smooth peanut) with two hollow wheel wells and an open engine bay
+ *   - two hubless wheels, fat bright-cyan face rings, seen through the wells
+ *   - a bright cyan SPINE stripe down the top centre + cyan rails on the flanks
+ *   - a thin cyan BEAM blade at hub height spearing past both wheels
+ *   - an X-shaped engine cross-brace + hub in the open central bay
+ *   - matte seat cushions on the top deck
+ *   - a red diamond brake light on the tail (no headlight)
  */
 function buildBikeStatic(rng: Rng): Part[] {
   const parts: Part[] = [];
@@ -248,182 +253,209 @@ function buildBikeStatic(rng: Rng): Part[] {
   };
   void rng;
 
-  // Extrude a 2D side-profile Shape to the body width, centered in Z.
   const HW = BODY_HALF_W;
-  const extrudeSide = (shape: THREE.Shape, mat: number, halfW = HW, bevel = 0.03): void => {
+
+  // Extrude a side-profile Shape to the body width. A large multi-segment bevel
+  // gives the body a ROUNDED cross-section — smooth curved sides, not a flat
+  // block slab with hard square edges.
+  const extrudeSide = (shape: THREE.Shape, mat: number, halfW = HW, bevel = 0.05): void => {
     add(new THREE.ExtrudeGeometry(shape, {
-      depth: halfW * 2, bevelEnabled: bevel > 0,
-      bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2
-    }), xform(0, 0, -halfW), mat);
+      depth: Math.max(0.02, halfW * 2 - bevel * 2), bevelEnabled: bevel > 0,
+      bevelThickness: bevel, bevelSize: bevel, bevelSegments: 5
+    }), xform(0, 0, -halfW + bevel), mat);
   };
 
-  // =========================================================================
-  // FROM-SCRATCH BODY built with SMOOTH CURVES (absarc + bezier), not jagged
-  // polygons. Three flowing masses like the TRON reference:
-  //   1. front fender — a smooth crescent hugging the front+top of the front wheel
-  //   2. rear fender  — a bulkier crescent hugging the back+top of the rear wheel
-  //   3. tank/spine   — a smooth bezier body sweeping fender→seat-dip→fender
-  // plus a long tapered light-beam spar spearing through at axle height.
-  // =========================================================================
+  // A cyan seam laid as short strips along a poly-line on both flanks.
+  const seamLine = (pts: Array<[number, number]>, halfW = HW, thick = 0.02, glow = M.glow): void => {
+    for (const z of [1, -1]) {
+      for (let i = 0; i < pts.length - 1; i++) {
+        parts.push({ ...strip(pts[i], pts[i + 1], z * (halfW + 0.012), thick, 0.022), mat: glow });
+      }
+    }
+  };
 
-  /** A smooth crescent fender: outer arc (radius Ro) over the wheel, closed by
-   *  an inner arc (radius Ri) hugging the tire. angA→angB in radians (CCW). */
-  const fenderCrescent = (cx: number, cy: number, Ri: number, Ro: number, angA: number, angB: number): THREE.Shape => {
+  const AY = AXLE_Y;
+
+  // Smooth closed Shape through points (Catmull-Rom); closing edge is the
+  // straight segment from the last point back to the first.
+  const smooth = (pts: Array<[number, number]>): THREE.Shape => {
+    const v = pts.map(p => new THREE.Vector2(p[0], p[1]));
     const sh = new THREE.Shape();
-    sh.absarc(cx, cy, Ro, angA, angB, false);   // outer edge, CCW
-    sh.absarc(cx, cy, Ri, angB, angA, true);    // inner edge back, CW
+    sh.moveTo(v[0].x, v[0].y);
+    sh.splineThru(v.slice(1));
     sh.closePath();
     return sh;
   };
-
-  const D = Math.PI / 180;
-  // Helper to lay the cyan seam along a fender's outer crown across an arc.
-  const fenderSeam = (cx: number, cy: number, Ro: number, aStart: number, aEnd: number): void => {
-    for (const z of [1, -1]) {
-      const N = 14;
-      for (let i = 0; i < N; i++) {
-        const a0 = aStart + (aEnd - aStart) * (i / N), a1 = aStart + (aEnd - aStart) * ((i + 1) / N);
-        const p0: [number, number] = [cx + Math.cos(a0) * (Ro + 0.015), cy + Math.sin(a0) * (Ro + 0.015)];
-        const p1: [number, number] = [cx + Math.cos(a1) * (Ro + 0.015), cy + Math.sin(a1) * (Ro + 0.015)];
-        parts.push({ ...strip(p0, p1, z * (HW + 0.03), 0.013, 0.02), mat: M.glow });
-      }
-    }
-  };
-  // ---- FRONT FENDER: sleek crescent over the top+front of the front wheel,
-  //      tapering forward to a point (reference nose). Covers ~top third only.
-  {
-    const cx = AXLE_X, cy = AXLE_Y;
-    const Ri = WHEEL_OUTER + 0.012;
-    const Ro = WHEEL_OUTER + 0.16;
-    const a0 = 18 * D, a1 = 150 * D;        // front-upper → over top → inner-upper
-    extrudeSide(fenderCrescent(cx, cy, Ri, Ro, a0, a1), M.metal);
-    fenderSeam(cx, cy, Ro, a0, a1);
-  }
-  // ---- REAR FENDER: bulkier crescent over the top+back of the rear wheel.
-  {
-    const cx = -AXLE_X, cy = AXLE_Y;
-    const Ri = WHEEL_OUTER + 0.012;
-    const Ro = WHEEL_OUTER + 0.2;           // rear a bit bulkier (reference)
-    const a0 = 30 * D, a1 = 162 * D;        // inner-upper → over top → back-upper
-    extrudeSide(fenderCrescent(cx, cy, Ri, Ro, a0, a1), M.metal);
-    fenderSeam(cx, cy, Ro, a0, a1);
-  }
-
-  // ---- TANK / SPINE: smooth bezier body sweeping front-fender → seat-dip →
-  //      rear-haunch. Top edge curves up into a seat, bottom edge near-flat.
-  {
-    const fX = AXLE_X - 0.05, fY = AXLE_Y + 0.34;  // front connection (overlaps front fender)
-    const rX = -AXLE_X + 0.05, rY = AXLE_Y + 0.40; // rear connection (overlaps rear fender)
-    const humpY = AXLE_Y + 0.46;                    // tank crest between wheels
-    const seatY = AXLE_Y + 0.30;                    // seat dip (rider sits here)
-    const botY = AXLE_Y - 0.06;                     // belly (just above axle → wheels show below)
-    const sh = new THREE.Shape();
-    sh.moveTo(fX, fY);
-    // top: front rises to a tank hump, dips to the seat, rises into rear haunch
-    sh.bezierCurveTo(AXLE_X - 0.5, humpY, 0.55, humpY, 0.30, seatY + 0.02);   // hump → seat front
-    sh.bezierCurveTo(0.0, seatY - 0.03, -0.35, seatY + 0.04, rX + 0.55, rY - 0.02); // seat → rear rise
-    sh.bezierCurveTo(rX + 0.30, rY, rX + 0.12, rY, rX, rY);                    // into rear fender
-    // rear down to belly
-    sh.lineTo(rX + 0.02, botY);
-    // bottom: near-flat belly back to front
-    sh.bezierCurveTo(-0.3, botY - 0.05, 0.3, botY - 0.05, fX - 0.02, botY);
-    sh.closePath();
-    extrudeSide(sh, M.metal);
-    // cyan seam tracing the tank's top curve
-    for (const z of [1, -1]) {
-      const pts: Array<[number, number]> = [
-        [fX, fY + 0.02], [AXLE_X - 0.5, humpY], [0.30, seatY + 0.03],
-        [-0.35, seatY + 0.03], [rX + 0.4, rY - 0.02], [rX, rY + 0.02]
-      ];
-      for (let i = 0; i < pts.length - 1; i++) {
-        parts.push({ ...strip(pts[i], pts[i + 1], z * (HW + 0.03), 0.013, 0.02), mat: M.glow });
-      }
-    }
-  }
-
-  // ---- LIGHT-BEAM SPAR: the long tapered blade spearing through at axle height,
-  //      forward past the front wheel and back past the rear (signature TRON line).
-  {
-    const spar = new THREE.Shape();
-    const y = AXLE_Y - 0.03;
-    spar.moveTo(AXLE_X + WHEEL_OUTER + 0.34, y);        // sharp front point
-    spar.lineTo(AXLE_X - 0.2, y + 0.11);
-    spar.lineTo(-AXLE_X + 0.2, y + 0.11);
-    spar.lineTo(-AXLE_X - WHEEL_OUTER - 0.34, y);       // sharp rear point
-    spar.lineTo(-AXLE_X + 0.2, y - 0.09);
-    spar.lineTo(AXLE_X - 0.2, y - 0.09);
-    spar.closePath();
-    extrudeSide(spar, M.metal, HW * 0.7, 0.02);
-    // the bright cyan light line running the full length of the spar, both flanks
-    for (const z of [1, -1]) {
-      parts.push({ ...strip([AXLE_X + WHEEL_OUTER + 0.3, y + 0.01], [-AXLE_X - WHEEL_OUTER - 0.3, y + 0.01],
-        z * (HW * 0.7 + 0.02), 0.02, 0.02), mat: M.glow });
-    }
-  }
-
   // =========================================================================
-  // WHEELS — hubless tires with bright rim-bands + cyan inner rings.
+  // WHEELS — big EXPOSED open rings with a THICK dark tyre. On each face, from
+  // the rim inward: a dark outer band, the THICK bright cyan glowing rim, a dark
+  // band, then a thinner inner cyan ring, then the open hollow centre (no
+  // spokes). Radial thicknesses traced from the reference.
   // =========================================================================
   for (const s of [1, -1] as const) {
     const ax = s * AXLE_X;
-    add(new THREE.TorusGeometry(WHEEL_R, WHEEL_TUBE, 16, 52),
-      xform(ax, AXLE_Y, 0), M.metal);
+    // FAT dark tyre. Lower tubular-segment counts give the rings a faceted,
+    // TEXTURED look (fairly round, not a perfect smooth circle).
+    add(new THREE.TorusGeometry(WHEEL_R, WHEEL_TUBE, 16, 38), xform(ax, AY, 0), M.metal);
     for (const z of [1, -1]) {
-      add(new THREE.TorusGeometry(WHEEL_R + 0.004, 0.022, 8, 60),
-        xform(ax, AXLE_Y, z * (WHEEL_TUBE - 0.014)), M.head);
+      const fz = z * (WHEEL_TUBE - 0.03);
+      // thick BRIGHT cyan rim on the outer face (dark tyre shows outside & inside it)
+      add(new THREE.TorusGeometry(WHEEL_R - 0.05, 0.055, 12, 42), xform(ax, AY, fz), M.core);
+      // thinner inner cyan ring nearer the hub
+      add(new THREE.TorusGeometry(WHEEL_R - 0.17, 0.028, 9, 34),
+        xform(ax, AY, z * (WHEEL_TUBE - 0.055)), M.glow);
     }
-    add(new THREE.TorusGeometry(WHEEL_R - WHEEL_TUBE - 0.02, 0.016, 6, 52),
-      xform(ax, AXLE_Y, 0), M.glow);
-    add(new THREE.TorusGeometry(WHEEL_R - WHEEL_TUBE - 0.13, 0.011, 6, 52),
-      xform(ax, AXLE_Y, 0), M.glow);
-    for (const z of [1, -1]) {
-      add(new THREE.TorusGeometry(0.11, 0.009, 6, 24),
-        xform(ax, AXLE_Y, z * 0.03), M.tail);
+    // small dark hub cap
+    add(new THREE.CylinderGeometry(0.06, 0.06, WHEEL_TUBE * 1.3, 14),
+      xform(ax, AY, 0, Math.PI / 2, 0, 0), M.metal);
+  }
+  // small red accent arc low-front on the front wheel (reference detail)
+  for (const z of [1, -1]) {
+    add(new THREE.TorusGeometry(WHEEL_R - 0.19, 0.016, 6, 20, 1.0),
+      xform(AXLE_X, AY, z * (WHEEL_TUBE - 0.055), 0, 0, -2.35), M.tail);
+  }
+
+  // =========================================================================
+  // CENTRAL BODY — the long LOW blade between the wheels: a thin spar at each
+  // hub rising to a low tank/seat, with an ANGLED open gap underneath. Smooth
+  // and round (only the engine plates are angular).
+  // =========================================================================
+  extrudeSide(smooth([
+    [0.9, 0.34],           // front-bottom (closing edge = angled belly)
+    [0.98, AY + 0.02],     // front spar (thin, at the hub)
+    [0.5, AY + 0.26],      // low tank hump
+    [0.08, AY + 0.2],      // seat
+    [-0.52, AY + 0.28],    // rise
+    [-0.98, AY + 0.02],    // rear spar (thin, at the hub)
+    [-0.98, 0.46]          // rear-bottom (closing belly slants down to front)
+  ]), M.metal, HW, 0.08);
+
+  // =========================================================================
+  // COWLS — a compact rounded cowl hugging each wheel top with a steep front,
+  // ending AT the wheel (no beak poking past it). Front +, rear −.
+  // =========================================================================
+  for (const fx of [1, -1] as const) {
+    extrudeSide(smooth([
+      [fx * 0.7, AY + 0.14],
+      [fx * 0.92, AY + 0.42],
+      [fx * 1.05, AY + 0.47],   // rounded peak, near wheel-top height
+      [fx * 1.22, AY + 0.4],
+      [fx * 1.34, AY + 0.14],   // steep front drop
+      [fx * 1.34, AY - 0.06],
+      [fx * 1.08, AY + 0.0],
+      [fx * 0.85, AY + 0.04]
+    ]), M.metal, HW * 0.92, 0.07);
+  }
+
+  // =========================================================================
+  // ENGINE PLATES — sleek DARK overlapping angular panels on the mid flanks +
+  // a small central hub. Dark and minimal (only a thin cyan seam accent).
+  // =========================================================================
+  for (const zside of [1, -1]) {
+    const zc = zside * (HW - 0.01);
+    add(new THREE.BoxGeometry(0.92, 0.32, 0.05), xform(-0.02, AY + 0.04, zc, 0, 0, 0.05), M.metal);
+    add(new THREE.BoxGeometry(0.5, 0.22, 0.06), xform(0.2, AY - 0.04, zc, 0, 0, -0.16), M.metal);
+    add(new THREE.BoxGeometry(0.46, 0.2, 0.06), xform(-0.3, AY - 0.0, zc, 0, 0, 0.18), M.metal);
+    add(new THREE.BoxGeometry(0.6, 0.014, 0.07), xform(0.04, AY + 0.15, zc, 0, 0, 0.05), M.glow);
+  }
+  add(new THREE.CylinderGeometry(0.08, 0.08, 2 * (HW - 0.005), 20),
+    xform(0, AY + 0.02, 0, Math.PI / 2, 0, 0), M.metal);
+  for (const z of [1, -1]) {
+    add(new THREE.TorusGeometry(0.05, 0.012, 8, 22), xform(0, AY + 0.02, z * (HW - 0.005)), M.glow);
+  }
+
+  // =========================================================================
+  // CYAN PIPING — traced in SEPARATE segments so no single line sweeps into a
+  // wing: (a) each cowl hump, (b) each short beak blade, (c) the central tank
+  // top, (d) the central blade's lower angled edge. No beam across the wheels.
+  // =========================================================================
+  for (const fx of [1, -1] as const) {
+    // cowl hump only (no beak)
+    seamLine([
+      [fx * 0.72, AY + 0.16], [fx * 0.92, AY + 0.42], [fx * 1.05, AY + 0.47],
+      [fx * 1.22, AY + 0.4], [fx * 1.34, AY + 0.16]
+    ], HW, 0.014);
+  }
+  // central tank top
+  seamLine([[0.62, AY + 0.28], [0.08, AY + 0.22], [-0.62, AY + 0.3]], HW, 0.014);
+  // central blade lower (angled) edge
+  seamLine([[0.88, 0.36], [-0.94, 0.48]], HW, 0.017);
+
+  // =========================================================================
+  // ELEVATED TOP STRIP — a raised glowing rail proud of the low tank/seat ridge
+  // (the reference's bright top strip).
+  // =========================================================================
+  {
+    const crown: Array<[number, number]> = [
+      [0.55, AY + 0.28], [0.25, AY + 0.23], [0.08, AY + 0.21],
+      [-0.26, AY + 0.25], [-0.55, AY + 0.3]
+    ];
+    for (let i = 0; i < crown.length - 1; i++) {
+      const a = crown[i], b = crown[i + 1];
+      parts.push({ ...strip([a[0], a[1] + 0.02], [b[0], b[1] + 0.02], 0, 0.05, 0.08), mat: M.metal });
+      parts.push({ ...strip([a[0], a[1] + 0.055], [b[0], b[1] + 0.055], 0, 0.03, 0.05), mat: M.glow });
     }
   }
 
-  // ---- low forward grips (thin) ----
-  const barX = GRIP.x, barY = GRIP.y;
-  add(new THREE.CylinderGeometry(0.016, 0.016, GRIP.z * 2 + 0.08, 10),
-    xform(barX, barY, 0, Math.PI / 2, 0, 0), M.metal);
+  // =========================================================================
+  // SEAT CUSHIONS — two matte-black pads nestled on the tank/seat top.
+  // =========================================================================
+  add(new THREE.BoxGeometry(0.3, 0.06, 0.24), xform(0.28, AY + 0.36, 0), M.seat);
+  add(new THREE.BoxGeometry(0.28, 0.07, 0.26), xform(-0.05, AY + 0.31, 0), M.seat);
+
+  // =========================================================================
+  // HANDLEBARS — low clip-ons at the grip target, cyan grip rings.
+  // =========================================================================
+  add(new THREE.CylinderGeometry(0.015, 0.015, GRIP.z * 2 + 0.06, 10),
+    xform(GRIP.x, GRIP.y, 0, Math.PI / 2, 0, 0), M.metal);
   for (const z of [1, -1]) {
-    add(new THREE.CylinderGeometry(0.022, 0.022, 0.04, 12),
-      xform(barX, barY, z * (GRIP.z + 0.03), Math.PI / 2, 0, 0), M.glow);
+    add(new THREE.CylinderGeometry(0.026, 0.024, 0.1, 12),
+      xform(GRIP.x, GRIP.y, z * (GRIP.z + 0.02), Math.PI / 2, 0, 0), M.metal);
+    add(new THREE.TorusGeometry(0.027, 0.008, 6, 16),
+      xform(GRIP.x - 0.05, GRIP.y, z * (GRIP.z + 0.02), 0, Math.PI / 2, 0), M.glow);
   }
-  // ---- headlight + red tail ----
-  add(new THREE.BoxGeometry(0.05, 0.04, 0.16), xform(AXLE_X + WHEEL_OUTER + 0.1, AXLE_Y - 0.02, 0), M.head);
-  add(new THREE.BoxGeometry(0.04, 0.05, 0.18), xform(-AXLE_X - WHEEL_OUTER - 0.1, AXLE_Y - 0.02, 0), M.tail);
-  // ---- footpegs ----
+
+  // =========================================================================
+  // REAR BRAKE LIGHT — a red diamond OUTLINE (inverted-shield) on the tail,
+  // in the YZ plane facing back. Built from thin red bars.
+  // =========================================================================
+  {
+    const tx = -AXLE_X - 0.31; // on the rear cowl, within the wheel (not poking past)
+    // diamond corners in (y, z): top, right, bottom-point, left
+    const d: Array<[number, number]> = [[0.78, 0], [0.66, 0.11], [0.5, 0], [0.66, -0.11]];
+    for (let i = 0; i < d.length; i++) {
+      const [y0, z0] = d[i];
+      const [y1, z1] = d[(i + 1) % d.length];
+      const dy = y1 - y0, dz = z1 - z0;
+      const len = Math.hypot(dy, dz);
+      add(new THREE.BoxGeometry(0.03, len, 0.018),
+        xform(tx, (y0 + y1) / 2, (z0 + z1) / 2, Math.atan2(dz, dy), 0, 0), M.tail);
+    }
+  }
+
+  // =========================================================================
+  // FOOTPEGS — dark, set just outside the body width.
+  // =========================================================================
   for (const z of [1, -1]) {
-    add(new THREE.BoxGeometry(0.06, 0.03, 0.09), xform(PEG.x, PEG.y - 0.02, z * (PEG.z + 0.04)), M.metal);
+    add(new THREE.BoxGeometry(0.07, 0.03, 0.1),
+      xform(PEG.x, PEG.y - 0.02, z * (PEG.z + 0.03)), M.metal);
   }
 
   return parts;
 }
 
-/** Spoke-less hub disc (spins with wheelSpin): disc + turbine blades + cap. */
+/**
+ * Minimal hubless centre: just a tiny dark cap so the wheel's open centre stays
+ * empty (no spokes, per the reference). Spins with wheelSpin but reads as clean.
+ */
 function buildHubGeometry(): THREE.BufferGeometry {
-  const parts: Part[] = [
+  return mergeParts([
     {
-      geom: new THREE.CylinderGeometry(0.4, 0.4, 0.045, 28),
-      matrix: xform(0, 0, 0, Math.PI / 2, 0, 0),
-      mat: 0
-    },
-    {
-      geom: new THREE.CylinderGeometry(0.09, 0.09, 0.075, 14),
+      geom: new THREE.CylinderGeometry(0.05, 0.05, 0.05, 16),
       matrix: xform(0, 0, 0, Math.PI / 2, 0, 0),
       mat: 0
     }
-  ];
-  for (let i = 0; i < 5; i++) {
-    const a = (i / 5) * Math.PI * 2;
-    parts.push({
-      geom: new THREE.BoxGeometry(0.24, 0.05, 0.062),
-      matrix: xform(Math.cos(a) * 0.21, Math.sin(a) * 0.21, 0, 0, 0, a + 0.35),
-      mat: 0
-    });
-  }
-  return mergeParts(parts, false);
+  ], false);
 }
 
 // ---------------------------------------------------------------------------
@@ -454,94 +486,86 @@ const RM = { suit: 0, pipe: 1 } as const;
  */
 function buildRiderParts(): Part[] {
   const p: Part[] = [];
-  const HEAD_Y = SPINE_UP + 0.38; // head bone world y (bind)
+  const S = RM.suit;
+  const C = RM.pipe;
+  const HEAD_Y = SPINE_UP + 0.38; // head bone world y (bind) = 0.48
 
-  // pelvis (rounded)
-  p.push({ geom: new THREE.SphereGeometry(0.13, 16, 12), matrix: new THREE.Matrix4().compose(new THREE.Vector3(0, 0.04, 0), new THREE.Quaternion(), new THREE.Vector3(0.85, 0.7, 1)), mat: RM.suit, bone: B.hips });
-  // torso: rounded lower abdomen + tapered chest (capsule reads as a human
-  // trunk, not stacked slabs). Scaled to keep the athletic taper.
-  p.push({ geom: new THREE.CapsuleGeometry(0.12, 0.14, 6, 16), matrix: new THREE.Matrix4().compose(new THREE.Vector3(0, 0.25, 0), new THREE.Quaternion(), new THREE.Vector3(1, 1, 0.82)), mat: RM.suit, bone: B.spine });
-  // chest: broader at the shoulders, tapering to the waist
-  p.push({ geom: new THREE.SphereGeometry(0.15, 18, 14), matrix: new THREE.Matrix4().compose(new THREE.Vector3(0.02, 0.42, 0), new THREE.Quaternion(), new THREE.Vector3(0.95, 0.85, 1.05)), mat: RM.suit, bone: B.spine });
-  // spine ridge plate (back armor hump)
-  p.push({ geom: new THREE.BoxGeometry(0.05, 0.26, 0.14), matrix: xform(-0.13, 0.32, 0), mat: RM.suit, bone: B.spine });
+  // --- small builders (each part is rigid-bound to exactly one bone) ---
+  const box = (w: number, h: number, d: number, x: number, y: number, z: number, mat: number, bone: number, rz = 0): void => {
+    p.push({ geom: new THREE.BoxGeometry(w, h, d), matrix: xform(x, y, z, 0, 0, rz), mat, bone });
+  };
+  // tapered limb/torso segment (cylinder, Y axis)
+  const tube = (rt: number, rb: number, h: number, x: number, y: number, z: number, mat: number, bone: number): void => {
+    p.push({ geom: new THREE.CylinderGeometry(rt, rb, h, 16), matrix: xform(x, y, z), mat, bone });
+  };
+  const ball = (r: number, sx: number, syc: number, szc: number, x: number, y: number, z: number, mat: number, bone: number): void => {
+    p.push({ geom: new THREE.SphereGeometry(r, 18, 14), matrix: new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion(), new THREE.Vector3(sx, syc, szc)), mat, bone });
+  };
+  // cyan ring: 'v' encircles a vertical part, 'x' faces +X (chest disc)
+  const ring = (r: number, t: number, x: number, y: number, z: number, bone: number, axis: 'v' | 'x' = 'v'): void => {
+    const rot: [number, number, number] = axis === 'v' ? [Math.PI / 2, 0, 0] : [0, Math.PI / 2, 0];
+    p.push({ geom: new THREE.TorusGeometry(r, t, 8, 22), matrix: xform(x, y, z, rot[0], rot[1], rot[2]), mat: C, bone });
+  };
+  // cyan piping line (thin box), optionally tilted about Z
+  const seam = (h: number, x: number, y: number, z: number, bone: number, rz = 0): void => {
+    p.push({ geom: new THREE.BoxGeometry(0.011, h, 0.012), matrix: xform(x, y, z, 0, 0, rz), mat: C, bone });
+  };
 
-  // helmet: sphere + chin guard + low fin
-  p.push({ geom: new THREE.SphereGeometry(0.115, 20, 14), matrix: xform(0, HEAD_Y + 0.135, 0), mat: RM.suit, bone: B.head });
-  p.push({ geom: new THREE.BoxGeometry(0.1, 0.06, 0.13), matrix: xform(0.065, HEAD_Y + 0.07, 0), mat: RM.suit, bone: B.head });
-  p.push({ geom: new THREE.BoxGeometry(0.16, 0.05, 0.014), matrix: xform(-0.045, HEAD_Y + 0.225, 0), mat: RM.suit, bone: B.head });
-  // cyan visor stripe wrap (band of the helmet sphere, slightly proud)
-  p.push({
-    geom: new THREE.SphereGeometry(0.121, 24, 4, 0, Math.PI * 2, 1.22, 0.34),
-    matrix: xform(0, HEAD_Y + 0.135, 0, 0, 0, -0.1),
-    mat: RM.pipe,
-    bone: B.head
-  });
+  // ===================== PELVIS (hips) =====================
+  // A tapered cylinder whose TOP radius matches the torso's waist radius so the
+  // waist reads as one continuous form (no blocky offset).
+  tube(0.1, 0.125, 0.24, 0, 0.04, 0, S, B.hips);          // waist → hips
+  ring(0.122, 0.011, 0, 0.12, 0, B.hips);                 // belt
+  for (const s2 of [1, -1]) seam(0.12, 0.088, -0.02, s2 * 0.07, B.hips, s2 * 0.4); // hip diagonals
 
-  // collar seam ring
-  p.push({
-    geom: new THREE.TorusGeometry(0.085, 0.01, 6, 18),
-    matrix: xform(0, 0.5, 0, Math.PI / 2, 0, 0),
-    mat: RM.pipe,
-    bone: B.spine
-  });
-  // chest center seam
-  p.push({ geom: new THREE.BoxGeometry(0.012, 0.38, 0.016), matrix: xform(0.135, 0.3, 0), mat: RM.pipe, bone: B.spine });
+  // ===================== TORSO / VEST (spine) =====================
+  tube(0.15, 0.1, 0.36, 0, 0.34, 0, S, B.spine);          // chest → waist (meets pelvis at r=0.1)
+  tube(0.075, 0.09, 0.07, 0, 0.54, 0, S, B.spine);        // collar base
+  // cyan vest trim
+  ring(0.083, 0.009, 0, 0.54, 0, B.spine);                // collar
+  for (const s2 of [1, -1]) seam(0.24, 0.13, 0.42, s2 * 0.05, B.spine, s2 * 0.4); // V-neck lapels
+  seam(0.34, 0.135, 0.32, 0, B.spine);                    // center zip
+  for (const s2 of [1, -1]) seam(0.3, 0.03, 0.34, s2 * 0.128, B.spine);           // side seams
+  ring(0.03, 0.008, 0.14, 0.45, 0, B.spine, 'x');         // chest disc
+  seam(0.26, -0.14, 0.34, 0, B.spine);                    // back spine line
 
-  // chest sigil "EL" (tiny mono, boxes on the chest plate)
-  const sig = (w: number, h: number, y: number, z: number): Part => ({
-    geom: new THREE.BoxGeometry(0.008, h, w),
-    matrix: xform(0.146, 0.4 + y, z),
-    mat: RM.pipe,
-    bone: B.spine
-  });
-  // E (strokes) at z=+0.045, L at z=-0.005 — reads left→right when viewed from +X
-  p.push(sig(0.008, 0.05, 0, 0.062)); // E vertical
-  p.push(sig(0.026, 0.007, 0.022, 0.048)); // E top
-  p.push(sig(0.02, 0.007, 0, 0.051)); // E mid
-  p.push(sig(0.026, 0.007, -0.022, 0.048)); // E bottom
-  p.push(sig(0.008, 0.05, 0, 0.02)); // L vertical
-  p.push(sig(0.024, 0.007, -0.022, 0.005)); // L bottom
+  // ===================== HEAD / HELMET (clean: dome + visor only) =====================
+  tube(0.045, 0.055, 0.09, 0, HEAD_Y - 0.05, 0, S, B.head);          // neck
+  ball(0.112, 0.97, 1.16, 1.0, 0, HEAD_Y + 0.1, -0.004, S, B.head);  // clean ovoid helmet
+  p.push({ geom: new THREE.SphereGeometry(0.118, 26, 6, 0, Math.PI * 2, 1.16, 0.3), matrix: xform(0, HEAD_Y + 0.11, 0, 0, 0, -0.14), mat: C, bone: B.head }); // visor band
+  box(0.14, 0.012, 0.012, 0, HEAD_Y + 0.235, 0, C, B.head);          // single thin crown line
 
-  for (const [sh, fo, th, ca, s] of [
-    [B.shL, B.foL, B.thL, B.caL, 1],
-    [B.shR, B.foR, B.thR, B.caR, -1]
-  ] as const) {
-    const sy = SPINE_UP + SHOULDER_UP; // shoulder bind world y = 0.42
-    const sz = s * SHOULDER_OUT;
-    // shoulder cap + cyan pauldron accent dot
-    p.push({ geom: new THREE.SphereGeometry(0.068, 12, 8), matrix: xform(0, sy, sz), mat: RM.suit, bone: sh });
-    p.push({ geom: new THREE.BoxGeometry(0.03, 0.012, 0.05), matrix: xform(0, sy + 0.06, sz + s * 0.02), mat: RM.pipe, bone: sh });
-    // upper arm + seam
-    p.push({ geom: new THREE.CapsuleGeometry(0.052, 0.2, 4, 10), matrix: xform(0, sy - 0.15, sz), mat: RM.suit, bone: sh });
-    p.push({ geom: new THREE.BoxGeometry(0.012, 0.24, 0.012), matrix: xform(0, sy - 0.15, sz + s * 0.052), mat: RM.pipe, bone: sh });
-    // forearm + hand + seam
-    const ey = sy - ARM_A; // elbow bind y
-    p.push({ geom: new THREE.CapsuleGeometry(0.047, 0.2, 4, 10), matrix: xform(0, ey - 0.15, sz), mat: RM.suit, bone: fo });
-    p.push({ geom: new THREE.BoxGeometry(0.065, 0.1, 0.07), matrix: xform(0.01, ey - 0.315, sz), mat: RM.suit, bone: fo });
-    p.push({ geom: new THREE.BoxGeometry(0.012, 0.2, 0.012), matrix: xform(0, ey - 0.13, sz + s * 0.048), mat: RM.pipe, bone: fo });
-    // forearm gauntlet cuff (cyan ring near the wrist)
-    p.push({ geom: new THREE.TorusGeometry(0.052, 0.008, 6, 14), matrix: xform(0, ey - 0.25, sz, 0, 0, Math.PI / 2), mat: RM.pipe, bone: fo });
+  // ===================== ARMS =====================
+  for (const [sh, fo, s] of [[B.shL, B.foL, 1], [B.shR, B.foR, -1]] as const) {
+    const sy = SPINE_UP + SHOULDER_UP; // 0.42
+    const sz = s * SHOULDER_OUT;       // ±0.185
+    ball(0.058, 1, 1, 1, 0, sy + 0.03, sz, S, sh);           // shoulder
+    tube(0.05, 0.042, ARM_A, 0, sy - ARM_A / 2, sz, S, sh);   // upper arm
+    const ey = sy - ARM_A;             // 0.12
+    tube(0.042, 0.034, ARM_B, 0, ey - ARM_B / 2, sz, S, fo);  // forearm
+    ball(0.05, 1.15, 1, 1, 0.012, ey - ARM_B - 0.02, sz, S, fo); // hand (fist)
+    ring(0.058, 0.008, 0, sy - 0.04, sz, sh);                // shoulder ring
+    seam(0.22, 0, sy - ARM_A / 2, sz + s * 0.048, sh);       // outer upper-arm
+    ring(0.048, 0.008, 0, ey - 0.02, sz, fo);                // elbow
+    seam(0.2, 0, ey - ARM_B / 2, sz + s * 0.043, fo);        // outer forearm
+    ring(0.04, 0.007, 0, ey - ARM_B + 0.01, sz, fo);         // wrist
+  }
 
-    const hz = s * 0.1; // hip joint z
-    // thigh + seam
-    p.push({ geom: new THREE.CapsuleGeometry(0.074, 0.26, 4, 10), matrix: xform(0, -0.22, hz), mat: RM.suit, bone: th });
-    p.push({ geom: new THREE.BoxGeometry(0.012, 0.3, 0.012), matrix: xform(0, -0.2, hz + s * 0.072), mat: RM.pipe, bone: th });
-    // calf + boot + buckles + knee pad
-    const ky = -0.02 - LEG_A; // knee bind y
-    p.push({ geom: new THREE.CapsuleGeometry(0.058, 0.3, 4, 10), matrix: xform(0, ky - 0.21, hz), mat: RM.suit, bone: ca });
-    // armored knee pad (suit) with a cyan cap dot (pipe) at the top of the calf bone
-    p.push({ geom: new THREE.BoxGeometry(0.1, 0.09, 0.1), matrix: xform(0.03, ky - 0.02, hz), mat: RM.suit, bone: ca });
-    p.push({ geom: new THREE.BoxGeometry(0.02, 0.03, 0.03), matrix: xform(0.085, ky - 0.02, hz), mat: RM.pipe, bone: ca });
-    p.push({ geom: new THREE.BoxGeometry(0.24, 0.09, 0.095), matrix: xform(0.055, ky - LEG_B + 0.01, hz), mat: RM.suit, bone: ca });
-    for (const bx of [0.02, 0.09]) {
-      p.push({
-        geom: new THREE.BoxGeometry(0.018, 0.02, 0.012),
-        matrix: xform(bx, ky - LEG_B + 0.035, hz + s * 0.052),
-        mat: RM.pipe,
-        bone: ca
-      });
-    }
+  // ===================== LEGS (pants + boots) =====================
+  for (const [th, ca, s] of [[B.thL, B.caL, 1], [B.thR, B.caR, -1]] as const) {
+    const hz = s * 0.1;
+    tube(0.082, 0.062, LEG_A, 0, -0.02 - LEG_A / 2, hz, S, th);           // thigh
+    const ky = -0.02 - LEG_A;          // -0.42
+    tube(0.062, 0.048, LEG_B - 0.04, 0, ky - (LEG_B - 0.04) / 2, hz, S, ca); // shin
+    ball(0.055, 1, 1, 1, 0.015, ky, hz, S, ca);                          // knee
+    tube(0.055, 0.06, 0.09, 0, ky - LEG_B + 0.045, hz, S, ca);           // boot ankle
+    box(0.17, 0.07, 0.095, 0.055, ky - LEG_B + 0.005, hz, S, ca);        // foot (forward +x)
+    ring(0.078, 0.008, 0, -0.06, hz, th);                    // hip ring
+    seam(0.26, 0, -0.02 - LEG_A / 2, hz + s * 0.07, th);     // outer thigh
+    seam(0.24, 0.066, -0.02 - LEG_A / 2, hz, th);            // front thigh
+    ring(0.06, 0.008, 0.012, ky - 0.02, hz, ca);             // knee
+    seam(0.2, 0.05, ky - LEG_B / 2 + 0.02, hz, ca);          // front shin
+    ring(0.05, 0.007, 0, ky - LEG_B + 0.03, hz, ca);         // ankle
   }
 
   return p;
@@ -665,45 +689,51 @@ export function buildBike(rng: Rng): BikeAsset {
   tailRed.g *= 0.4;
   tailRed.b *= 0.15;
 
-  // Dark body that still READS as a lit surface (not a black void): moderate
-  // metalness + a lighter-than-pitch base so key/fill light reveals the facets.
-  // The reference is near-black but shown under strong studio light; this
-  // approximates that so the sculpted panels are visible, not just the seams.
+  // Body: dark, glossy near-black metal like the reference — high metalness +
+  // low roughness so the Environment gives it those hard specular highlights.
+  // A slight blue-grey base keeps it from crushing to pure black in shadow.
   const metalMat = new THREE.MeshStandardMaterial({
-    color: 0x2a3242,
-    metalness: 0.55,
-    roughness: 0.42
+    color: 0x161a22,
+    metalness: 0.85,
+    roughness: 0.28
   });
+  // Cyan seam piping — medium glow tracing the panel edges.
   const glowMat = new THREE.MeshStandardMaterial({
-    color: 0x021014,
+    color: 0x02191d,
     emissive: cyan,
-    emissiveIntensity: 1.0
+    emissiveIntensity: 1.6
   });
   const headMat = new THREE.MeshStandardMaterial({
     color: 0x0a1416,
     emissive: headlightColor,
-    emissiveIntensity: 1.5,
+    emissiveIntensity: 2.0,
     side: THREE.DoubleSide
   });
   const tailMat = new THREE.MeshStandardMaterial({
     color: 0x120608,
     emissive: tailRed,
-    emissiveIntensity: 0.9
+    emissiveIntensity: 1.6
   });
-  // Engine core: warm amber glow — the bike's one non-cyan light, the bright
-  // reactor mass hanging under the chassis in the reference.
+  // Core: the BRIGHTEST cyan — the huge wheel rings and the full-length under-
+  // beam, the two elements that dominate the reference silhouette.
   const coreMat = new THREE.MeshStandardMaterial({
-    color: 0x140a02,
-    emissive: new THREE.Color(0xffb347),
-    emissiveIntensity: 1.7,
+    color: 0x03252b,
+    emissive: cyan,
+    emissiveIntensity: 2.6,
     side: THREE.DoubleSide
   });
-  // Rider suit is a distinctly lighter, warmer grey than the near-black bike
-  // metal so the figure reads as its own silhouette instead of melding in.
+  // Seat cushions — matte near-black, no gloss (reads as padding, not panel).
+  const seatMat = new THREE.MeshStandardMaterial({
+    color: 0x0c0e14,
+    metalness: 0.1,
+    roughness: 0.95
+  });
+  // Rider suit: matte near-black to match the bike's dark theme; the cyan
+  // circuit lines (pipe) define the silhouette against it.
   const suitMat = new THREE.MeshStandardMaterial({
-    color: 0x3a3f4d,
-    metalness: 0.25,
-    roughness: 0.7
+    color: 0x0d0f15,
+    metalness: 0.35,
+    roughness: 0.6
   });
   // Rider piping glows brighter than the bike channels so the body's contours
   // (spine, limbs, helmet visor) pop against the chassis.
@@ -729,13 +759,14 @@ export function buildBike(rng: Rng): BikeAsset {
   bikeBody.position.y = -PITCH_PIVOT_Y;
   pitchPivot.add(bikeBody);
 
-  // static merged bike (5 material groups)
+  // static merged bike (6 material groups)
   const staticMesh = new THREE.Mesh(mergeParts(buildBikeStatic(rng), false), [
     metalMat,
     glowMat,
     headMat,
     tailMat,
-    coreMat
+    coreMat,
+    seatMat
   ]);
   staticMesh.name = 'bikeStatic';
   bikeBody.add(staticMesh);
@@ -782,11 +813,11 @@ export function buildBike(rng: Rng): BikeAsset {
     const c = THREE.MathUtils.clamp(crouch, 0, 1);
     const leanN = THREE.MathUtils.clamp(lean / LEAN_MAX, -1, 1);
 
-    // hips: seated in the central spine dip, ON TOP of the body (raised so the
-    // torso rides above the spine crest, not clipping through it).
+    // hips: seated ON TOP of the shell's mid seat-dip (shell top ≈ AXLE_Y+0.34
+    // ≈ 0.965), raised so the pelvis rides above the surface, not through it.
     const hip = new THREE.Vector3(
-      THREE.MathUtils.lerp(-0.14, -0.05, c),
-      THREE.MathUtils.lerp(0.9, 1.1, c),
+      THREE.MathUtils.lerp(-0.06, 0.02, c),
+      THREE.MathUtils.lerp(1.0, 1.12, c),
       0.1 * leanN
     );
     bones[B.hips].position.copy(hip);
