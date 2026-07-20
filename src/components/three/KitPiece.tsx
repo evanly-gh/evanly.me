@@ -29,8 +29,9 @@ export function KitPiece({
         mat.emissiveIntensity = 1.6;
       }
     });
+    c.updateMatrixWorld(true); // ensure child world matrices are current before measuring
     const box = new THREE.Box3().setFromObject(c);
-    c.position.y -= box.min.y; // sit on the ground
+    if (Number.isFinite(box.min.y)) c.position.y -= box.min.y; // sit on the ground
     return c;
   }, [scene]);
 
