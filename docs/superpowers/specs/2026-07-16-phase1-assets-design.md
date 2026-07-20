@@ -271,7 +271,11 @@ Phase 2 does not start until:
 
 ## Open items carried to later phases
 
-- KTX2 vs embedded final decision (step 2) — resolved during 1b/1c once file
-  sizes and quality are seen.
+- KTX2 vs embedded final decision (step 2) — RESOLVED: delivery format is
+  **WebP@1024** via `textureCompress` (sharp). KTX2-via-sharp isn't supported
+  and no `toktx` is installed; WebP needs no extra tooling and gives
+  web-appropriate sizes (47 pieces = ~88 MB total, few MB each) with PBR intact.
+  KTX2/Basis can be revisited in Phase 5 if GPU decode / VRAM becomes a
+  bottleneck. Pipeline flag: `--webp` (a.k.a. `--compress`/`--ktx2`) `--res=N`.
 - Instancing / texture-atlas strategy for placing many buildings (Phase 2 perf).
 - Whether any `.obj` reference bikes get promoted (unlikely; hero bike chosen).

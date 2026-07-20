@@ -53,5 +53,32 @@ Tri counts are high (LG 267k, MD 150k) — the meshopt simplify ratios barely
 reduced these dense hero pieces. Acceptable for isolated Phase-1 review;
 instancing/LOD/decimation is a Phase-2 perf task (already noted in the spec).
 
-## Full 47-piece run
-(pending — running after hero sign-off)
+## Character verified (sign-off #4)
+Copied `Character.gltf` (Quaternius, CC0, self-contained 1.5 MB) →
+`public/models/characters/`. Loads in `?viewer&asset=char-0`: a mech with an
+orange hoodie + sword, 7.5k tris, renders with its CC0 colours. Screenshot
+`docs/progress/phase1/char-quaternius.png`.
+Hovercars remain deferred (ship as a `.unitypackage`, not loadable) — the
+documented Phase-1 deviation; the character covers the non-KitBash load path.
+
+## Full 47-piece run — COMPLETE
+`node tools/process-kitbash.mjs --webp --res=1024`, ~6 min.
+- Pieces written: **47/47** (LG=15, MD=10, SM=22)
+- Total size: **88 MB** (WebP@1024 + DRACO); embedded-PNG equivalent would be
+  ~15+ GB, so ~170× smaller.
+- `manifest.json` written with name/file/bbox/hasEmissive/tris/category and
+  committed (force-added; the `.glb` binaries stay gitignored).
+- Spot-checked `BldgLG_A_Main` (93k tris, rooftop antenna/AC/penthouse, window
+  bands) — full PBR ✓. Screenshot `docs/progress/phase1/kb-BldgLG_A.png`.
+
+## Phase 1 sign-off status
+1. Textured hero `.glb`, PBR verified in viewer — ✅
+2. Bloom/exposure baseline in `theme.ts` (viewer HUD defaults) — ✅ (kept
+   bloom 0.6 / thr 0.75 / radius 0.6 / exposure 1.0; reads well on all pieces)
+3. Bike renders + poses (IK hands on grips, feet on pegs) — ✅ (committed)
+4. ≥1 character loads — ✅; hovercar deferred (unitypackage) — documented
+5. Evan sign-off in `?viewer` — ⏳ awaiting Evan
+6. Full 47-piece run + manifest committed — ✅
+
+Everything except Evan's visual sign-off (#5) is done. Assets are deep-linkable
+in `?viewer&asset=<id>` for review.
