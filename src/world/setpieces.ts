@@ -2,8 +2,7 @@ import * as THREE from 'three';
 
 /**
  * A ramp wedge you ride UP: right-triangle profile (front y=0 → back y=rise)
- * extruded to `width`, centred on Z. Local +X is the up-slope run. Rendered with
- * added side rails + underside struts + warning stripes in City (Ramps).
+ * extruded to `width`, centred on Z. Local +X is the up-slope run.
  */
 export function buildRampGeometry(length: number, width: number, rise: number): THREE.BufferGeometry {
   const shape = new THREE.Shape();
@@ -17,33 +16,37 @@ export function buildRampGeometry(length: number, width: number, rise: number): 
   return g;
 }
 
-export interface RampPlacement {
-  position: [number, number, number];
-  rotationY: number;
-  length: number;
-  width: number;
-  rise: number;
-}
+// Stunt corridor (from the route in route.ts): the bike travels −Z along x=240.
+//   ramp1 (JUNK pile, y0→11) → flip → land on SCAFFOLD deck (y13) → ride across →
+//   ramp2 (thin kicker, y13→22) → flip → drop back to the road.
+// rotationY = π/2 maps a piece's local +X (up-slope run) to world −Z.
 
-// On the flat post-turn stretch (x≈240, heading −Z). rotationY = π/2 maps the
-// local +X run onto world −Z so the bike rides up in its travel direction.
-// Lifted slightly (y) so the ramp deck covers the road glow lines beneath it.
-export const RAMPS: RampPlacement[] = [
-  { position: [240, 0.12, -58], rotationY: Math.PI / 2, length: 34, width: 16, rise: 12 },
-  { position: [240, 0.12, -218], rotationY: Math.PI / 2, length: 34, width: 16, rise: 14 },
-];
+/** Ramp 1: improvised junk pile — base wedge dressed with crates/dumpster/planks. */
+export const JUNK = {
+  base: [240, 0, -70] as [number, number, number], // world base of the up-slope
+  rotationY: Math.PI / 2,
+  run: 26,
+  width: 12,
+  rise: 11,
+};
 
-// Scaffold: a designated tall building with a supported deck lattice against its
-// road-facing wall (the bike lands on the top deck between the two ramps).
+/** Elevated scaffold deck the bike rides across (centred on the road, tied to a building). */
 export const SCAFFOLD = {
-  building: 'KB3D_NEC_BldgLG_C_Main',
-  buildingPos: [302, 0, -185] as [number, number, number],
-  buildingRot: -Math.PI / 2,
-  // deck spans x[deckX0..deckX1] (outer→building), z[deckZ0..deckZ1], at deckY
-  deckX0: 253,   // outer edge (near the road) — support poles drop here
-  deckX1: 284,   // inner edge (against the building wall)
-  deckZ0: -214,
-  deckZ1: -156,
+  deckCenter: [240, 13, -165] as [number, number, number],
+  deckLen: 96,   // z ≈ -117 .. -213
+  deckWidth: 15,
+  deckThick: 1,
   deckY: 13,
-  deckThick: 1.3,
+  building: 'KB3D_NEC_BldgLG_C_Main',
+  buildingPos: [294, 0, -165] as [number, number, number],
+  buildingRot: -Math.PI / 2,
+};
+
+/** Ramp 2: a thin metal kicker off the end of the deck (y13 → 22). */
+export const RAMP2 = {
+  base: [240, 13, -210] as [number, number, number],
+  rotationY: Math.PI / 2,
+  run: 25,
+  width: 9,
+  rise: 9,
 };

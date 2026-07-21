@@ -19,27 +19,32 @@ for (let i = 0; i <= 90; i++) {
 }
 const mainCurve = new THREE.CatmullRomCurve3(mainPts, false, 'centripetal', 0.5);
 
-// ── Secondary ground cross-streets (give the map a real network) ──
+// ── One secondary ground cross-street (an intersection for variety) ──
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
-const cross1 = new THREE.CatmullRomCurve3(
-  [V(-260, 0, -120), V(-40, 0, -180), V(160, 0, -150), V(420, 0, -120)], false, 'centripetal', 0.5);
-const cross2 = new THREE.CatmullRomCurve3(
-  [V(-120, 0, 120), V(-40, 0, -60), V(60, 0, -260), V(120, 0, -520)], false, 'centripetal', 0.5);
-const cross3 = new THREE.CatmullRomCurve3(
-  [V(60, 0, -430), V(240, 0, -470), V(430, 0, -430)], false, 'centripetal', 0.5);
+const cross = new THREE.CatmullRomCurve3(
+  [V(90, 0, -120), V(-40, 0, -60), V(-200, 0, -30)], false, 'centripetal', 0.5);
 
-// ── Elevated curved highway sweeping across the map (multi-level, dynamic) ──
+// ── Elevated curved highway sweeping over the scene (multi-level, dynamic) ──
 const hwy = new THREE.CatmullRomCurve3(
-  [V(-420, 40, -560), V(-140, 46, -300), V(160, 52, -60), V(430, 46, -300), V(320, 40, -640)],
+  [V(-380, 40, -420), V(-120, 46, -240), V(160, 52, -60), V(360, 44, -260)],
   false, 'centripetal', 0.5);
 
 export const ROADS: RoadDef[] = [
   { curve: mainCurve, halfWidth: 11, ground: true, level: 0 },
-  { curve: cross1, halfWidth: 7, ground: true, level: 0 },
-  { curve: cross2, halfWidth: 7, ground: true, level: 0 },
-  { curve: cross3, halfWidth: 6.5, ground: true, level: 0 },
+  { curve: cross, halfWidth: 7, ground: true, level: 0 },
   { curve: hwy, halfWidth: 8, ground: false, level: 0 },
 ];
+
+// ── Keep-clear zones (rectangles) — the ramp/scaffold stunt corridor; the city
+//    grid must not place buildings/props here. ──
+interface Rect { x0: number; x1: number; z0: number; z1: number }
+export const KEEP_CLEAR: Rect[] = [
+  { x0: 224, x1: 320, z0: -272, z1: -50 }, // ramps + scaffold deck + scaffold building
+];
+export function keepClear(x: number, z: number): boolean {
+  for (const r of KEEP_CLEAR) if (x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1) return true;
+  return false;
+}
 
 /** Sweep a flat ribbon along an arbitrary curve, frame kept horizontal. */
 export function buildCurveRibbon(
@@ -98,9 +103,9 @@ export function groundRoadClearance(x: number, z: number): number {
   return min;
 }
 
-/** Sample points + tangents along ground roads (for placing edge props/sidewalks). */
-export function groundRoadEdgePoints(spacing = 26): { pos: THREE.Vector3; bin: THREE.Vector3; hw: number }[] {
-  const out: { pos: THREE.Vector3; bin: THREE.Vector3; hw: number }[] = [];
+/** Sample points + frames along ground roads (for placing edge props/buildings). */
+export function groundRoadEdgePoints(spacing = 26): { pos: THREE.Vector3; tan: THREE.Vector3; bin: THREE.Vector3; hw: number }[] {
+  const out: { pos: THREE.Vector3; tan: THREE.Vector3; bin: THREE.Vector3; hw: number }[] = [];
   for (const r of ROADS) {
     if (!r.ground) continue;
     const n = Math.max(8, Math.floor(r.curve.getLength() / spacing));
@@ -108,7 +113,7 @@ export function groundRoadEdgePoints(spacing = 26): { pos: THREE.Vector3; bin: T
       const p = r.curve.getPointAt(i / n);
       const tan = r.curve.getTangentAt(i / n).setY(0).normalize();
       const bin = new THREE.Vector3().crossVectors(tan, UP).normalize();
-      out.push({ pos: p, bin, hw: r.halfWidth });
+      out.push({ pos: p, tan, bin, hw: r.halfWidth });
     }
   }
   return out;

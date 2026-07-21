@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { makeRng } from '../assets/rng';
-import { groundRoadClearance, groundRoadEdgePoints } from './roads';
+import { groundRoadClearance, groundRoadEdgePoints, keepClear } from './roads';
 
 /**
  * City placement. A dense grid fills the WHOLE map with building blocks; the
@@ -33,79 +33,77 @@ export interface Placement {
   scale?: number;
 }
 
-const CARD = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
-
-function footHalf(name: string): number {
-  if (name.includes('LG_B_Main')) return 28;
-  if (name.includes('MD_C_Main')) return 26;
-  if (name.includes('LG_C_Main')) return 20;
-  if (name.includes('LG_A_Building')) return 17;
-  if (name.includes('BldgLG')) return 17;
-  if (name.includes('BldgMD')) return 19;
-  if (name.includes('BldgSM')) return 6;
-  return 6;
-}
 const g = (n: string) => `neocity/${n}.glb`;
 
+/**
+ * Buildings line the roads in aligned ROWS (a canyon between dense walls): a
+ * short front wall right behind the sidewalk, taller buildings set back, rare
+ * hero towers deep. Every building FACES the road and is verified clear of all
+ * roads + the stunt keep-clear zone, so nothing lands on a street.
+ */
 export function buildCityLayout(seed = 20260720): Placement[] {
   const rng = makeRng(seed);
   const out: Placement[] = [];
-  const cell = 44;
-  for (let x = -430; x <= 380; x += cell) {
-    for (let z = -770; z <= 160; z += cell) {
-      const jx = x + rng.range(-8, 8);
-      const jz = z + rng.range(-8, 8);
-      const clr = groundRoadClearance(jx, jz);
-      if (clr < 14) continue;         // road / intersection / alley
-      if (rng.chance(0.14)) continue; // a few open lots (props/trees fill these)
-      // canyon: small at the street, taller deeper in — but keep heavy hero
-      // towers RARE (triangle budget), bulk is light MID/SMALL.
-      let pool: string[];
-      if (clr < 24) pool = rng.chance(0.5) ? SMALL : MID;
-      else if (clr < 58) pool = rng.chance(0.22) ? TALL : MID;
-      else pool = rng.chance(0.18) ? HERO : (rng.chance(0.5) ? TALL : MID);
-      let name = rng.pick(pool);
-      if (clr < footHalf(name) + 3) {
-        name = rng.pick(SMALL);
-        if (clr < footHalf(name) + 3) continue;
-      }
-      out.push({ file: g(name), position: [jx, 0, jz], rotationY: rng.pick(CARD) + rng.range(-0.06, 0.06) });
+
+  const place = (base: THREE.Vector3, bin: THREE.Vector3, tan: THREE.Vector3, side: number, off: number, pool: string[], foot: number): void => {
+    const jitter = rng.range(-7, 7);
+    const px = base.x + bin.x * side * off + tan.x * jitter;
+    const pz = base.z + bin.z * side * off + tan.z * jitter;
+    if (keepClear(px, pz)) return;
+    if (groundRoadClearance(px, pz) < foot + 2) return;
+    const name = rng.pick(pool);
+    // face the road: front (+Z of the piece) points toward the road centre
+    const rotationY = Math.atan2(-bin.x * side, -bin.z * side) + rng.range(-0.05, 0.05);
+    out.push({ file: g(name), position: [px, 0, pz], rotationY });
+  };
+
+  for (const e of groundRoadEdgePoints(34)) {
+    for (const side of [1, -1] as const) {
+      // front wall (dense) — small/mid right behind the sidewalk
+      if (!rng.chance(0.12)) place(e.pos, e.bin, e.tan, side, e.hw + 11, rng.chance(0.5) ? SMALL : MID, 9);
+      // second row — mid/tall
+      if (!rng.chance(0.3)) place(e.pos, e.bin, e.tan, side, e.hw + 40, rng.chance(0.35) ? TALL : MID, 22);
+      // occasional deep tower / hero landmark
+      if (rng.chance(0.28)) place(e.pos, e.bin, e.tan, side, e.hw + 72, rng.chance(0.3) ? HERO : TALL, 26);
     }
   }
   return out;
 }
 
-/** Street props + shop clusters + trees dressing the road edges and open lots. */
+/** Street props + shop stalls + trees on the SIDEWALKS (never on the road). */
 export function buildProps(seed = 8891): Placement[] {
   const rng = makeRng(seed);
   const out: Placement[] = [];
-  // edge clutter + occasional shop stall along road edges
-  for (const e of groundRoadEdgePoints(16)) {
+  const push = (file: string, x: number, z: number, rot: number): void => {
+    if (keepClear(x, z) || groundRoadClearance(x, z) < 1.5) return; // stay off the road + zones
+    out.push({ file, position: [x, 0, z], rotationY: rot });
+  };
+  for (const e of groundRoadEdgePoints(20)) {
     for (const side of [1, -1] as const) {
-      if (rng.chance(0.4)) continue;
-      const off = e.hw + 2 + rng.range(0, 2);
-      const base = e.pos.clone().addScaledVector(e.bin, side * off);
+      if (rng.chance(0.55)) continue;
       const rot = Math.atan2(e.bin.x * side, e.bin.z * side) + rng.range(-0.3, 0.3);
       if (rng.chance(0.3)) {
-        // a little shop stall: 2-4 clustered SM_B/SM_C props
-        const n = 2 + rng.int(0, 2);
+        // shop stall: 2-3 props clustered along the sidewalk (parallel to road)
+        const n = 2 + rng.int(0, 1);
         for (let i = 0; i < n; i++) {
-          const p = base.clone().addScaledVector(e.bin, side * i * 2.2).addScaledVector(new THREE.Vector3(1, 0, 0), rng.range(-1.5, 1.5));
-          out.push({ file: g(rng.pick(SHOP)), position: [p.x, 0, p.z], rotationY: rot + rng.range(-0.2, 0.2) });
+          const p = e.pos.clone()
+            .addScaledVector(e.bin, side * (e.hw + 4))
+            .addScaledVector(e.tan, (i - 1) * 2.4);
+          push(g(rng.pick(SHOP)), p.x, p.z, rot + rng.range(-0.2, 0.2));
         }
       } else {
-        out.push({ file: g(rng.pick(EDGE)), position: [base.x, 0, base.z], rotationY: rot });
+        const p = e.pos.clone().addScaledVector(e.bin, side * (e.hw + 3.2));
+        push(g(rng.pick(EDGE)), p.x, p.z, rot);
       }
     }
   }
-  // scatter trees / banners in open ground near roads
-  for (let i = 0; i < 90; i++) {
-    const e = groundRoadEdgePoints(9)[rng.int(0, groundRoadEdgePoints(9).length - 1)];
-    const side = rng.chance(0.5) ? 1 : -1;
-    const off = e.hw + rng.range(4, 16);
-    const p = e.pos.clone().addScaledVector(e.bin, side * off);
-    if (groundRoadClearance(p.x, p.z) < 3) continue;
-    out.push({ file: g(rng.pick(DECOR)), position: [p.x, 0, p.z], rotationY: rng.range(0, Math.PI * 2) });
+  // trees / banners set back on the sidewalk
+  for (const e of groundRoadEdgePoints(30)) {
+    for (const side of [1, -1] as const) {
+      if (rng.chance(0.6)) continue;
+      const p = e.pos.clone().addScaledVector(e.bin, side * (e.hw + rng.range(5, 9)));
+      push(g(rng.pick(DECOR)), p.x, p.z, rng.range(0, Math.PI * 2));
+    }
   }
   return out;
 }
@@ -146,10 +144,10 @@ export interface SkyBox { matrix: THREE.Matrix4; emissive: boolean }
 export function buildSkyline(seed = 4242): SkyBox[] {
   const rng = makeRng(seed);
   const boxes: SkyBox[] = [];
-  const cx = -40, cz = -320;
-  for (let i = 0; i < 260; i++) {
+  const cx = -40, cz = -260;
+  for (let i = 0; i < 150; i++) {
     const ang = rng.range(0, Math.PI * 2);
-    const rad = rng.range(760, 1700);
+    const rad = rng.range(620, 1300);
     const x = cx + Math.cos(ang) * rad;
     const z = cz + Math.sin(ang) * rad * 1.1;
     const w = rng.range(22, 52);

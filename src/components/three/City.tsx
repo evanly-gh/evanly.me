@@ -39,7 +39,7 @@ function makeAsphaltTexture(): THREE.CanvasTexture {
 }
 import { MOON_POS, MOON_RADIUS } from '../../world/route';
 import { buildCityLayout, buildProps, buildSkyline, buildStreetFurniture } from '../../world/cityLayout';
-import { buildRampGeometry, RAMPS, SCAFFOLD } from '../../world/setpieces';
+import { buildRampGeometry, JUNK, RAMP2, SCAFFOLD } from '../../world/setpieces';
 import { KitPiece } from './KitPiece';
 import { InstancedPieces } from './InstancedPieces';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -273,79 +273,140 @@ function Skyline() {
   );
 }
 
-function Ramps() {
-  const deckMat = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x12141d, roughness: 0.5, metalness: 0.45 }), []);
-  const railMat = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x1a0616, emissive: new THREE.Color(PALETTE.magenta), emissiveIntensity: 2, toneMapped: false }), []);
-  const stripeMat = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x1a1206, emissive: new THREE.Color(PALETTE.amber), emissiveIntensity: 1.8, toneMapped: false }), []);
-  const strutMat = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x0d0f17, roughness: 0.6, metalness: 0.5 }), []);
+/** Ramp 1 — an improvised junk pile: a rusty truck-bed wedge dressed with
+ *  crates, a dumpster and wood planks. Rises 0 → 11 over the run (toward −Z). */
+function JunkRamp() {
+  const plank = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x4a3620, roughness: 0.92, metalness: 0.04 }), []);
+  const rust = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x5a3428, roughness: 0.85, metalness: 0.35 }), []);
+  const dark = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x23272f, roughness: 0.7, metalness: 0.4 }), []);
+  const { run, width, rise } = JUNK;
+  const wedge = useMemo(() => buildRampGeometry(run, width, rise), [run, width, rise]);
+  const ang = Math.atan2(rise, run);
+  const hyp = Math.hypot(run, rise);
+  const crates: [string, number, number, number, number][] = [
+    ['BldgSM_C_Containers', 4, 0, width / 2 + 2.5, 0.2],
+    ['BldgSM_C_CratesA', 9, 0, -width / 2 - 2, -0.3],
+    ['BldgSM_C_CratesB', 15, 3, width / 2 + 2, 0.15],
+    ['BldgSM_C_Boxes', 2.5, 0, -width / 2 - 3, 0.1],
+  ];
   return (
-    <group>
-      {RAMPS.map((r, i) => {
-        const geo = buildRampGeometry(r.length, r.width, r.rise);
-        const ang = Math.atan2(r.rise, r.length);
-        const hyp = Math.hypot(r.length, r.rise);
-        return (
-          <group key={i} position={r.position} rotation={[0, r.rotationY, 0]}>
-            <mesh geometry={geo} material={deckMat} />
-            {[1, -1].map((s) => (
-              <mesh key={'rail' + s} material={railMat} position={[r.length / 2, r.rise / 2 + 0.28, s * (r.width / 2)]} rotation={[0, 0, ang]}>
-                <boxGeometry args={[hyp, 0.16, 0.16]} />
-              </mesh>
-            ))}
-            {[0.2, 0.4, 0.6, 0.8].map((f, j) => (
-              <mesh key={'st' + j} material={stripeMat} position={[r.length * f, r.rise * f + 0.13, 0]} rotation={[0, 0, ang]}>
-                <boxGeometry args={[0.5, 0.05, r.width * 0.85]} />
-              </mesh>
-            ))}
-            {[0.45, 0.8].map((f, j) => (
-              <mesh key={'ub' + j} material={strutMat} position={[r.length * f, (r.rise * f) / 2, 0]}>
-                <boxGeometry args={[0.6, r.rise * f, r.width * 0.85]} />
-              </mesh>
-            ))}
-          </group>
-        );
-      })}
+    <group position={JUNK.base} rotation={[0, JUNK.rotationY, 0]}>
+      {/* rusty wedge (the "truck bed" you ride up) */}
+      <mesh geometry={wedge} material={rust} />
+      {/* wood planks laid along the ride surface */}
+      {[-3.5, 0, 3.5].map((zc) => (
+        <mesh key={zc} material={plank} position={[run / 2, rise / 2 + 0.18, zc]} rotation={[0, 0, ang]}>
+          <boxGeometry args={[hyp, 0.22, 3]} />
+        </mesh>
+      ))}
+      {/* dumpster shoved against the base */}
+      <mesh material={dark} position={[2, 1.4, width / 2 + 1]}><boxGeometry args={[4.5, 2.8, 3]} /></mesh>
+      {/* KitBash crates / containers dressing the pile */}
+      <Suspense fallback={null}>
+        {crates.map(([f, x, y, z, r], i) => (
+          <KitPiece key={i} file={`neocity/KB3D_NEC_${f}.glb`} position={[x, y, z]} rotationY={r} />
+        ))}
+      </Suspense>
+    </group>
+  );
+}
+
+/** Ramp 2 — a thin metal kicker off the end of the deck (y13 → 22). */
+function Ramp2() {
+  const deckMat = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x161922, roughness: 0.45, metalness: 0.7 }), []);
+  const stripe = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x1a1206, emissive: new THREE.Color(PALETTE.amber), emissiveIntensity: 1.9, toneMapped: false }), []);
+  const rail = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x03231f, emissive: new THREE.Color('#b7f5e9'), emissiveIntensity: 1.6, toneMapped: false }), []);
+  const { run, width, rise } = RAMP2;
+  const geo = useMemo(() => buildRampGeometry(run, width, rise), [run, width, rise]);
+  const ang = Math.atan2(rise, run);
+  const hyp = Math.hypot(run, rise);
+  return (
+    <group position={RAMP2.base} rotation={[0, RAMP2.rotationY, 0]}>
+      <mesh geometry={geo} material={deckMat} />
+      {/* thin ride plate + amber centre stripes */}
+      {[0.3, 0.6, 0.9].map((f, j) => (
+        <mesh key={j} material={stripe} position={[run * f, rise * f + 0.1, 0]} rotation={[0, 0, ang]}>
+          <boxGeometry args={[0.4, 0.05, width * 0.8]} />
+        </mesh>
+      ))}
+      {/* cyan side rails running up the slope */}
+      {[1, -1].map((s) => (
+        <mesh key={s} material={rail} position={[run / 2, rise / 2 + 0.4, s * (width / 2)]} rotation={[0, 0, ang]}>
+          <boxGeometry args={[hyp, 0.12, 0.12]} />
+        </mesh>
+      ))}
     </group>
   );
 }
 
 /** A supported scaffold lattice against a tall building's road-facing wall. */
+/** Elevated scaffold deck the bike rides across (x=240, y=13), built as a
+ *  pole lattice and tied into the adjacent building with cross-beams. */
 function Scaffold() {
-  const metal = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x14161f, roughness: 0.5, metalness: 0.6 }), []);
+  const metal = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x14161f, roughness: 0.55, metalness: 0.6 }), []);
+  const plank = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x2a2e38, roughness: 0.8, metalness: 0.3 }), []);
   const rail = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x03231f, emissive: new THREE.Color('#b7f5e9'), emissiveIntensity: 1.6, toneMapped: false }), []);
   const S = SCAFFOLD;
-  const w = S.deckX1 - S.deckX0, l = S.deckZ1 - S.deckZ0;
-  const cx = (S.deckX0 + S.deckX1) / 2, cz = (S.deckZ0 + S.deckZ1) / 2, y = S.deckY;
-  const poleZs = [S.deckZ0 + 2, cz, S.deckZ1 - 2];
-  const braceLen = Math.hypot(y, l * 0.4);
+  const [cx, y, cz] = S.deckCenter;
+  const l = S.deckLen, w = S.deckWidth;
+  const z0 = cz - l / 2, z1 = cz + l / 2;
+  const ex = [cx - w / 2, cx + w / 2]; // deck edges (support pole lines)
+  const nPole = 7;
+  const poleZs = Array.from({ length: nPole }, (_, i) => z0 + (l * i) / (nPole - 1));
+  const braceAng = Math.atan2(l / (nPole - 1), y);
+  const braceLen = Math.hypot(y, l / (nPole - 1));
+  const buildingFace = S.buildingPos[0] - 20; // approx road-facing wall of the tie building
   return (
     <group>
       <Suspense fallback={null}>
         <KitPiece file={`neocity/${S.building}.glb`} position={S.buildingPos} rotationY={S.buildingRot} />
       </Suspense>
-      {/* deck slab */}
-      <mesh material={metal} position={[cx, y, cz]}><boxGeometry args={[w, S.deckThick, l]} /></mesh>
-      {/* outer guard rail (cyan) + kickboard along the road edge */}
-      <mesh material={rail} position={[S.deckX0, y + 0.8, cz]}><boxGeometry args={[0.14, 0.14, l]} /></mesh>
-      <mesh material={metal} position={[S.deckX0, y + 0.4, cz]}><boxGeometry args={[0.22, 0.9, l]} /></mesh>
-      {/* vertical support poles (outer edge → ground) + mid-depth poles */}
+      {/* deck slab + plank strips */}
+      <mesh material={metal} position={[cx, y - S.deckThick / 2, cz]}><boxGeometry args={[w, S.deckThick, l]} /></mesh>
+      {[-w / 3, 0, w / 3].map((dx) => (
+        <mesh key={dx} material={plank} position={[cx + dx, y + 0.03, cz]}><boxGeometry args={[w / 4, 0.08, l - 1]} /></mesh>
+      ))}
+      {/* support pole lattice (both deck edges → ground) */}
       {poleZs.map((zc, i) => (
         <group key={'pz' + i}>
-          <mesh material={metal} position={[S.deckX0, y / 2, zc]}><boxGeometry args={[0.6, y, 0.6]} /></mesh>
-          <mesh material={metal} position={[cx, y / 2, zc]}><boxGeometry args={[0.5, y, 0.5]} /></mesh>
-          {/* cross beam tying outer→building at mid height */}
-          <mesh material={metal} position={[cx, y * 0.55, zc]}><boxGeometry args={[w, 0.28, 0.28]} /></mesh>
+          {ex.map((px) => (
+            <mesh key={px} material={metal} position={[px, y / 2, zc]}><boxGeometry args={[0.5, y, 0.5]} /></mesh>
+          ))}
+          {/* transverse tie under the deck */}
+          <mesh material={metal} position={[cx, y - 0.6, zc]}><boxGeometry args={[w, 0.3, 0.3]} /></mesh>
         </group>
       ))}
-      {/* long horizontal rails along z */}
-      <mesh material={metal} position={[S.deckX0, y * 0.55, cz]}><boxGeometry args={[0.3, 0.3, l]} /></mesh>
-      <mesh material={metal} position={[cx, y * 0.55, cz]}><boxGeometry args={[0.3, 0.3, l]} /></mesh>
-      {/* diagonal cross-braces on the outer face */}
-      {[0.28, 0.72].map((f, i) => (
-        <mesh key={'br' + i} material={metal} position={[S.deckX0, y * 0.5, S.deckZ0 + l * f]} rotation={[Math.atan2(l * 0.4, y), 0, 0]}>
-          <boxGeometry args={[0.25, braceLen, 0.25]} />
+      {/* long horizontal ledgers at two heights on both edges */}
+      {ex.map((px) => [y * 0.45, y * 0.8].map((hy, j) => (
+        <mesh key={px + '-' + j} material={metal} position={[px, hy, cz]}><boxGeometry args={[0.3, 0.3, l]} /></mesh>
+      )))}
+      {/* diagonal braces up each edge (scaffolding lattice) */}
+      {ex.map((px) => poleZs.slice(0, -1).map((zc, i) => (
+        <mesh key={px + 'b' + i} material={metal} position={[px, y / 2, zc + l / (nPole - 1) / 2]} rotation={[braceAng * (i % 2 ? -1 : 1), 0, 0]}>
+          <boxGeometry args={[0.22, braceLen, 0.22]} />
+        </mesh>
+      )))}
+      {/* cyan guard rails along the two long edges (parallel to travel) */}
+      {ex.map((px) => (
+        <group key={'r' + px}>
+          <mesh material={rail} position={[px, y + 0.9, cz]}><boxGeometry args={[0.12, 0.12, l]} /></mesh>
+          <mesh material={metal} position={[px, y + 0.45, cz]}><boxGeometry args={[0.18, 0.9, l]} /></mesh>
+        </group>
+      ))}
+      {/* tie-beams + brace bolting the deck into the adjacent building */}
+      {[z0 + l * 0.25, cz, z1 - l * 0.25].map((zc, i) => (
+        <mesh key={'tie' + i} material={metal} position={[(ex[1] + buildingFace) / 2, y - 0.5, zc]}>
+          <boxGeometry args={[buildingFace - ex[1], 0.35, 0.35]} />
         </mesh>
       ))}
+      {[z0 + l * 0.25, z1 - l * 0.25].map((zc, i) => {
+        const span = buildingFace - ex[1];
+        return (
+          <mesh key={'d' + i} material={metal} position={[(ex[1] + buildingFace) / 2, y * 0.45, zc]} rotation={[0, 0, Math.atan2(y * 0.9, span)]}>
+            <boxGeometry args={[Math.hypot(span, y * 0.9), 0.25, 0.25]} />
+          </mesh>
+        );
+      })}
     </group>
   );
 }
@@ -377,7 +438,8 @@ export default function City() {
       <Roads />
       <Pillars />
       <StreetFurniture />
-      <Ramps />
+      <JunkRamp />
+      <Ramp2 />
       <Suspense fallback={null}><Buildings /></Suspense>
       <Suspense fallback={null}><Props /></Suspense>
       <Suspense fallback={null}><Scaffold /></Suspense>
