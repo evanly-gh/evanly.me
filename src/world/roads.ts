@@ -103,6 +103,28 @@ export function groundRoadClearance(x: number, z: number): number {
   return min;
 }
 
+// ── Elevated-road samples (horizontal projection) — used to stop tall buildings
+//    from clipping the overhead highway deck. ──
+const overheadSamples: Sample[] = [];
+for (const r of ROADS) {
+  if (r.ground) continue;
+  const n = Math.max(24, Math.floor(r.curve.getLength() / 8));
+  for (let i = 0; i <= n; i++) {
+    const p = r.curve.getPointAt(i / n);
+    overheadSamples.push({ x: p.x, z: p.z, hw: r.halfWidth });
+  }
+}
+
+/** Horizontal clearance (m) from (x,z) to the nearest ELEVATED road edge. */
+export function overheadClearance(x: number, z: number): number {
+  let min = Infinity;
+  for (const s of overheadSamples) {
+    const d = Math.hypot(x - s.x, z - s.z) - s.hw;
+    if (d < min) min = d;
+  }
+  return min;
+}
+
 /** Sample points + frames along ground roads (for placing edge props/buildings). */
 export function groundRoadEdgePoints(spacing = 26): { pos: THREE.Vector3; tan: THREE.Vector3; bin: THREE.Vector3; hw: number }[] {
   const out: { pos: THREE.Vector3; tan: THREE.Vector3; bin: THREE.Vector3; hw: number }[] = [];

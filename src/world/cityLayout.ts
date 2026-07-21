@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { makeRng } from '../assets/rng';
-import { groundRoadClearance, groundRoadEdgePoints, keepClear } from './roads';
+import { groundRoadClearance, groundRoadEdgePoints, keepClear, overheadClearance } from './roads';
 
 /**
  * City placement. A dense grid fills the WHOLE map with building blocks; the
@@ -16,8 +16,8 @@ const TALL = [`${P}BldgLG_A_Main`, `${P}BldgMD_C_Main`];                        
 const MID = [`${P}BldgMD_A_Main`, `${P}BldgMD_B_Main`, `${P}BldgLG_A_BuildingB`, `${P}BldgLG_A_BuildingD`, `${P}BldgMD_C_BuildingA`]; // ~15–35k
 const SMALL = [`${P}BldgSM_A_Main`, `${P}BldgSM_B_Main`, `${P}BldgSM_C_Main`];      // ~3–25k
 const EDGE = [
-  `${P}BldgSM_A_ConcreteBarrier`, `${P}BldgSM_C_AC`, `${P}BldgSM_C_Boxes`,
-  `${P}BldgSM_C_Containers`, `${P}BldgSM_C_CratesA`, `${P}BldgSM_C_CratesB`, `${P}BldgSM_C_Pipes`,
+  `${P}BldgSM_C_AC`, `${P}BldgSM_C_Boxes`, `${P}BldgSM_C_CratesA`,
+  `${P}BldgSM_C_CratesB`, `${P}BldgSM_C_Pipes`,
 ];
 const SHOP = [
   `${P}BldgSM_B_Cart`, `${P}BldgSM_B_Bbq`, `${P}BldgSM_B_Umbrella`, `${P}BldgSM_B_FridgeA`,
@@ -38,9 +38,9 @@ export interface Placement {
 const g = (n: string) => `neocity/${n}.glb`;
 
 // Road cross-section (from City.tsx / roads.ts): the driving deck is ±hw, then a
-// 6.4 m sidewalk (offset hw+3.2, half-width 3.2) → outer sidewalk edge at hw+6.4.
-const SIDEWALK = 6.4;   // sidewalk outer edge, measured from the road centre-line
-const GAP = 2.5;        // clear gap between the sidewalk and the first building
+// wide sidewalk (half-width 4.5, offset hw+4.5) → outer sidewalk edge at hw+9.
+const SIDEWALK = 9;     // sidewalk outer edge, measured from the road centre-line
+const GAP = 2;          // clear gap between the sidewalk and the first building
 const ROW_GAP = 2.5;    // gap between the two building rows
 const FOOT_A = 12;      // front-row allotted footprint radius (bigger = scaled down)
 const FOOT_B = 22;      // back-row allotted footprint radius
@@ -67,25 +67,52 @@ export function buildCityLayout(seed = 20260720): Placement[] {
     const ax = base.x + bin.x * side * (hw + anchor) + tan.x * jit;
     const az = base.z + bin.z * side * (hw + anchor) + tan.z * jit;
     const ox = bin.x * side, oz = bin.z * side; // outward (away from road)
-    // worst-case building centre (footprint radius = foot) must clear every road+sidewalk
-    if (keepClear(ax + ox * foot, az + oz * foot)) return;
-    if (groundRoadClearance(ax + ox * foot, az + oz * foot) < foot + SIDEWALK + 1) return;
+    const cx = ax + ox * foot, cz = az + oz * foot; // worst-case building centre
+    // must clear every ground road+sidewalk, and never sit under the elevated deck
+    if (keepClear(cx, cz)) return;
+    if (groundRoadClearance(cx, cz) < foot + SIDEWALK + 1) return;
+    // tall buildings under the highway clip its deck → use a short building there
+    if (overheadClearance(cx, cz) < foot + 12) pool = SMALL;
     const name = rng.pick(pool);
     const rotationY = Math.atan2(-ox, -oz) + rng.range(-0.03, 0.03);
     out.push({ file: g(name), position: [ax, 0, az], rotationY, foot, outDir: [ox, oz] });
   };
 
-  for (const e of groundRoadEdgePoints(26)) {
+  for (const e of groundRoadEdgePoints(24)) {
     // taper density along the far elevated bridge run (bike is airborne/high there)
     const far = e.pos.z < -560;
     for (const side of [1, -1] as const) {
       // front row — small/mid, a near-continuous wall behind the sidewalk
-      if (!rng.chance(far ? 0.55 : 0.1)) place(e.pos, e.bin, e.tan, side, e.hw, anchorA, rng.chance(0.55) ? SMALL : MID, FOOT_A);
+      if (!rng.chance(far ? 0.5 : 0.08)) place(e.pos, e.bin, e.tan, side, e.hw, anchorA, rng.chance(0.55) ? SMALL : MID, FOOT_A);
       // back row — taller buildings, rare hero landmark
-      if (!rng.chance(far ? 0.7 : 0.28)) {
+      if (!rng.chance(far ? 0.65 : 0.22)) {
         const pool = rng.chance(0.15) ? HERO : rng.chance(0.5) ? TALL : MID;
         place(e.pos, e.bin, e.tan, side, e.hw, anchorB, pool, FOOT_B);
       }
+    }
+  }
+
+  // ── Back-fill district: dense blocks behind the road walls, with alley gaps,
+  //    so the surrounding area reads as a real city rather than a thin strip. ──
+  const FILL_FOOT = 18;
+  const cell = 44;
+  const CARD = [0, Math.PI / 2];
+  for (let x = -380; x <= 380; x += cell) {
+    for (let z = -700; z <= 140; z += cell) {
+      const jx = x + rng.range(-7, 7), jz = z + rng.range(-7, 7);
+      const c = groundRoadClearance(jx, jz);
+      if (c < 74) continue;                 // handled by the two road-facing rows
+      if (c > 210) continue;                // beyond the district → skyline territory
+      if (keepClear(jx, jz)) continue;
+      if (rng.chance(0.16)) continue;       // alleys / courtyards
+      let pool = rng.chance(0.08) ? HERO : rng.chance(0.35) ? TALL : rng.chance(0.55) ? MID : SMALL;
+      if (overheadClearance(jx, jz) < FILL_FOOT + 12) pool = SMALL;
+      out.push({
+        file: g(rng.pick(pool)),
+        position: [jx, 0, jz],
+        rotationY: rng.pick(CARD) + rng.range(-0.05, 0.05),
+        foot: FILL_FOOT,
+      });
     }
   }
   return out;
@@ -95,34 +122,36 @@ export function buildCityLayout(seed = 20260720): Placement[] {
 export function buildProps(seed = 8891): Placement[] {
   const rng = makeRng(seed);
   const out: Placement[] = [];
+  // require ≥ 3 m clearance so a prop's footprint never spills onto the driving lane
   const push = (file: string, x: number, z: number, rot: number): void => {
-    if (keepClear(x, z) || groundRoadClearance(x, z) < 1.5) return; // stay off the road + zones
+    if (keepClear(x, z) || groundRoadClearance(x, z) < 3) return;
     out.push({ file, position: [x, 0, z], rotationY: rot });
   };
-  for (const e of groundRoadEdgePoints(20)) {
+  // small props / shop stalls sit on the OUTER half of the sidewalk (hw+5.5)
+  for (const e of groundRoadEdgePoints(22)) {
     for (const side of [1, -1] as const) {
-      if (rng.chance(0.55)) continue;
+      if (rng.chance(0.6)) continue;
       const rot = Math.atan2(e.bin.x * side, e.bin.z * side) + rng.range(-0.3, 0.3);
       if (rng.chance(0.3)) {
-        // shop stall: 2-3 props clustered along the sidewalk (parallel to road)
         const n = 2 + rng.int(0, 1);
         for (let i = 0; i < n; i++) {
           const p = e.pos.clone()
-            .addScaledVector(e.bin, side * (e.hw + 4))
+            .addScaledVector(e.bin, side * (e.hw + 5.5))
             .addScaledVector(e.tan, (i - 1) * 2.4);
           push(g(rng.pick(SHOP)), p.x, p.z, rot + rng.range(-0.2, 0.2));
         }
       } else {
-        const p = e.pos.clone().addScaledVector(e.bin, side * (e.hw + 3.2));
+        const p = e.pos.clone().addScaledVector(e.bin, side * (e.hw + 6));
         push(g(rng.pick(EDGE)), p.x, p.z, rot);
       }
     }
   }
-  // trees / banners set back on the sidewalk
-  for (const e of groundRoadEdgePoints(30)) {
+  // trees / banners set BACK past the sidewalk (planting strip by the buildings),
+  // so nothing overhangs the street
+  for (const e of groundRoadEdgePoints(34)) {
     for (const side of [1, -1] as const) {
-      if (rng.chance(0.6)) continue;
-      const p = e.pos.clone().addScaledVector(e.bin, side * (e.hw + rng.range(5, 9)));
+      if (rng.chance(0.65)) continue;
+      const p = e.pos.clone().addScaledVector(e.bin, side * (e.hw + 10.5 + rng.range(0, 2)));
       push(g(rng.pick(DECOR)), p.x, p.z, rng.range(0, Math.PI * 2));
     }
   }
@@ -143,13 +172,13 @@ export function buildStreetFurniture(seed = 5150): StreetFurniture {
   let prevPoleTop: THREE.Vector3 | null = null;
   edges.forEach((e, i) => {
     const side = i % 2 === 0 ? 1 : -1;
-    const off = e.hw + 1.6;
+    const off = e.hw + 4.5; // mid-sidewalk, well off the driving lane
     const base = e.pos.clone().addScaledVector(e.bin, side * off);
     // lamp facing the road
     lamps.push({ pos: base.clone(), rotationY: Math.atan2(-e.bin.x * side, -e.bin.z * side) });
     // powerline poles on the opposite side, cables strung between consecutive ones
     if (i % 2 === 0) {
-      const pbase = e.pos.clone().addScaledVector(e.bin, -side * (e.hw + 2.5));
+      const pbase = e.pos.clone().addScaledVector(e.bin, -side * (e.hw + 8));
       poles.push(pbase.clone());
       const top = pbase.clone().setY(13);
       if (prevPoleTop && top.distanceTo(prevPoleTop) < 90) cables.push({ a: prevPoleTop.clone(), b: top.clone() });

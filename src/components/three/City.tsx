@@ -151,7 +151,8 @@ function Pillars() {
 function Roads() {
   const asphalt = useMemo(() => makeAsphaltTexture(), []);
   const deckMat = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x14161f, map: asphalt, roughness: 0.7, metalness: 0.3 }), [asphalt]);
-  const walkMat = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x161924, roughness: 0.85, metalness: 0.1 }), []);
+  const walkMat = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x3a3f4b, roughness: 0.9, metalness: 0.08 }), []);
+  const curbMat = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x4c525f, roughness: 0.85, metalness: 0.1 }), []);
   const magenta = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x1a0616, emissive: new THREE.Color(PALETTE.magenta), emissiveIntensity: 2.2, toneMapped: false }), []);
   const amber = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x1a1206, emissive: new THREE.Color(PALETTE.amber), emissiveIntensity: 1.8, toneMapped: false }), []);
   const teal = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x03231f, emissive: new THREE.Color('#b7f5e9'), emissiveIntensity: 1.6, toneMapped: false }), []);
@@ -162,9 +163,12 @@ function Roads() {
       const edgeGlowL = buildCurveRibbon(r.curve, 0.3, { offset: r.halfWidth - 0.4, lift: r.level + 0.06 });
       const edgeGlowR = buildCurveRibbon(r.curve, 0.3, { offset: -(r.halfWidth - 0.4), lift: r.level + 0.06 });
       const centre = buildCurveRibbon(r.curve, 0.14, { lift: r.level + 0.06 });
-      const walkL = r.ground ? buildCurveRibbon(r.curve, 3.2, { offset: r.halfWidth + 3.2, lift: 0.35 }) : null;
-      const walkR = r.ground ? buildCurveRibbon(r.curve, 3.2, { offset: -(r.halfWidth + 3.2), lift: 0.35 }) : null;
-      return { deck, edgeGlowL, edgeGlowR, centre, walkL, walkR, main: r.halfWidth > 10 };
+      // wide raised sidewalks (half-width 4.5 → 9 m) + a raised curb lip at the road edge
+      const walkL = r.ground ? buildCurveRibbon(r.curve, 4.5, { offset: r.halfWidth + 4.5, lift: 0.45 }) : null;
+      const walkR = r.ground ? buildCurveRibbon(r.curve, 4.5, { offset: -(r.halfWidth + 4.5), lift: 0.45 }) : null;
+      const curbL = r.ground ? buildCurveRibbon(r.curve, 0.4, { offset: r.halfWidth + 0.4, lift: 0.5 }) : null;
+      const curbR = r.ground ? buildCurveRibbon(r.curve, 0.4, { offset: -(r.halfWidth + 0.4), lift: 0.5 }) : null;
+      return { deck, edgeGlowL, edgeGlowR, centre, walkL, walkR, curbL, curbR, main: r.halfWidth > 10 };
     });
   }, []);
 
@@ -175,6 +179,8 @@ function Roads() {
           <mesh geometry={n.deck} material={deckMat} />
           {n.walkL && <mesh geometry={n.walkL} material={walkMat} />}
           {n.walkR && <mesh geometry={n.walkR} material={walkMat} />}
+          {n.curbL && <mesh geometry={n.curbL} material={curbMat} />}
+          {n.curbR && <mesh geometry={n.curbR} material={curbMat} />}
           <mesh geometry={n.edgeGlowL} material={n.main ? magenta : teal} />
           <mesh geometry={n.edgeGlowR} material={n.main ? magenta : teal} />
           <mesh geometry={n.centre} material={amber} />
