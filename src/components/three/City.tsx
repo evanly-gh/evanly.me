@@ -38,7 +38,7 @@ function makeAsphaltTexture(): THREE.CanvasTexture {
   return tex;
 }
 import { MOON_POS, MOON_RADIUS } from '../../world/route';
-import { buildCityLayout, buildProps, buildSkyline, buildStreetFurniture } from '../../world/cityLayout';
+import { buildCityLayout, buildProps, buildSkyline, buildStreetFurniture, buildBillboards } from '../../world/cityLayout';
 import { buildRampGeometry, JUNK, RAMP2, SCAFFOLD } from '../../world/setpieces';
 import { KitPiece } from './KitPiece';
 import { InstancedPieces } from './InstancedPieces';
@@ -75,11 +75,82 @@ function makeConcreteTexture(): THREE.CanvasTexture {
   return tex;
 }
 
+/** Procedural cyberpunk billboard: neon gradient, glyphs, borders, scanlines. */
+const BILLBOARD_WORDS = ['ネオ', 'サイバー', '電脳', '無限', '２０９９', '夜市', 'NEO-X', 'NOODLE', '麺', 'データ', 'CYBER', '現金', 'ヤバい', 'NET://', '零', 'HACK', '東京', 'VOID', '銀河', 'ONLINE'];
+const BILLBOARD_COLORS = ['#FF3DA6', '#2BFDF9', '#FFC857', '#8A6CFF', '#9DFF57', '#FF4D5E', '#4D8CFF'];
+
+function makeBillboardTexture(i: number): THREE.CanvasTexture {
+  const rnd = (() => { let s = (i + 1) * 99991; return () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff; })();
+  const W = 512, H = 512;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d')!;
+  const c1 = BILLBOARD_COLORS[Math.floor(rnd() * BILLBOARD_COLORS.length)];
+  const c2 = BILLBOARD_COLORS[Math.floor(rnd() * BILLBOARD_COLORS.length)];
+  // dark base + subtle gradient wash
+  ctx.fillStyle = '#07060f'; ctx.fillRect(0, 0, W, H);
+  const grd = ctx.createLinearGradient(0, 0, W, H);
+  grd.addColorStop(0, c1 + '22'); grd.addColorStop(1, c2 + '18');
+  ctx.fillStyle = grd; ctx.fillRect(0, 0, W, H);
+  // neon border
+  ctx.strokeStyle = c1; ctx.lineWidth = 12; ctx.shadowColor = c1; ctx.shadowBlur = 30;
+  ctx.strokeRect(18, 18, W - 36, H - 36);
+  ctx.shadowBlur = 0;
+  // a couple of accent bars
+  for (let b = 0; b < 3; b++) {
+    ctx.fillStyle = (rnd() < 0.5 ? c1 : c2) + '55';
+    const by = 40 + rnd() * (H - 120);
+    ctx.fillRect(30, by, W - 60, 6 + rnd() * 10);
+  }
+  // big glyph text (stacked)
+  const vertical = rnd() < 0.5;
+  const word = BILLBOARD_WORDS[Math.floor(rnd() * BILLBOARD_WORDS.length)];
+  ctx.fillStyle = rnd() < 0.5 ? c2 : '#EEF2FF';
+  ctx.shadowColor = c2; ctx.shadowBlur = 26;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (vertical) {
+    const fs = Math.min(150, (H - 80) / word.length);
+    ctx.font = `900 ${fs}px "Segoe UI", system-ui, sans-serif`;
+    [...word].forEach((ch, k) => ctx.fillText(ch, W / 2, 70 + fs / 2 + k * fs));
+  } else {
+    ctx.font = `900 ${Math.min(180, (W - 60) / (word.length * 0.62))}px "Segoe UI", system-ui, sans-serif`;
+    ctx.fillText(word, W / 2, H / 2);
+  }
+  ctx.shadowBlur = 0;
+  // scanlines
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  for (let y = 0; y < H; y += 4) ctx.fillRect(0, y, W, 2);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.anisotropy = 4;
+  return tex;
+}
+
+function Billboards() {
+  const boards = useMemo(() => buildBillboards(), []);
+  const N = 8;
+  const mats = useMemo(
+    () => Array.from({ length: N }, (_, i) => new THREE.MeshBasicMaterial({ map: makeBillboardTexture(i), toneMapped: false, side: THREE.DoubleSide })),
+    [],
+  );
+  const backMat = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x05060c, roughness: 0.8, metalness: 0.3 }), []);
+  return (
+    <group>
+      {boards.map((b, i) => (
+        <group key={i} position={b.position} rotation={[0, b.rotationY, 0]}>
+          <mesh material={backMat} position={[0, 0, -0.25]}><boxGeometry args={[b.w + 0.8, b.h + 0.8, 0.5]} /></mesh>
+          <mesh material={mats[b.tex]}><planeGeometry args={[b.w, b.h]} /></mesh>
+        </group>
+      ))}
+    </group>
+  );
+}
+
 function EnvMap() {
   const texture = useEnvironment({ preset: 'night' });
   const { scene } = useThree();
   useEffect(() => {
     scene.environment = texture;
+    scene.environmentIntensity = LIGHTING.envIntensity;
     return () => { scene.environment = null; };
   }, [scene, texture]);
   return null;
@@ -431,14 +502,19 @@ export default function City() {
     <>
     <Canvas
       gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
-      camera={{ position: [-60, 150, 260], fov: 55, near: 1, far: 8000 }}
+      camera={{ position: [-150, 14, 60], fov: 60, near: 1, far: 8000 }}
     >
-      <color attach="background" args={[PALETTE.void]} />
-      <fog attach="fog" args={[PALETTE.void, 500, 2600]} />
+      <color attach="background" args={['#05060f']} />
+      <fog attach="fog" args={['#0a0a1c', 260, 2100]} />
       <ExposureSync />
       <ambientLight intensity={LIGHTING.ambientIntensity} />
-      <directionalLight position={[200, 300, 100]} intensity={LIGHTING.keyIntensity} />
-      <directionalLight position={[-200, 120, -400]} intensity={LIGHTING.fillIntensity} color={PALETTE.blue} />
+      {/* cool moonlit key from the moon's direction */}
+      <directionalLight position={[160, 380, -600]} intensity={LIGHTING.keyIntensity} color={'#aecbff'} />
+      {/* violet sky / dark ground bounce */}
+      <hemisphereLight args={[PALETTE.violet, '#050510', 0.18]} />
+      {/* subtle neon fills: magenta from one flank, cyan from the other */}
+      <directionalLight position={[-320, 90, 120]} intensity={0.28} color={PALETTE.magenta} />
+      <directionalLight position={[340, 80, -280]} intensity={0.3} color={PALETTE.cyan} />
       <Suspense fallback={null}><EnvMap /></Suspense>
       <Ground />
       <Roads />
@@ -449,11 +525,12 @@ export default function City() {
       <Suspense fallback={null}><Buildings /></Suspense>
       <Suspense fallback={null}><Props /></Suspense>
       <Suspense fallback={null}><Scaffold /></Suspense>
+      <Billboards />
       <Skyline />
       <Moon />
       {FREECAM
         ? <FreeCam />
-        : <OrbitControls makeDefault target={[40, 0, -160]} maxDistance={4000} />}
+        : <OrbitControls makeDefault target={[20, 12, -60]} maxDistance={4000} />}
       <EffectComposer>
         <Bloom intensity={LIGHTING.bloomIntensity} luminanceThreshold={LIGHTING.bloomThreshold} radius={LIGHTING.bloomRadius} mipmapBlur />
       </EffectComposer>

@@ -40,30 +40,31 @@ const g = (n: string) => `neocity/${n}.glb`;
 // Road cross-section (from City.tsx / roads.ts): the driving deck is ±hw, then a
 // wide sidewalk (half-width 4.5, offset hw+4.5) → outer sidewalk edge at hw+9.
 const SIDEWALK = 9;     // sidewalk outer edge, measured from the road centre-line
-const GAP = 2;          // clear gap between the sidewalk and the first building
-const ROW_GAP = 2.5;    // gap between the two building rows
-const FOOT_A = 12;      // front-row allotted footprint radius (bigger = scaled down)
-const FOOT_B = 22;      // back-row allotted footprint radius
+const GAP = 1;          // buildings hug the sidewalk (small clear gap)
+const ALLEY = 3;        // narrow alley between the front wall and the back towers
+const FOOT_A = 16;      // front-row footprint radius (medium/tall rises)
+const FOOT_B = 28;      // back-row footprint radius (tall towers / heroes)
 
 /**
- * Buildings line every road in TWO aligned rows per side, forming a canyon.
- * Each placement stores an ANCHOR on the sidewalk edge + an outward direction;
- * InstancedPieces pushes the building out by its real footprint so its near
- * face lands exactly on the sidewalk edge (scaling down only oversized pieces).
- * Result: clean canyon walls that never overlap a road or sidewalk.
+ * Buildings line every road in TWO tight rows per side, forming a continuous
+ * canyon WALL that towers over the street (so billboards can be projected on
+ * the faces). Each placement stores an ANCHOR at the sidewalk edge + an outward
+ * direction; InstancedPieces pushes the building out by its real footprint so
+ * its near face lands exactly on the sidewalk edge (scaling down only oversized
+ * pieces). A worst-case clearance test guarantees NOTHING overlaps a road.
  */
 export function buildCityLayout(seed = 20260720): Placement[] {
   const rng = makeRng(seed);
   const out: Placement[] = [];
 
-  const anchorA = SIDEWALK + GAP;                       // front band starts here
-  const anchorB = anchorA + 2 * FOOT_A + ROW_GAP;       // back band starts behind front
+  const anchorA = SIDEWALK + GAP;                  // front wall hugs the sidewalk (hw+10)
+  const anchorB = anchorA + 2 * FOOT_A + ALLEY;    // back towers behind a narrow alley
 
   const place = (
     base: THREE.Vector3, bin: THREE.Vector3, tan: THREE.Vector3,
     side: number, hw: number, anchor: number, pool: string[], foot: number,
   ): void => {
-    const jit = rng.range(-3, 3);
+    const jit = rng.range(-2, 2);
     const ax = base.x + bin.x * side * (hw + anchor) + tan.x * jit;
     const az = base.z + bin.z * side * (hw + anchor) + tan.z * jit;
     const ox = bin.x * side, oz = bin.z * side; // outward (away from road)
@@ -72,41 +73,44 @@ export function buildCityLayout(seed = 20260720): Placement[] {
     if (keepClear(cx, cz)) return;
     if (groundRoadClearance(cx, cz) < foot + SIDEWALK + 1) return;
     // tall buildings under the highway clip its deck → use a short building there
-    if (overheadClearance(cx, cz) < foot + 12) pool = SMALL;
+    if (overheadClearance(cx, cz) < foot + 18) pool = SMALL;
     const name = rng.pick(pool);
-    const rotationY = Math.atan2(-ox, -oz) + rng.range(-0.03, 0.03);
+    const rotationY = Math.atan2(-ox, -oz) + rng.range(-0.02, 0.02);
     out.push({ file: g(name), position: [ax, 0, az], rotationY, foot, outDir: [ox, oz] });
   };
 
-  for (const e of groundRoadEdgePoints(24)) {
-    // taper density along the far elevated bridge run (bike is airborne/high there)
+  // front wall — dense (≈every 18 m → buildings touch into a continuous wall)
+  for (const e of groundRoadEdgePoints(18)) {
     const far = e.pos.z < -560;
     for (const side of [1, -1] as const) {
-      // front row — small/mid, a near-continuous wall behind the sidewalk
-      if (!rng.chance(far ? 0.5 : 0.08)) place(e.pos, e.bin, e.tan, side, e.hw, anchorA, rng.chance(0.55) ? SMALL : MID, FOOT_A);
-      // back row — taller buildings, rare hero landmark
-      if (!rng.chance(far ? 0.65 : 0.22)) {
-        const pool = rng.chance(0.15) ? HERO : rng.chance(0.5) ? TALL : MID;
-        place(e.pos, e.bin, e.tan, side, e.hw, anchorB, pool, FOOT_B);
-      }
+      if (rng.chance(far ? 0.4 : 0.02)) continue;
+      place(e.pos, e.bin, e.tan, side, e.hw, anchorA, rng.chance(0.35) ? TALL : MID, FOOT_A);
+    }
+  }
+  // back towers — sparser big buildings peeking over the front wall
+  for (const e of groundRoadEdgePoints(34)) {
+    const far = e.pos.z < -560;
+    for (const side of [1, -1] as const) {
+      if (rng.chance(far ? 0.55 : 0.14)) continue;
+      place(e.pos, e.bin, e.tan, side, e.hw, anchorB, rng.chance(0.4) ? HERO : TALL, FOOT_B);
     }
   }
 
-  // ── Back-fill district: dense blocks behind the road walls, with alley gaps,
-  //    so the surrounding area reads as a real city rather than a thin strip. ──
+  // ── Back-fill district: dense blocks behind the walls, with alley gaps, so the
+  //    surrounding area reads as a real city rather than a thin strip. ──
   const FILL_FOOT = 18;
-  const cell = 44;
+  const cell = 42;
   const CARD = [0, Math.PI / 2];
-  for (let x = -380; x <= 380; x += cell) {
-    for (let z = -700; z <= 140; z += cell) {
-      const jx = x + rng.range(-7, 7), jz = z + rng.range(-7, 7);
+  for (let x = -400; x <= 400; x += cell) {
+    for (let z = -720; z <= 150; z += cell) {
+      const jx = x + rng.range(-6, 6), jz = z + rng.range(-6, 6);
       const c = groundRoadClearance(jx, jz);
-      if (c < 74) continue;                 // handled by the two road-facing rows
-      if (c > 210) continue;                // beyond the district → skyline territory
+      if (c < 84) continue;                 // handled by the two road-facing rows
+      if (c > 230) continue;                // beyond the district → skyline territory
       if (keepClear(jx, jz)) continue;
-      if (rng.chance(0.16)) continue;       // alleys / courtyards
-      let pool = rng.chance(0.08) ? HERO : rng.chance(0.35) ? TALL : rng.chance(0.55) ? MID : SMALL;
-      if (overheadClearance(jx, jz) < FILL_FOOT + 12) pool = SMALL;
+      if (rng.chance(0.14)) continue;       // alleys / courtyards
+      let pool = rng.chance(0.1) ? HERO : rng.chance(0.4) ? TALL : rng.chance(0.55) ? MID : SMALL;
+      if (overheadClearance(jx, jz) < FILL_FOOT + 18) pool = SMALL;
       out.push({
         file: g(rng.pick(pool)),
         position: [jx, 0, jz],
@@ -153,6 +157,36 @@ export function buildProps(seed = 8891): Placement[] {
       if (rng.chance(0.65)) continue;
       const p = e.pos.clone().addScaledVector(e.bin, side * (e.hw + 10.5 + rng.range(0, 2)));
       push(g(rng.pick(DECOR)), p.x, p.z, rng.range(0, Math.PI * 2));
+    }
+  }
+  return out;
+}
+
+// ── Billboards: emissive screens projected across the front building walls ──
+export interface Billboard {
+  position: [number, number, number];
+  rotationY: number;
+  w: number;
+  h: number;
+  tex: number;
+}
+
+export function buildBillboards(seed = 3311, nTex = 8): Billboard[] {
+  const rng = makeRng(seed);
+  const out: Billboard[] = [];
+  for (const e of groundRoadEdgePoints(12)) {
+    if (e.pos.z < -560) continue;              // skip the far bridge run
+    for (const side of [1, -1] as const) {
+      if (rng.chance(0.32)) continue;
+      const ox = e.bin.x * side, oz = e.bin.z * side;
+      const off = e.hw + 9.6;                    // just in front of the front wall
+      const px = e.pos.x + ox * off, pz = e.pos.z + oz * off;
+      if (keepClear(px, pz) || groundRoadClearance(px, pz) < 8) continue;
+      const vertical = rng.chance(0.42);
+      const w = vertical ? rng.range(3.5, 6.5) : rng.range(9, 20);
+      const h = vertical ? rng.range(12, 30) : rng.range(4.5, 11);
+      const y = rng.range(11, 52) + h / 2;
+      out.push({ position: [px, y, pz], rotationY: Math.atan2(-ox, -oz), w, h, tex: rng.int(0, nTex - 1) });
     }
   }
   return out;

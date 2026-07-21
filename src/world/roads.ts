@@ -19,10 +19,11 @@ for (let i = 0; i <= 90; i++) {
 }
 const mainCurve = new THREE.CatmullRomCurve3(mainPts, false, 'centripetal', 0.5);
 
-// ── One secondary ground cross-street (an intersection for variety) ──
+// ── One secondary ground cross-street: crosses the main boulevard (which runs
+//    along z≈0) perpendicularly at x=-60, making a clean + intersection. ──
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 const cross = new THREE.CatmullRomCurve3(
-  [V(90, 0, -120), V(-40, 0, -60), V(-200, 0, -30)], false, 'centripetal', 0.5);
+  [V(-60, 0, 95), V(-60, 0, 0), V(-62, 0, -120), V(-70, 0, -210)], false, 'centripetal', 0.5);
 
 // ── Elevated curved highway sweeping over the scene (multi-level, dynamic) ──
 const hwy = new THREE.CatmullRomCurve3(
