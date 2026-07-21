@@ -304,7 +304,7 @@ function JunkRamp() {
       {/* KitBash crates / containers dressing the pile */}
       <Suspense fallback={null}>
         {crates.map(([f, x, y, z, r], i) => (
-          <KitPiece key={i} file={`neocity/KB3D_NEC_${f}.glb`} position={[x, y, z]} rotationY={r} />
+          <KitPiece key={i} file={`neocity/KB3D_NEC_${f}.glb`} position={[x, y, z]} rotationY={r} center />
         ))}
       </Suspense>
     </group>
@@ -359,7 +359,7 @@ function Scaffold() {
   return (
     <group>
       <Suspense fallback={null}>
-        <KitPiece file={`neocity/${S.building}.glb`} position={S.buildingPos} rotationY={S.buildingRot} />
+        <KitPiece file={`neocity/${S.building}.glb`} position={S.buildingPos} rotationY={S.buildingRot} center />
       </Suspense>
       {/* deck slab + plank strips */}
       <mesh material={metal} position={[cx, y - S.deckThick / 2, cz]}><boxGeometry args={[w, S.deckThick, l]} /></mesh>

@@ -31,40 +31,61 @@ export interface Placement {
   position: [number, number, number];
   rotationY: number;
   scale?: number;
+  foot?: number;
+  outDir?: [number, number];
 }
 
 const g = (n: string) => `neocity/${n}.glb`;
 
+// Road cross-section (from City.tsx / roads.ts): the driving deck is ±hw, then a
+// 6.4 m sidewalk (offset hw+3.2, half-width 3.2) → outer sidewalk edge at hw+6.4.
+const SIDEWALK = 6.4;   // sidewalk outer edge, measured from the road centre-line
+const GAP = 2.5;        // clear gap between the sidewalk and the first building
+const ROW_GAP = 2.5;    // gap between the two building rows
+const FOOT_A = 12;      // front-row allotted footprint radius (bigger = scaled down)
+const FOOT_B = 22;      // back-row allotted footprint radius
+
 /**
- * Buildings line the roads in aligned ROWS (a canyon between dense walls): a
- * short front wall right behind the sidewalk, taller buildings set back, rare
- * hero towers deep. Every building FACES the road and is verified clear of all
- * roads + the stunt keep-clear zone, so nothing lands on a street.
+ * Buildings line every road in TWO aligned rows per side, forming a canyon.
+ * Each placement stores an ANCHOR on the sidewalk edge + an outward direction;
+ * InstancedPieces pushes the building out by its real footprint so its near
+ * face lands exactly on the sidewalk edge (scaling down only oversized pieces).
+ * Result: clean canyon walls that never overlap a road or sidewalk.
  */
 export function buildCityLayout(seed = 20260720): Placement[] {
   const rng = makeRng(seed);
   const out: Placement[] = [];
 
-  const place = (base: THREE.Vector3, bin: THREE.Vector3, tan: THREE.Vector3, side: number, off: number, pool: string[], foot: number): void => {
-    const jitter = rng.range(-7, 7);
-    const px = base.x + bin.x * side * off + tan.x * jitter;
-    const pz = base.z + bin.z * side * off + tan.z * jitter;
-    if (keepClear(px, pz)) return;
-    if (groundRoadClearance(px, pz) < foot + 2) return;
+  const anchorA = SIDEWALK + GAP;                       // front band starts here
+  const anchorB = anchorA + 2 * FOOT_A + ROW_GAP;       // back band starts behind front
+
+  const place = (
+    base: THREE.Vector3, bin: THREE.Vector3, tan: THREE.Vector3,
+    side: number, hw: number, anchor: number, pool: string[], foot: number,
+  ): void => {
+    const jit = rng.range(-3, 3);
+    const ax = base.x + bin.x * side * (hw + anchor) + tan.x * jit;
+    const az = base.z + bin.z * side * (hw + anchor) + tan.z * jit;
+    const ox = bin.x * side, oz = bin.z * side; // outward (away from road)
+    // worst-case building centre (footprint radius = foot) must clear every road+sidewalk
+    if (keepClear(ax + ox * foot, az + oz * foot)) return;
+    if (groundRoadClearance(ax + ox * foot, az + oz * foot) < foot + SIDEWALK + 1) return;
     const name = rng.pick(pool);
-    // face the road: front (+Z of the piece) points toward the road centre
-    const rotationY = Math.atan2(-bin.x * side, -bin.z * side) + rng.range(-0.05, 0.05);
-    out.push({ file: g(name), position: [px, 0, pz], rotationY });
+    const rotationY = Math.atan2(-ox, -oz) + rng.range(-0.03, 0.03);
+    out.push({ file: g(name), position: [ax, 0, az], rotationY, foot, outDir: [ox, oz] });
   };
 
-  for (const e of groundRoadEdgePoints(34)) {
+  for (const e of groundRoadEdgePoints(26)) {
+    // taper density along the far elevated bridge run (bike is airborne/high there)
+    const far = e.pos.z < -560;
     for (const side of [1, -1] as const) {
-      // front wall (dense) — small/mid right behind the sidewalk
-      if (!rng.chance(0.12)) place(e.pos, e.bin, e.tan, side, e.hw + 11, rng.chance(0.5) ? SMALL : MID, 9);
-      // second row — mid/tall
-      if (!rng.chance(0.3)) place(e.pos, e.bin, e.tan, side, e.hw + 40, rng.chance(0.35) ? TALL : MID, 22);
-      // occasional deep tower / hero landmark
-      if (rng.chance(0.28)) place(e.pos, e.bin, e.tan, side, e.hw + 72, rng.chance(0.3) ? HERO : TALL, 26);
+      // front row — small/mid, a near-continuous wall behind the sidewalk
+      if (!rng.chance(far ? 0.55 : 0.1)) place(e.pos, e.bin, e.tan, side, e.hw, anchorA, rng.chance(0.55) ? SMALL : MID, FOOT_A);
+      // back row — taller buildings, rare hero landmark
+      if (!rng.chance(far ? 0.7 : 0.28)) {
+        const pool = rng.chance(0.15) ? HERO : rng.chance(0.5) ? TALL : MID;
+        place(e.pos, e.bin, e.tan, side, e.hw, anchorB, pool, FOOT_B);
+      }
     }
   }
   return out;

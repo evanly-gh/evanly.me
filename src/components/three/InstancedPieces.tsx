@@ -7,6 +7,13 @@ export interface Placement {
   position: [number, number, number];
   rotationY: number;
   scale?: number;
+  /** Max footprint radius (m). The instance is uniformly scaled so its
+   *  circumscribed footprint never exceeds this — guarantees no road overlap. */
+  foot?: number;
+  /** Unit outward (away-from-road) direction [x,z]. If set, the instance is
+   *  pushed out by its effective footprint radius so its near face lands on the
+   *  sidewalk edge — buildings of any size line up cleanly with no overlap. */
+  outDir?: [number, number];
 }
 
 const EMISSIVE_HINT = /light|neon|glass|screen|banner|letter|sign|decal/i;
@@ -24,10 +31,16 @@ function tuneMat(m: THREE.Material): THREE.Material {
  */
 function InstancedFile({ file, items }: { file: string; items: Placement[] }) {
   const { scene } = useGLTF('/models/' + file);
-  const parts = useMemo(() => {
+  const { parts, footRadius } = useMemo(() => {
     scene.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(scene);
-    const ground = new THREE.Matrix4().makeTranslation(0, -box.min.y, 0);
+    // Ground (min.y → 0) AND recentre the footprint in X/Z so the placement
+    // origin equals the building centre (KitBash origins are often way off).
+    const cx = (box.min.x + box.max.x) / 2;
+    const cz = (box.min.z + box.max.z) / 2;
+    const ground = new THREE.Matrix4().makeTranslation(-cx, -box.min.y, -cz);
+    const sizeX = box.max.x - box.min.x, sizeZ = box.max.z - box.min.z;
+    const radius = 0.5 * Math.hypot(sizeX, sizeZ) || 1;
     const out: { geometry: THREE.BufferGeometry; material: THREE.Material | THREE.Material[]; local: THREE.Matrix4 }[] = [];
     scene.traverse((o) => {
       const m = o as THREE.Mesh;
@@ -35,7 +48,7 @@ function InstancedFile({ file, items }: { file: string; items: Placement[] }) {
       const material = Array.isArray(m.material) ? m.material.map(tuneMat) : tuneMat(m.material);
       out.push({ geometry: m.geometry, material, local: new THREE.Matrix4().multiplyMatrices(ground, m.matrixWorld) });
     });
-    return out;
+    return { parts: out, footRadius: radius };
   }, [scene]);
 
   const refs = useRef<(THREE.InstancedMesh | null)[]>([]);
@@ -49,9 +62,17 @@ function InstancedFile({ file, items }: { file: string; items: Placement[] }) {
       const im = refs.current[pi];
       if (!im) return;
       items.forEach((it, ii) => {
-        const s = it.scale ?? 1;
+        const base = it.scale ?? 1;
+        // clamp footprint so the building can never spill onto the road
+        const s = it.foot ? Math.min(base, it.foot / footRadius) : base;
         q.setFromEuler(new THREE.Euler(0, it.rotationY, 0));
-        pos.set(it.position[0], it.position[1], it.position[2]);
+        let px = it.position[0], pz = it.position[2];
+        if (it.outDir) {
+          const effR = footRadius * s; // = min(footRadius, foot)
+          px += it.outDir[0] * effR;
+          pz += it.outDir[1] * effR;
+        }
+        pos.set(px, it.position[1], pz);
         scl.set(s, s, s);
         itemM.compose(pos, q, scl);
         out.multiplyMatrices(itemM, part.local);
@@ -60,7 +81,7 @@ function InstancedFile({ file, items }: { file: string; items: Placement[] }) {
       im.instanceMatrix.needsUpdate = true;
       im.computeBoundingSphere();
     });
-  }, [parts, items]);
+  }, [parts, footRadius, items]);
 
   return (
     <>

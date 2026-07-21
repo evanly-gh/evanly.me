@@ -13,10 +13,13 @@ export function KitPiece({
   file,
   position,
   rotationY = 0,
+  center = false,
 }: {
   file: string;
   position: [number, number, number];
   rotationY?: number;
+  /** Recentre the footprint in X/Z so `position` is the piece centre. */
+  center?: boolean;
 }) {
   const { scene } = useGLTF('/models/' + file);
   const obj = useMemo(() => {
@@ -32,8 +35,12 @@ export function KitPiece({
     c.updateMatrixWorld(true); // ensure child world matrices are current before measuring
     const box = new THREE.Box3().setFromObject(c);
     if (Number.isFinite(box.min.y)) c.position.y -= box.min.y; // sit on the ground
+    if (center && Number.isFinite(box.min.x)) {
+      c.position.x -= (box.min.x + box.max.x) / 2;
+      c.position.z -= (box.min.z + box.max.z) / 2;
+    }
     return c;
-  }, [scene]);
+  }, [scene, center]);
 
   return (
     <group position={position} rotation={[0, rotationY, 0]}>
