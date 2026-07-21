@@ -14,14 +14,16 @@ const WAYPOINTS: [number, number, number][] = [
   [-240,  0,     0],   // aboutStart
   [ 160,  0,     0],   // aboutEnd
   [ 240,  0,     0],   // shibuya (turn apex)
-  [ 240,  0,   -70],   // ramp1Base
-  [ 240, 11,   -95],   // ramp1Lip
-  [ 240, 20,  -120],   // flip1Apex (airborne peak)
-  [ 240, 13,  -160],   // scaffoldDeck
-  [ 240, 13,  -210],   // scaffoldEnd
-  [ 240, 22,  -235],   // ramp2Lip
-  [ 240, 30,  -260],   // flip2Apex (airborne peak)
-  [ 240, 12,  -300],   // descendTop
+  // stunt veers to the +X (right) side of the road so ramps/scaffold sit off
+  // to one side; the bike drifts back to centre at roadResume.
+  [ 250,  0,   -70],   // ramp1Base
+  [ 250, 11,   -95],   // ramp1Lip
+  [ 250, 20,  -120],   // flip1Apex (airborne peak)
+  [ 250, 13,  -160],   // scaffoldDeck
+  [ 250, 13,  -210],   // scaffoldEnd
+  [ 250, 22,  -235],   // ramp2Lip
+  [ 250, 30,  -260],   // flip2Apex (airborne peak)
+  [ 250, 12,  -300],   // descendTop
   [ 240,  0,  -340],   // roadResume
   [ 240,  0,  -470],   // researchMid
   [ 240,  0,  -600],   // researchEnd

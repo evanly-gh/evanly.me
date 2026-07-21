@@ -1,10 +1,10 @@
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
-import { OrbitControls, PointerLockControls, useEnvironment } from '@react-three/drei';
+import { OrbitControls, PointerLockControls, useEnvironment, useGLTF } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { PALETTE, LIGHTING } from '../../theme';
-import { ROADS, buildCurveRibbon } from '../../world/roads';
+import { ROADS, buildCurveRibbon, groundRoadEdgePoints } from '../../world/roads';
 
 const FREECAM = new URLSearchParams(location.search).has('freecam');
 
@@ -43,6 +43,7 @@ import { buildRampGeometry, JUNK, RAMP2, SCAFFOLD } from '../../world/setpieces'
 import { KitPiece } from './KitPiece';
 import { InstancedPieces } from './InstancedPieces';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { makeRng } from '../../assets/rng';
 
 /** Procedural concrete texture for the ground (grime + cracks + faint blocks). */
 function makeConcreteTexture(): THREE.CanvasTexture {
@@ -497,12 +498,147 @@ function Moon() {
   );
 }
 
+// ── Flying traffic: hovercars streaming along aerial lanes with neon trails ──
+const V3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+const VEHICLES = ['props/veh_coupe.glb', 'props/veh_sedan.glb', 'props/veh_truck.glb', 'props/veh_police.glb'];
+VEHICLES.forEach((f) => useGLTF.preload('/models/' + f));
+
+function FlyCar({ file, a, b, y, color, phase, speed }: { file: string; a: THREE.Vector3; b: THREE.Vector3; y: number; color: string; phase: number; speed: number }) {
+  const { scene } = useGLTF('/models/' + file);
+  const { obj, scl } = useMemo(() => {
+    const c = scene.clone(true);
+    c.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) m.material = new THREE.MeshStandardMaterial({ color: 0x0f121b, metalness: 0.85, roughness: 0.35, emissive: new THREE.Color(color), emissiveIntensity: 0.4 });
+    });
+    c.updateMatrixWorld(true);
+    const size = new THREE.Box3().setFromObject(c).getSize(new THREE.Vector3());
+    return { obj: c, scl: 7 / (Math.max(size.x, size.y, size.z) || 1) };
+  }, [scene, color]);
+  const dir = useMemo(() => new THREE.Vector3().subVectors(b, a), [a, b]);
+  const yaw = Math.atan2(dir.x, dir.z);
+  const ref = useRef<THREE.Group>(null);
+  useFrame((state) => {
+    const t = (((state.clock.elapsedTime * speed + phase) % 1) + 1) % 1;
+    ref.current?.position.set(a.x + dir.x * t, y, a.z + dir.z * t);
+  });
+  const trailMat = useMemo(() => new THREE.MeshBasicMaterial({ color: new THREE.Color(color), transparent: true, opacity: 0.45, toneMapped: false, side: THREE.DoubleSide }), [color]);
+  return (
+    <group ref={ref} rotation={[0, yaw, 0]}>
+      <primitive object={obj} scale={scl} />
+      <mesh material={trailMat} position={[0, 0, -10]} rotation={[Math.PI / 2, 0, 0]}><planeGeometry args={[0.7, 18]} /></mesh>
+      <mesh material={trailMat} position={[0, -0.7, -1]} rotation={[Math.PI / 2, 0, 0]}><planeGeometry args={[2.6, 6]} /></mesh>
+    </group>
+  );
+}
+
+function FlyingTraffic() {
+  const lanes = useMemo(() => [
+    { a: V3(-520, 0, -90), b: V3(520, 0, -140), y: 33, color: PALETTE.cyan, n: 5, speed: 0.030 },
+    { a: V3(520, 0, -260), b: V3(-520, 0, -220), y: 50, color: PALETTE.magenta, n: 4, speed: 0.026 },
+    { a: V3(-480, 0, 120), b: V3(480, 0, 70), y: 42, color: PALETTE.amber, n: 4, speed: 0.028 },
+    { a: V3(300, 0, -720), b: V3(286, 0, 300), y: 62, color: PALETTE.cyan, n: 6, speed: 0.020 },
+    { a: V3(-540, 0, -520), b: V3(540, 0, -470), y: 72, color: PALETTE.violet, n: 3, speed: 0.023 },
+  ], []);
+  return (
+    <Suspense fallback={null}>
+      {lanes.flatMap((l, li) => Array.from({ length: l.n }, (_, i) => (
+        <FlyCar key={li + '-' + i} file={VEHICLES[(li + i) % VEHICLES.length]} a={l.a} b={l.b} y={l.y} color={l.color} phase={i / l.n} speed={l.speed} />
+      )))}
+    </Suspense>
+  );
+}
+
+// ── Pedestrians: Quaternius characters along sidewalks + dense at crossings ──
+useGLTF.preload('/models/props/ped_char.glb');
+function Pedestrians() {
+  const { scene } = useGLTF('/models/props/ped_char.glb');
+  const { proto, scl } = useMemo(() => {
+    const c = scene.clone(true);
+    c.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(c);
+    const s = 1.8 / ((box.max.y - box.min.y) || 1);
+    c.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) m.material = new THREE.MeshStandardMaterial({ color: 0x14161e, roughness: 0.7, metalness: 0.2, emissive: new THREE.Color(PALETTE.cyan), emissiveIntensity: 0.12 });
+    });
+    c.position.y = -box.min.y; // ground within its group
+    return { proto: c, scl: s };
+  }, [scene]);
+  const spots = useMemo(() => {
+    const rng = makeRng(4242);
+    const out: { x: number; z: number; r: number }[] = [];
+    for (const e of groundRoadEdgePoints(9)) {
+      if (e.pos.z < -560) continue;
+      for (const side of [1, -1] as const) {
+        if (rng.chance(0.82)) continue;
+        const off = e.hw + 4 + rng.range(-1.5, 2.5);
+        out.push({ x: e.pos.x + e.bin.x * side * off, z: e.pos.z + e.bin.z * side * off, r: rng.range(0, Math.PI * 2) });
+      }
+    }
+    // dense scramble crowds at the two intersections
+    for (const [cx, cz] of [[-60, 0], [160, 0]] as const)
+      for (let i = 0; i < 26; i++) out.push({ x: cx + rng.range(-13, 13), z: cz + rng.range(-13, 13), r: rng.range(0, Math.PI * 2) });
+    return out;
+  }, []);
+  return (
+    <group>
+      {spots.map((p, i) => (
+        <group key={i} position={[p.x, 0, p.z]} rotation={[0, p.r, 0]} scale={scl}>
+          <primitive object={proto.clone(true)} />
+        </group>
+      ))}
+    </group>
+  );
+}
+
+// ── Procedural street dressing: crosswalks, manholes, cones, trashcans ──
+function StreetDressing() {
+  const white = useMemo(() => new THREE.MeshStandardMaterial({ color: 0xd8dbe6, roughness: 0.7, emissive: new THREE.Color(0x8891a6), emissiveIntensity: 0.25 }), []);
+  const dark = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x0a0c12, roughness: 0.6, metalness: 0.6 }), []);
+  const cone = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x1a0d05, emissive: new THREE.Color(PALETTE.amber), emissiveIntensity: 0.8, toneMapped: false }), []);
+  const can = useMemo(() => new THREE.MeshStandardMaterial({ color: 0x1a1d24, roughness: 0.6, metalness: 0.5 }), []);
+
+  // crosswalk bars across the straight boulevard (road along x at z≈0, hw=11)
+  const crossbars: [number, number][] = [];
+  for (const cx of [-60, 120, -170]) for (let k = -5; k <= 5; k++) crossbars.push([cx + k * 1.7, 0]);
+  // manholes + cans + cones along the network
+  const rng = makeRng(70);
+  const manholes: [number, number][] = [];
+  const cans: [number, number, number][] = [];
+  const cones: [number, number][] = [];
+  for (const e of groundRoadEdgePoints(26)) {
+    if (rng.chance(0.6)) manholes.push([e.pos.x + e.bin.x * rng.range(-4, 4), e.pos.z + e.bin.z * rng.range(-4, 4)]);
+    for (const side of [1, -1] as const) {
+      if (rng.chance(0.8)) { const o = e.hw + 6; cans.push([e.pos.x + e.bin.x * side * o, e.pos.z + e.bin.z * side * o, rng.range(0, 6.28)]); }
+    }
+  }
+  // cones lining the stunt approach (off to the side at x≈250)
+  for (let z = -40; z >= -110; z -= 6) cones.push([244, z]);
+  return (
+    <group>
+      {crossbars.map(([x, z], i) => (
+        <mesh key={'cb' + i} material={white} position={[x, 0.06, z]}><boxGeometry args={[0.7, 0.04, 20]} /></mesh>
+      ))}
+      {manholes.map(([x, z], i) => (
+        <mesh key={'mh' + i} material={dark} position={[x, 0.04, z]} rotation={[-Math.PI / 2, 0, 0]}><circleGeometry args={[1.1, 16]} /></mesh>
+      ))}
+      {cones.map(([x, z], i) => (
+        <mesh key={'cn' + i} material={cone} position={[x, 0.5, z]}><coneGeometry args={[0.4, 1, 8]} /></mesh>
+      ))}
+      {cans.map(([x, z, r], i) => (
+        <mesh key={'tc' + i} material={can} position={[x, 0.6, z]} rotation={[0, r, 0]}><cylinderGeometry args={[0.5, 0.55, 1.2, 10]} /></mesh>
+      ))}
+    </group>
+  );
+}
+
 export default function City() {
   return (
     <>
     <Canvas
       gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
-      camera={{ position: [-150, 14, 60], fov: 60, near: 1, far: 8000 }}
+      camera={{ position: [-30, 92, 250], fov: 58, near: 1, far: 8000 }}
     >
       <color attach="background" args={['#05060f']} />
       <fog attach="fog" args={['#0a0a1c', 260, 2100]} />
@@ -526,11 +662,14 @@ export default function City() {
       <Suspense fallback={null}><Props /></Suspense>
       <Suspense fallback={null}><Scaffold /></Suspense>
       <Billboards />
+      <StreetDressing />
+      <FlyingTraffic />
+      <Suspense fallback={null}><Pedestrians /></Suspense>
       <Skyline />
       <Moon />
       {FREECAM
         ? <FreeCam />
-        : <OrbitControls makeDefault target={[20, 12, -60]} maxDistance={4000} />}
+        : <OrbitControls makeDefault target={[40, 18, -130]} maxDistance={4000} />}
       <EffectComposer>
         <Bloom intensity={LIGHTING.bloomIntensity} luminanceThreshold={LIGHTING.bloomThreshold} radius={LIGHTING.bloomRadius} mipmapBlur />
       </EffectComposer>

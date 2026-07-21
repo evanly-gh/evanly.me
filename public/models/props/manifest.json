@@ -1,0 +1,27 @@
+[
+  {
+    "name": "veh_coupe",
+    "file": "props/veh_coupe.glb",
+    "kb": 2
+  },
+  {
+    "name": "veh_sedan",
+    "file": "props/veh_sedan.glb",
+    "kb": 2
+  },
+  {
+    "name": "veh_truck",
+    "file": "props/veh_truck.glb",
+    "kb": 2
+  },
+  {
+    "name": "veh_police",
+    "file": "props/veh_police.glb",
+    "kb": 2
+  },
+  {
+    "name": "ped_char",
+    "file": "props/ped_char.glb",
+    "kb": 37
+  }
+]

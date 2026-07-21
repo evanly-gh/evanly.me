@@ -21,32 +21,36 @@ export function buildRampGeometry(length: number, width: number, rise: number): 
 //   ramp2 (thin kicker, y13→22) → flip → drop back to the road.
 // rotationY = π/2 maps a piece's local +X (up-slope run) to world −Z.
 
+// The stunt sits off to the +X (right) side of the road (x=250) and is kept
+// thin so it hugs one side; matches the route waypoints in route.ts.
+const STUNT_X = 250;
+
 /** Ramp 1: improvised junk pile — base wedge dressed with crates/dumpster/planks. */
 export const JUNK = {
-  base: [240, 0, -70] as [number, number, number], // world base of the up-slope
+  base: [STUNT_X, 0, -70] as [number, number, number], // world base of the up-slope
   rotationY: Math.PI / 2,
   run: 26,
-  width: 12,
+  width: 7,
   rise: 11,
 };
 
-/** Elevated scaffold deck the bike rides across (centred on the road, tied to a building). */
+/** Elevated scaffold deck the bike rides across (off to one side, tied to a building). */
 export const SCAFFOLD = {
-  deckCenter: [240, 13, -165] as [number, number, number],
+  deckCenter: [STUNT_X, 13, -165] as [number, number, number],
   deckLen: 96,   // z ≈ -117 .. -213
-  deckWidth: 15,
+  deckWidth: 9,
   deckThick: 1,
   deckY: 13,
   building: 'KB3D_NEC_BldgLG_C_Main',
-  buildingPos: [294, 0, -165] as [number, number, number],
+  buildingPos: [300, 0, -165] as [number, number, number],
   buildingRot: -Math.PI / 2,
 };
 
 /** Ramp 2: a thin metal kicker off the end of the deck (y13 → 22). */
 export const RAMP2 = {
-  base: [240, 13, -210] as [number, number, number],
+  base: [STUNT_X, 13, -210] as [number, number, number],
   rotationY: Math.PI / 2,
   run: 25,
-  width: 9,
+  width: 6,
   rise: 9,
 };
