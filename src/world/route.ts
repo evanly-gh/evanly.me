@@ -13,7 +13,11 @@ const WAYPOINTS: [number, number, number][] = [
   [-320,  0,     0],   // introStart
   [-240,  0,     0],   // aboutStart
   [ 160,  0,     0],   // aboutEnd
+  [ 232,  0,     0],   // shape: straight Shibuya entry
+  [ 239.75, 0,   0],   // shape: suppress northward Catmull-Rom overshoot
   [ 240,  0,     0],   // shibuya (turn apex)
+  [ 240,  0, -0.25],   // shape: tight south-facing turn exit
+  [ 242,  0,   -16],   // shape: blend toward the stunt approach
   // stunt veers to the +X (right) side of the road so ramps/scaffold sit off
   // to one side; the bike drifts back to centre at roadResume.
   [ 250,  0,   -70],   // ramp1Base
@@ -28,7 +32,7 @@ const WAYPOINTS: [number, number, number][] = [
   [ 240,  0,  -470],   // researchMid
   [ 240,  0,  -600],   // researchEnd
   [ 240,  8,  -640],   // bridgeStart
-  [ 240, 12, -1100],   // bridgeEnd
+  [ 240, 16, -1600],   // bridgeEnd
 ];
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -40,6 +44,53 @@ const curve = new THREE.CatmullRomCurve3(
   'centripetal', // avoids cusps at sharp turns
   0.5            // default alpha
 );
+
+class RouteSegmentCurve extends THREE.Curve<THREE.Vector3> {
+  constructor(
+    private readonly startT: number,
+    private readonly endT: number,
+    private readonly flatten: boolean,
+  ) {
+    super();
+  }
+
+  override getPoint(t: number, optionalTarget = new THREE.Vector3()): THREE.Vector3 {
+    const semanticT = THREE.MathUtils.lerp(this.startT, this.endT, t);
+    sampleSemanticPoint(semanticT, optionalTarget);
+    return this.flatten ? optionalTarget.setY(0) : optionalTarget;
+  }
+
+  override getTangent(t: number, optionalTarget = new THREE.Vector3()): THREE.Vector3 {
+    const semanticT = THREE.MathUtils.lerp(this.startT, this.endT, t);
+    sampleSemanticTangent(semanticT, optionalTarget);
+    if (this.flatten) optionalTarget.setY(0);
+    return optionalTarget.normalize();
+  }
+}
+
+export const GROUND_ROUTE_END_T = 0.84;
+
+/**
+ * Direct horizontal projection of the bike route through the shoreline split.
+ * No ground asphalt is generated beneath the elevated finale.
+ */
+export function buildGroundRouteCurve(): THREE.Curve<THREE.Vector3> {
+  return new RouteSegmentCurve(0, GROUND_ROUTE_END_T, true);
+}
+
+/**
+ * Direct semantic sub-curve of the bike route. Geometry follows the original
+ * unflattened route points and tangents without fitting another spline.
+ */
+export function buildRouteSegmentCurve(
+  startT: number,
+  endT: number,
+): THREE.Curve<THREE.Vector3> {
+  if (startT < 0 || endT > 1 || startT >= endT) {
+    throw new Error(`Invalid route segment ${startT}..${endT}`);
+  }
+  return new RouteSegmentCurve(startT, endT, false);
+}
 
 // Pre-compute arc length (builds internal LUT for getPointAt / getTangentAt).
 export const ROUTE_LENGTH: number = curve.getLength();
@@ -93,29 +144,35 @@ function _arcAt(idx: number): number {
 }
 
 // Waypoint indices used as remap anchors:
-//   introStart=0, aboutStart=1, aboutEnd=2, shibuya=3, ramp1Base=4,
-//   flip1Apex=6 (ramp1Lip idx=5 has no semantic-t anchor — shape waypoint only),
-//   scaffoldDeck=7, scaffoldEnd=8, ramp2Lip=9, flip2Apex=10, descendTop=11,
-//   roadResume=12, researchMid=13, researchEnd=14, bridgeStart=15, bridgeEnd=16.
+//   introStart=0, aboutStart=1, aboutEnd=2, Shibuya shape points=3..4,
+//   shibuya=5, exit shape points=6..7, ramp1Base=8, ramp1Lip=9,
+//   flip1Apex=10, scaffoldDeck=11, scaffoldEnd=12, ramp2Lip=13,
+//   flip2Apex=14, descendTop=15, roadResume=16, researchMid=17,
+//   researchEnd=18, bridgeStart=19, bridgeEnd=20.
+const SEMANTIC_WAYPOINTS: Array<{ t: number; index: number }> = [
+  { t: 0.000, index: 0 },   // introStart
+  { t: 0.120, index: 1 },   // aboutStart
+  { t: 0.280, index: 2 },   // aboutEnd
+  { t: 0.320, index: 5 },   // shibuya
+  { t: 0.360, index: 8 },   // ramp1Base
+  { t: 0.410, index: 10 },  // flip1Apex (ramp1Lip idx=9 has no semantic-t anchor)
+  { t: 0.460, index: 11 },  // scaffoldDeck
+  { t: 0.520, index: 12 },  // scaffoldEnd
+  { t: 0.545, index: 13 },  // ramp2Lip
+  { t: 0.570, index: 14 },  // flip2Apex
+  { t: 0.620, index: 15 },  // descendTop
+  { t: 0.680, index: 16 },  // roadResume
+  { t: 0.760, index: 17 },  // researchMid
+  { t: 0.840, index: 18 },  // researchEnd
+  { t: 0.890, index: 19 },  // bridgeStart
+  { t: 1.000, index: 20 },  // bridgeEnd
+];
+
 const T_REMAP: [number, number][] = (() => {
-  const table: [number, number][] = [
-    [0.000, _arcAt(0)],   // introStart
-    [0.120, _arcAt(1)],   // aboutStart
-    [0.280, _arcAt(2)],   // aboutEnd
-    [0.320, _arcAt(3)],   // shibuya
-    [0.360, _arcAt(4)],   // ramp1Base
-    [0.410, _arcAt(6)],   // flip1Apex (ramp1Lip idx=5 has no semantic-t anchor)
-    [0.460, _arcAt(7)],   // scaffoldDeck
-    [0.520, _arcAt(8)],   // scaffoldEnd
-    [0.545, _arcAt(9)],   // ramp2Lip
-    [0.570, _arcAt(10)],  // flip2Apex
-    [0.620, _arcAt(11)],  // descendTop
-    [0.680, _arcAt(12)],  // roadResume
-    [0.760, _arcAt(13)],  // researchMid
-    [0.840, _arcAt(14)],  // researchEnd
-    [0.890, _arcAt(15)],  // bridgeStart
-    [1.000, _arcAt(16)],  // bridgeEnd
-  ];
+  const table: [number, number][] = SEMANTIC_WAYPOINTS.map(({ t, index }) => [
+    t,
+    _arcAt(index),
+  ]);
   // Guarantee monotonicity of the arc-length column.
   for (let i = 1; i < table.length; i++) {
     if (table[i][1] <= table[i - 1][1]) {
@@ -143,6 +200,33 @@ function semanticToArc(t: number): number {
   return 1;
 }
 
+function semanticWaypointIndex(t: number): number | undefined {
+  return SEMANTIC_WAYPOINTS.find((anchor) =>
+    Math.abs(anchor.t - t) <= Number.EPSILON * 8)?.index;
+}
+
+function sampleSemanticPoint(
+  t: number,
+  optionalTarget = new THREE.Vector3(),
+): THREE.Vector3 {
+  const waypointIndex = semanticWaypointIndex(t);
+  if (waypointIndex !== undefined) {
+    return curve.getPoint(waypointIndex / _n, optionalTarget);
+  }
+  return optionalTarget.copy(curve.getPointAt(semanticToArc(t)));
+}
+
+function sampleSemanticTangent(
+  t: number,
+  optionalTarget = new THREE.Vector3(),
+): THREE.Vector3 {
+  const waypointIndex = semanticWaypointIndex(t);
+  const tangent = waypointIndex === undefined
+    ? curve.getTangentAt(semanticToArc(t))
+    : curve.getTangent(waypointIndex / _n);
+  return optionalTarget.copy(tangent).normalize();
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Public interfaces
 // ──────────────────────────────────────────────────────────────────────────────
@@ -162,9 +246,8 @@ export interface RoadFrame {
 // sampleRoute — pure, deterministic.  t ∈ [0,1] is semantic story progress.
 // ──────────────────────────────────────────────────────────────────────────────
 export function sampleRoute(t: number): RouteSample {
-  const at = semanticToArc(t);
-  const pos = curve.getPointAt(at);
-  const tangent = curve.getTangentAt(at).normalize();
+  const pos = sampleSemanticPoint(t);
+  const tangent = sampleSemanticTangent(t);
   return { pos, tangent };
 }
 
@@ -176,9 +259,8 @@ export function sampleRoute(t: number): RouteSample {
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
 
 export function roadFrame(t: number): RoadFrame {
-  const at = semanticToArc(t);
-  const pos = curve.getPointAt(at);
-  const tangent = curve.getTangentAt(at).normalize();
+  const pos = sampleSemanticPoint(t);
+  const tangent = sampleSemanticTangent(t);
 
   // Guard against degenerate case (tangent ∥ worldUp — never occurs on this path).
   let binormal: THREE.Vector3;
@@ -212,5 +294,5 @@ export const ZONES: Record<string, [number, number]> = {
 // ──────────────────────────────────────────────────────────────────────────────
 // Moon
 // ──────────────────────────────────────────────────────────────────────────────
-export const MOON_POS: THREE.Vector3 = new THREE.Vector3(240, 240, -2400);
-export const MOON_RADIUS: number = 300;
+export const MOON_POS: THREE.Vector3 = new THREE.Vector3(240, 330, -3300);
+export const MOON_RADIUS: number = 400;

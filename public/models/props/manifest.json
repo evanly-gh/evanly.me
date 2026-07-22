@@ -1,27 +1,162 @@
 [
   {
-    "name": "veh_coupe",
-    "file": "props/veh_coupe.glb",
-    "kb": 2
-  },
-  {
-    "name": "veh_sedan",
-    "file": "props/veh_sedan.glb",
-    "kb": 2
-  },
-  {
-    "name": "veh_truck",
-    "file": "props/veh_truck.glb",
-    "kb": 2
-  },
-  {
-    "name": "veh_police",
-    "file": "props/veh_police.glb",
-    "kb": 2
-  },
-  {
     "name": "ped_char",
     "file": "props/ped_char.glb",
-    "kb": 37
+    "kb": 37,
+    "expectedTextures": 0,
+    "sourceBbox": [
+      0.61086,
+      1.374499,
+      1.155609
+    ],
+    "bbox": [
+      0.61086,
+      1.374499,
+      1.155609
+    ]
+  },
+  {
+    "name": "robot_companion",
+    "file": "props/robot_companion.glb",
+    "kb": 6,
+    "expectedTextures": 1,
+    "sourceBbox": [
+      2.30011,
+      5.7,
+      1.800146
+    ],
+    "bbox": [
+      2.30011,
+      5.7,
+      1.800146
+    ]
+  },
+  {
+    "name": "robot_recon",
+    "file": "props/robot_recon.glb",
+    "kb": 9,
+    "expectedTextures": 1,
+    "sourceBbox": [
+      2.69989,
+      5.9,
+      2.800006
+    ],
+    "bbox": [
+      2.69989,
+      5.9,
+      2.800006
+    ]
+  },
+  {
+    "name": "robot_storage",
+    "file": "props/robot_storage.glb",
+    "kb": 10,
+    "expectedTextures": 1,
+    "sourceBbox": [
+      5,
+      4.59989,
+      3.399866
+    ],
+    "bbox": [
+      5,
+      4.59989,
+      3.399866
+    ]
+  },
+  {
+    "name": "quat_ac",
+    "file": "props/quat_ac.glb",
+    "kb": 7,
+    "expectedTextures": 0,
+    "sourceBbox": [
+      1.038104,
+      0.685606,
+      0.770958
+    ],
+    "bbox": [
+      1.038104,
+      0.685606,
+      0.770958
+    ]
+  },
+  {
+    "name": "quat_ac_stacked",
+    "file": "props/quat_ac_stacked.glb",
+    "kb": 40,
+    "expectedTextures": 1,
+    "sourceBbox": [
+      0.670082,
+      1.006229,
+      0.511437
+    ],
+    "bbox": [
+      0.670082,
+      1.006229,
+      0.511437
+    ]
+  },
+  {
+    "name": "quat_antenna_1",
+    "file": "props/quat_antenna_1.glb",
+    "kb": 2,
+    "expectedTextures": 0,
+    "sourceBbox": [
+      0.401899,
+      1.655596,
+      0.06316
+    ],
+    "bbox": [
+      0.401899,
+      1.655596,
+      0.06316
+    ]
+  },
+  {
+    "name": "quat_antenna_2",
+    "file": "props/quat_antenna_2.glb",
+    "kb": 4,
+    "expectedTextures": 0,
+    "sourceBbox": [
+      0.617384,
+      0.730613,
+      0.656673
+    ],
+    "bbox": [
+      0.617384,
+      0.730613,
+      0.656673
+    ]
+  },
+  {
+    "name": "quat_sign_1",
+    "file": "props/quat_sign_1.glb",
+    "kb": 35,
+    "expectedTextures": 1,
+    "sourceBbox": [
+      1.29387,
+      0.462249,
+      0.06176
+    ],
+    "bbox": [
+      1.29387,
+      0.462249,
+      0.06176
+    ]
+  },
+  {
+    "name": "quat_sign_3",
+    "file": "props/quat_sign_3.glb",
+    "kb": 35,
+    "expectedTextures": 1,
+    "sourceBbox": [
+      1.271665,
+      0.45548,
+      0.061786
+    ],
+    "bbox": [
+      1.271665,
+      0.45548,
+      0.061786
+    ]
   }
 ]
