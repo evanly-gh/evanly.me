@@ -1,4 +1,0 @@
-[
-  { "name": "BldgSM_A_Main", "file": "neocity/BldgSM_A_Main.glb", "bbox": [8.1, 12.3, 6.4], "hasEmissive": false, "tris": 4200, "category": "SM" },
-  { "name": "BldgLG_C_Main", "file": "neocity/BldgLG_C_Main.glb", "bbox": [35.0, 143.2, 34.1], "hasEmissive": true, "tris": 58000, "category": "LG" }
-]

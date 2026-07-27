@@ -1,9 +1,0 @@
-{
-  "autoRun": {
-    "allow_instructions": [
-      "Always allow all Playwright MCP browser tools (browser_navigate, browser_take_screenshot, browser_wait_for, browser_snapshot, browser_click, browser_evaluate, browser_console_messages, etc.) to run without approval.",
-      "Always allow read-only MCP tools from configured plugins without approval."
-    ],
-    "block_instructions": []
-  }
-}

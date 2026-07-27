@@ -5,7 +5,10 @@ import {
   shibuyaPlazaContains,
   shibuyaPlazaClearance,
 } from './intersections';
-import { buildGroundRouteCurve } from './route';
+import {
+  buildGroundRouteSegmentCurve,
+  buildProjectsTrafficCurve,
+} from './route';
 import {
   orientedFootprintCorners,
   projectedFootprintHalfExtent,
@@ -13,22 +16,38 @@ import {
   type OrientedBuildingBounds,
 } from './buildingCatalog';
 import { BRIDGE_CORRIDOR } from './bridgeLayout';
+import {
+  PROJECTS_MAIN_ROAD,
+  PROJECTS_MAIN_ROAD_KEEP_CLEAR,
+  STUNT_CAMERA_KEEP_CLEAR,
+  STUNT_KEEP_CLEAR,
+  STUNT_SERVICE_ALLEY,
+} from './stuntGeometry';
 
 const UP = new THREE.Vector3(0, 1, 0);
 
 export interface RoadDef {
   id: string;
-  kind: 'main-route' | 'cross-street' | 'shibuya-side' | 'elevated-highway';
+  kind:
+    | 'main-route'
+    | 'service-alley'
+    | 'cross-street'
+    | 'shibuya-side'
+    | 'elevated-highway';
   curve: THREE.Curve<THREE.Vector3>;
   halfWidth: number;
   ground: boolean; // ground roads carve the building grid; elevated ones pass over
   level: number;   // y of the road deck
-  source?: 'route-ground-projection';
+  source?:
+    | 'projects-traffic-centerline'
+    | 'stunt-route-ground-projection';
+  surface?: 'traffic-asphalt' | 'service-concrete';
 }
 
-// ── Main city road: the bike route's direct horizontal projection. Ground
-//    asphalt stays level while x/z points and frames retain one route source. ──
-const mainCurve = buildGroundRouteCurve();
+// ── The traffic street stays on x=240 through Projects. The bike's eastward
+//    branch is rendered independently as the narrower service alley. ──
+const mainCurve = buildProjectsTrafficCurve();
+const serviceAlleyCurve = buildGroundRouteSegmentCurve(0.28, 0.7);
 
 // ── One secondary ground cross-street: crosses the main boulevard (which runs
 //    along z≈0) perpendicularly at x=-60, making a clean + intersection. ──
@@ -44,13 +63,17 @@ export const DECK_UNDERSIDE_OFFSET = 1.4;
 export const BUILDING_DECK_VERTICAL_MARGIN = 4;
 export const ELEVATED_DECK_HALF_WIDTH_PADDING = 0.8;
 export const ELEVATED_DECK_SAMPLE_COUNT = 1024;
+// Elevated highway that sweeps across the whole city (west → east) at rooftop
+// height, crossing over the boulevard / stunt corridor rather than skirting the
+// northern boundary. Pillars are auto-skipped over streets/buildings and the
+// deck clearance culls towers under the span, so it threads the skyline cleanly.
 export const ELEVATED_HIGHWAY_CONTROL_POINTS = [
-  V(-620, 74, 330),
-  V(-360, 72, 230),
-  V(-80, 76, 190),
-  V(220, 75, 205),
-  V(480, 72, 285),
-  V(640, 74, 390),
+  V(-600, 88, 70),
+  V(-300, 86, 16),
+  V(-20, 92, -12),
+  V(240, 90, -8),
+  V(520, 92, 70),
+  V(700, 94, 250),
 ] as const;
 const hwy = new THREE.CatmullRomCurve3(
   ELEVATED_HIGHWAY_CONTROL_POINTS.map((point) => point.clone()),
@@ -62,10 +85,11 @@ export const ROADS: RoadDef[] = [
     id: 'main-route',
     kind: 'main-route',
     curve: mainCurve,
-    halfWidth: 11,
+    halfWidth: PROJECTS_MAIN_ROAD.halfWidth,
     ground: true,
     level: 0,
-    source: 'route-ground-projection',
+    source: 'projects-traffic-centerline',
+    surface: 'traffic-asphalt',
   },
   {
     id: 'cross-street',
@@ -91,13 +115,25 @@ export const ROADS: RoadDef[] = [
     ground: true,
     level: 0,
   })),
+  {
+    id: 'stunt-service-alley',
+    kind: 'service-alley',
+    curve: serviceAlleyCurve,
+    halfWidth: STUNT_SERVICE_ALLEY.halfWidth,
+    ground: true,
+    level: 0,
+    source: 'stunt-route-ground-projection',
+    surface: 'service-concrete',
+  },
 ];
 
 // ── Keep-clear zones (rectangles) — the ramp/scaffold stunt corridor; the city
 //    grid must not place buildings/props here. ──
-interface Rect { x0: number; x1: number; z0: number; z1: number }
+export interface Rect { x0: number; x1: number; z0: number; z1: number }
 export const KEEP_CLEAR: Rect[] = [
-  { x0: 224, x1: 320, z0: -272, z1: -50 }, // ramps + scaffold deck + scaffold building
+  PROJECTS_MAIN_ROAD_KEEP_CLEAR,
+  STUNT_KEEP_CLEAR,
+  STUNT_CAMERA_KEEP_CLEAR,
   BRIDGE_CORRIDOR, // shoreline, elevated finale, and moon sightline
 ];
 export function keepClear(x: number, z: number): boolean {
@@ -277,6 +313,13 @@ export function buildCurveRibbon(
   g.setIndex(idx);
   g.computeBoundingSphere();
   return g;
+}
+
+/** Exact deck ribbon mounted by City for a production road definition. */
+export function buildRoadGeometry(roadIndex = 0): THREE.BufferGeometry {
+  const road = ROADS[roadIndex];
+  if (!road) throw new Error(`Missing road geometry definition ${roadIndex}`);
+  return buildCurveRibbon(road.curve, road.halfWidth, { lift: road.level });
 }
 
 // ── Ground-road collision samples (for carving the building grid) ──

@@ -115,8 +115,30 @@ export interface BridgeLayout {
   };
 }
 
+class ArcLengthBridgeCurve extends THREE.Curve<THREE.Vector3> {
+  constructor(private readonly source: THREE.Curve<THREE.Vector3>) {
+    super();
+  }
+
+  override getPoint(
+    t: number,
+    optionalTarget = new THREE.Vector3(),
+  ): THREE.Vector3 {
+    return optionalTarget.copy(this.source.getPointAt(t));
+  }
+
+  override getTangent(
+    t: number,
+    optionalTarget = new THREE.Vector3(),
+  ): THREE.Vector3 {
+    return optionalTarget.copy(this.source.getTangentAt(t));
+  }
+}
+
 export function buildBridgeLayout(): BridgeLayout {
-  const curve = buildRouteSegmentCurve(BRIDGE_START_T, BRIDGE_END_T);
+  const curve = new ArcLengthBridgeCurve(
+    buildRouteSegmentCurve(BRIDGE_START_T, BRIDGE_END_T),
+  );
   const routeEnd = curve.getPoint(1);
   const horizonCurve = new THREE.LineCurve3(
     routeEnd.clone(),

@@ -6,6 +6,9 @@ export interface BuildingMetrics {
   file: string;
   size: { x: number; y: number; z: number };
   sourceRadius: number;
+  triangles: number;
+  drawPrimitives: number;
+  category?: string;
 }
 
 export interface BuildingPlacementLike {
@@ -48,18 +51,36 @@ export const BUILDING_CATALOG = new Map<string, BuildingMetrics>(
       file: entry.file,
       size: { x, y, z },
       sourceRadius: 0.5 * Math.hypot(x, z) || 1,
+      triangles: entry.tris,
+      drawPrimitives: 1,
+      category: entry.category,
     }];
   }),
 );
 
+const PROP_TRIANGLE_ESTIMATES: Readonly<Record<string, number>> = Object.freeze({
+  'props/robot_companion.glb': 1_200,
+  'props/robot_recon.glb': 1_600,
+  'props/robot_storage.glb': 1_400,
+});
+
 export const PROP_CATALOG = new Map<string, BuildingMetrics>(
   propManifest.map((entry) => {
     const [x, y, z] = entry.bbox;
+    const artifact = entry as typeof entry & {
+      triangles?: number;
+      primitives?: number;
+    };
     return [entry.file, {
       name: entry.name,
       file: entry.file,
       size: { x, y, z },
       sourceRadius: 0.5 * Math.hypot(x, z) || 1,
+      triangles: artifact.triangles
+        ?? PROP_TRIANGLE_ESTIMATES[entry.file]
+        ?? 2_000,
+      drawPrimitives: artifact.primitives ?? 1,
+      category: 'prop',
     }];
   }),
 );

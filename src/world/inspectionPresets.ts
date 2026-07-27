@@ -1,9 +1,26 @@
 import * as THREE from 'three';
+import { ABOUT_REVEAL_CAMERA } from './aboutReveal';
+import {
+  STUNT_CAMERA_TIMES,
+  buildStuntCameraRig,
+} from './stuntCamera';
+import {
+  RESEARCH_CAMERA_TIMES,
+  buildResearchCameraRig,
+} from './researchCamera';
 
 export const INSPECTION_PRESET_IDS = [
   'straight-crosswalk-close',
+  'about-reveal-sightline',
   'shibuya-overhead',
   'shibuya-street-level',
+  'projects-flip-1',
+  'projects-scaffold-midpoint',
+  'projects-flip-2',
+  'research-canyon-low',
+  'research-canyon-end',
+  'research-gateway-1',
+  'research-gateway-2',
   'highway-collision-corridor',
   'bridge-approach',
   'bridge-end',
@@ -24,8 +41,13 @@ export interface InspectionPreset {
   fov: number;
 }
 
-export function shouldEnableInspection(isDevelopment: boolean, search: string): boolean {
-  return isDevelopment && new URLSearchParams(search).has('inspect');
+export function shouldEnableInspection(
+  isDevelopment: boolean,
+  search: string,
+  verificationBuild = false,
+): boolean {
+  return (isDevelopment || verificationBuild)
+    && new URLSearchParams(search).has('inspect');
 }
 
 const preset = (
@@ -36,6 +58,36 @@ const preset = (
   fov: number,
 ): InspectionPreset => ({ id, label, position, target, fov });
 
+const stuntPreset = (
+  id: InspectionPresetId,
+  label: string,
+  t: number,
+): InspectionPreset => {
+  const pose = buildStuntCameraRig().sample(t);
+  return preset(
+    id,
+    label,
+    pose.position.toArray(),
+    pose.target.toArray(),
+    pose.fov,
+  );
+};
+
+const researchPreset = (
+  id: InspectionPresetId,
+  label: string,
+  t: number,
+): InspectionPreset => {
+  const pose = buildResearchCameraRig().sample(t);
+  return preset(
+    id,
+    label,
+    pose.position.toArray(),
+    pose.target.toArray(),
+    pose.fov,
+  );
+};
+
 export const INSPECTION_PRESETS: Record<InspectionPresetId, InspectionPreset> = {
   'straight-crosswalk-close': preset(
     'straight-crosswalk-close',
@@ -43,6 +95,13 @@ export const INSPECTION_PRESETS: Record<InspectionPresetId, InspectionPreset> = 
     [-58, 9, 22],
     [-60, 0.2, 0],
     48,
+  ),
+  'about-reveal-sightline': preset(
+    'about-reveal-sightline',
+    'About reveal sightline',
+    [...ABOUT_REVEAL_CAMERA.position],
+    [...ABOUT_REVEAL_CAMERA.target],
+    ABOUT_REVEAL_CAMERA.fov,
   ),
   'shibuya-overhead': preset(
     'shibuya-overhead',
@@ -57,6 +116,41 @@ export const INSPECTION_PRESETS: Record<InspectionPresetId, InspectionPreset> = 
     [240, 14, -95],
     [240, 18, 20],
     72,
+  ),
+  'projects-flip-1': stuntPreset(
+    'projects-flip-1',
+    'Projects first flip',
+    STUNT_CAMERA_TIMES.flip1,
+  ),
+  'projects-scaffold-midpoint': stuntPreset(
+    'projects-scaffold-midpoint',
+    'Projects scaffold midpoint',
+    STUNT_CAMERA_TIMES.scaffoldMidpoint,
+  ),
+  'projects-flip-2': stuntPreset(
+    'projects-flip-2',
+    'Projects second flip',
+    STUNT_CAMERA_TIMES.flip2,
+  ),
+  'research-canyon-low': researchPreset(
+    'research-canyon-low',
+    'Research canyon semantic midpoint',
+    RESEARCH_CAMERA_TIMES.midpoint,
+  ),
+  'research-canyon-end': researchPreset(
+    'research-canyon-end',
+    'Research canyon bridge handoff',
+    RESEARCH_CAMERA_TIMES.end,
+  ),
+  'research-gateway-1': researchPreset(
+    'research-gateway-1',
+    'Research first gateway readability',
+    RESEARCH_CAMERA_TIMES.gateway1,
+  ),
+  'research-gateway-2': researchPreset(
+    'research-gateway-2',
+    'Research second gateway readability',
+    RESEARCH_CAMERA_TIMES.gateway2,
   ),
   'highway-collision-corridor': preset(
     'highway-collision-corridor',

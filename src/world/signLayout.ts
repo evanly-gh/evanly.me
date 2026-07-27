@@ -10,7 +10,17 @@ import {
   protectedFootprintClearance,
 } from './roads';
 import { buildShibuyaSightCorridors } from './intersections';
-import { bridgeCorridorFootprintClearance } from './bridgeLayout';
+import {
+  WATER_BASIN,
+  bridgeCorridorFootprintClearance,
+  rectangleClearance,
+} from './bridgeLayout';
+import {
+  ABOUT_HERO_BACKDROP_ID,
+  aboutSightlinePointMargin,
+} from './aboutReveal';
+import { RESEARCH_PANELS } from './researchContent';
+import { researchCorridorPointClearance } from './researchSightlines';
 
 export const FACADE_SCREEN_OFFSET = 0.12;
 export const FACADE_SIGN_TARGET = 120;
@@ -85,6 +95,8 @@ export interface HologramFootprintSafety extends HologramComponentFootprint {
   protectedMargin: number;
   bridgeMargin: number;
   sightlineMargin: number;
+  aboutSightlineMargin: number;
+  researchSightlineMargin: number;
 }
 
 interface FacadeFace {
@@ -196,6 +208,8 @@ function facadeCandidate(
   parent: Placement,
   parentIndex: number,
 ): FacadeCandidate | undefined {
+  if (parent.layoutRole === ABOUT_HERO_BACKDROP_ID) return undefined;
+  if (parent.layoutRole === 'stunt-backdrop') return undefined;
   if (!parent.outDir) return undefined;
   const bounds = buildingPlacementBounds(parent);
   const face = roadFacingFacade(bounds, parent.outDir);
@@ -248,7 +262,11 @@ function makeFacadeSign(
   if (protectedFootprintClearance(position[0], position[2], width / 2) <= 0) {
     return undefined;
   }
-  return {
+  if (aboutSightlinePointMargin({
+    x: position[0],
+    z: position[2],
+  }, width / 2) <= 0) return undefined;
+  const sign: FacadeSignPlacement = {
     id: `facade-${parentIndex}-${band}`,
     mode: 'facade',
     parentId: `building-${parentIndex}`,
@@ -276,6 +294,41 @@ function makeFacadeSign(
       screenOffset: FACADE_SCREEN_OFFSET,
     },
   };
+  return facadeSignIntersectsResearchPanel(sign, parent) ? undefined : sign;
+}
+
+function facadeSignIntersectsResearchPanel(
+  sign: FacadeSignPlacement,
+  parent: Placement,
+): boolean {
+  if (!parent.id) return false;
+  return RESEARCH_PANELS
+    .filter((panel) =>
+      panel.mount === 'tower-facade' && panel.parentId === parent.id)
+    .some((panel) => {
+      const dx = panel.position[0] - sign.position[0];
+      const dz = panel.position[2] - sign.position[2];
+      const planeSeparation = Math.abs(
+        dx * sign.facade.normal[0] + dz * sign.facade.normal[1],
+      );
+      const tangentSeparation = Math.abs(
+        dx * sign.facade.tangent[0] + dz * sign.facade.tangent[1],
+      );
+      const verticalSeparation = Math.abs(
+        panel.position[1] - sign.position[1],
+      );
+      return planeSeparation <= 0.5
+        && tangentSeparation < panel.width / 2 + sign.width / 2
+        && verticalSeparation < panel.height / 2 + sign.height / 2;
+    });
+}
+
+export function facadeSignIntersectsResearchReservation(
+  sign: FacadeSignPlacement,
+  layout: Placement[] = buildCityLayout(),
+): boolean {
+  const parent = layout[sign.parentIndex];
+  return parent ? facadeSignIntersectsResearchPanel(sign, parent) : false;
 }
 
 function evenlySelect<T>(items: T[], count: number): T[] {
@@ -437,6 +490,14 @@ export function measureHologramFootprintSafety(
         pointSegmentClearance(footprint.position, corridor.start, corridor.end)
           - corridor.halfWidth
           - footprint.radius)),
+      aboutSightlineMargin: aboutSightlinePointMargin(
+        { x, z },
+        footprint.radius,
+      ),
+      researchSightlineMargin: researchCorridorPointClearance(
+        { x, z },
+        footprint.radius,
+      ),
     };
   });
 }
@@ -446,7 +507,9 @@ function assertHologramFootprintSafety(sign: HologramSignPlacement): void {
     safety.roadMargin <= 0
     || safety.protectedMargin <= 0
     || safety.bridgeMargin <= 0
-    || safety.sightlineMargin <= 0);
+    || safety.sightlineMargin <= 0
+    || safety.aboutSightlineMargin <= 0
+    || safety.researchSightlineMargin <= 0);
   if (unsafe) {
     throw new Error(
       `Unsafe ${sign.id} ${unsafe.component} footprint: `
@@ -485,7 +548,12 @@ function buildHolograms(layout: Placement[]): HologramSignPlacement[] {
       (_placement, bounds) =>
         bounds.center.z <= -540
         && bounds.center.z >= -760
-        && !keepClear(bounds.center.x, bounds.center.z),
+        && !keepClear(bounds.center.x, bounds.center.z)
+        && rectangleClearance(
+          bounds.center.x,
+          bounds.center.z,
+          WATER_BASIN,
+        ) > 4.5,
       spec.target,
     );
     const sign = hologramFromParent(spec, parent.index, parent.bounds, [240, -600], signs.length);

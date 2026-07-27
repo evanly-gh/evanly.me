@@ -1,4 +1,13 @@
 import * as THREE from 'three';
+import { sampleRideSurface } from '../choreography/rideSurface';
+import {
+  PROJECTS_MAIN_ROAD,
+  STUNT_CENTER_X,
+  STUNT_RAMP1,
+  STUNT_RAMP2,
+} from './stuntGeometry';
+import { STUNT_ROUTE } from './stuntLayout';
+import { rampProfileSlope } from './setpieces';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Waypoints  (1 unit = 1 metre, ground plane at y = 0)
@@ -13,27 +22,90 @@ const WAYPOINTS: [number, number, number][] = [
   [-320,  0,     0],   // introStart
   [-240,  0,     0],   // aboutStart
   [ 160,  0,     0],   // aboutEnd
-  [ 232,  0,     0],   // shape: straight Shibuya entry
-  [ 239.75, 0,   0],   // shape: suppress northward Catmull-Rom overshoot
-  [ 240,  0,     0],   // shibuya (turn apex)
-  [ 240,  0, -0.25],   // shape: tight south-facing turn exit
-  [ 242,  0,   -16],   // shape: blend toward the stunt approach
-  // stunt veers to the +X (right) side of the road so ramps/scaffold sit off
-  // to one side; the bike drifts back to centre at roadResume.
-  [ 250,  0,   -70],   // ramp1Base
-  [ 250, 11,   -95],   // ramp1Lip
-  [ 250, 20,  -120],   // flip1Apex (airborne peak)
-  [ 250, 13,  -160],   // scaffoldDeck
-  [ 250, 13,  -210],   // scaffoldEnd
-  [ 250, 22,  -235],   // ramp2Lip
-  [ 250, 30,  -260],   // flip2Apex (airborne peak)
-  [ 250, 12,  -300],   // descendTop
-  [ 240,  0,  -340],   // roadResume
-  [ 240,  0,  -470],   // researchMid
-  [ 240,  0,  -600],   // researchEnd
-  [ 240,  8,  -640],   // bridgeStart
-  [ 240, 16, -1600],   // bridgeEnd
+  [ 232,  0,     0],   // straight-entry support for the explicit Shibuya turn
+  // The stunt occupies a protected side corridor while the main road
+  // remains visually clear. Its flat scaffold span is sampled explicitly.
+  [...STUNT_ROUTE.ramp1Base.position],
+  [...STUNT_ROUTE.ramp1Lip.position],
+  [...STUNT_ROUTE.flip1Apex.position],
+  [...STUNT_ROUTE.scaffoldLanding.position],
+  [...STUNT_ROUTE.ramp2Base.position],
+  [...STUNT_ROUTE.ramp2Lip.position],
+  [...STUNT_ROUTE.flip2Apex.position],
+  [...STUNT_ROUTE.descentTop.position],
+  [...STUNT_ROUTE.groundResume.position],
+  [ PROJECTS_MAIN_ROAD.centerX,  0,  -470],   // researchMid
+  [ PROJECTS_MAIN_ROAD.centerX,  0,  -600],   // researchEnd
+  [ PROJECTS_MAIN_ROAD.centerX,  8,  -640],   // bridgeStart
+  [ PROJECTS_MAIN_ROAD.centerX, 16, -1600],   // bridgeEnd
 ];
+
+export const SHIBUYA_TURN_START_T = 0.28;
+export const SHIBUYA_TURN_END_T = 0.36;
+
+const SHIBUYA_TURN_CONTROL_POINTS = [
+  new THREE.Vector3(160, 0, 0),
+  new THREE.Vector3(181, 0, 0),
+  new THREE.Vector3(202, 0, 0),
+  new THREE.Vector3(STUNT_CENTER_X, 0, -26),
+  new THREE.Vector3(STUNT_CENTER_X, 0, -47),
+  new THREE.Vector3(STUNT_CENTER_X, 0, STUNT_RAMP1.baseZ),
+] as const;
+
+function sampleBezier(
+  controlPoints: readonly THREE.Vector3[],
+  t: number,
+  optionalTarget: THREE.Vector3,
+): THREE.Vector3 {
+  const clamped = THREE.MathUtils.clamp(t, 0, 1);
+  const points = controlPoints.map((point) => point.clone());
+  for (let level = 1; level < points.length; level += 1) {
+    for (let index = 0; index < points.length - level; index += 1) {
+      points[index].lerp(points[index + 1], clamped);
+    }
+  }
+  return optionalTarget.copy(points[0]);
+}
+
+function sampleBezierTangent(
+  controlPoints: readonly THREE.Vector3[],
+  t: number,
+  optionalTarget: THREE.Vector3,
+): THREE.Vector3 {
+  const degree = controlPoints.length - 1;
+  const derivativeControls = controlPoints.slice(1).map((point, index) =>
+    point.clone().sub(controlPoints[index]).multiplyScalar(degree));
+  return sampleBezier(derivativeControls, t, optionalTarget).normalize();
+}
+
+class DeterministicBezierCurve extends THREE.Curve<THREE.Vector3> {
+  constructor(private readonly controlPoints: readonly THREE.Vector3[]) {
+    super();
+  }
+
+  override getPoint(
+    t: number,
+    optionalTarget = new THREE.Vector3(),
+  ): THREE.Vector3 {
+    return sampleBezier(this.controlPoints, t, optionalTarget);
+  }
+
+  override getTangent(
+    t: number,
+    optionalTarget = new THREE.Vector3(),
+  ): THREE.Vector3 {
+    return sampleBezierTangent(this.controlPoints, t, optionalTarget);
+  }
+}
+
+/** One deterministic centerline source for Shibuya route and road geometry. */
+export const SHIBUYA_TURN_CURVE: THREE.Curve<THREE.Vector3> =
+  new DeterministicBezierCurve(SHIBUYA_TURN_CONTROL_POINTS);
+
+function shibuyaTurnFraction(t: number): number {
+  return (t - SHIBUYA_TURN_START_T)
+    / (SHIBUYA_TURN_END_T - SHIBUYA_TURN_START_T);
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Curve (centripetal Catmull-Rom)
@@ -56,14 +128,18 @@ class RouteSegmentCurve extends THREE.Curve<THREE.Vector3> {
 
   override getPoint(t: number, optionalTarget = new THREE.Vector3()): THREE.Vector3 {
     const semanticT = THREE.MathUtils.lerp(this.startT, this.endT, t);
-    sampleSemanticPoint(semanticT, optionalTarget);
-    return this.flatten ? optionalTarget.setY(0) : optionalTarget;
+    if (this.flatten) {
+      return sampleGroundPoint(semanticT, optionalTarget);
+    }
+    return sampleSemanticPoint(semanticT, optionalTarget);
   }
 
   override getTangent(t: number, optionalTarget = new THREE.Vector3()): THREE.Vector3 {
     const semanticT = THREE.MathUtils.lerp(this.startT, this.endT, t);
+    if (this.flatten) {
+      return sampleGroundTangent(semanticT, optionalTarget);
+    }
     sampleSemanticTangent(semanticT, optionalTarget);
-    if (this.flatten) optionalTarget.setY(0);
     return optionalTarget.normalize();
   }
 }
@@ -71,11 +147,57 @@ class RouteSegmentCurve extends THREE.Curve<THREE.Vector3> {
 export const GROUND_ROUTE_END_T = 0.84;
 
 /**
- * Direct horizontal projection of the bike route through the shoreline split.
+ * Ground projection of the complete bike centerline through Shibuya, the
+ * x=264 stunt corridor, and its smooth return to PROJECTS_MAIN_ROAD.
  * No ground asphalt is generated beneath the elevated finale.
  */
 export function buildGroundRouteCurve(): THREE.Curve<THREE.Vector3> {
   return new RouteSegmentCurve(0, GROUND_ROUTE_END_T, true);
+}
+
+/** Ground projection of a semantic sub-range, used by the service alley. */
+export function buildGroundRouteSegmentCurve(
+  startT: number,
+  endT: number,
+): THREE.Curve<THREE.Vector3> {
+  if (startT < 0 || endT > GROUND_ROUTE_END_T || startT >= endT) {
+    throw new Error(`Invalid ground route segment ${startT}..${endT}`);
+  }
+  return new RouteSegmentCurve(startT, endT, true);
+}
+
+/**
+ * The public traffic street continues south from Shibuya on x=240 while the
+ * bike branches east into the separately rendered service alley.
+ */
+export function buildProjectsTrafficCurve(): THREE.Curve<THREE.Vector3> {
+  const approach = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-320, 0, 0),
+    new THREE.Vector3(-240, 0, 0),
+    new THREE.Vector3(160, 0, 0),
+    new THREE.Vector3(210, 0, -8),
+    new THREE.Vector3(235, 0, -42),
+    new THREE.Vector3(PROJECTS_MAIN_ROAD.centerX, 0, -68),
+  ], false, 'centripetal', 0.5);
+  return new class extends THREE.Curve<THREE.Vector3> {
+    constructor() {
+      super();
+    }
+
+    override getPoint(
+      t: number,
+      optionalTarget = new THREE.Vector3(),
+    ): THREE.Vector3 {
+      if (t <= 0.5) {
+        return optionalTarget.copy(approach.getPointAt(t * 2));
+      }
+      return optionalTarget.set(
+        PROJECTS_MAIN_ROAD.centerX,
+        0,
+        THREE.MathUtils.lerp(-68, -600, (t - 0.5) * 2),
+      );
+    }
+  }();
 }
 
 /**
@@ -144,28 +266,28 @@ function _arcAt(idx: number): number {
 }
 
 // Waypoint indices used as remap anchors:
-//   introStart=0, aboutStart=1, aboutEnd=2, Shibuya shape points=3..4,
-//   shibuya=5, exit shape points=6..7, ramp1Base=8, ramp1Lip=9,
-//   flip1Apex=10, scaffoldDeck=11, scaffoldEnd=12, ramp2Lip=13,
-//   flip2Apex=14, descendTop=15, roadResume=16, researchMid=17,
-//   researchEnd=18, bridgeStart=19, bridgeEnd=20.
+//   introStart=0, aboutStart=1, aboutEnd=2, straight support=3,
+//   ramp1Base=4, ramp1Lip=5, flip1Apex=6, scaffoldDeck=7,
+//   scaffoldEnd=8, ramp2Lip=9, flip2Apex=10, descendTop=11,
+//   roadResume=12, researchMid=13, researchEnd=14, bridgeStart=15,
+//   bridgeEnd=16.
 const SEMANTIC_WAYPOINTS: Array<{ t: number; index: number }> = [
   { t: 0.000, index: 0 },   // introStart
   { t: 0.120, index: 1 },   // aboutStart
   { t: 0.280, index: 2 },   // aboutEnd
-  { t: 0.320, index: 5 },   // shibuya
-  { t: 0.360, index: 8 },   // ramp1Base
-  { t: 0.410, index: 10 },  // flip1Apex (ramp1Lip idx=9 has no semantic-t anchor)
-  { t: 0.460, index: 11 },  // scaffoldDeck
-  { t: 0.520, index: 12 },  // scaffoldEnd
-  { t: 0.545, index: 13 },  // ramp2Lip
-  { t: 0.570, index: 14 },  // flip2Apex
-  { t: 0.620, index: 15 },  // descendTop
-  { t: 0.680, index: 16 },  // roadResume
-  { t: 0.760, index: 17 },  // researchMid
-  { t: 0.840, index: 18 },  // researchEnd
-  { t: 0.890, index: 19 },  // bridgeStart
-  { t: 1.000, index: 20 },  // bridgeEnd
+  { t: STUNT_ROUTE.ramp1Base.t, index: 4 },
+  { t: STUNT_ROUTE.ramp1Lip.t, index: 5 },
+  { t: STUNT_ROUTE.flip1Apex.t, index: 6 },
+  { t: STUNT_ROUTE.scaffoldLanding.t, index: 7 },
+  { t: STUNT_ROUTE.ramp2Base.t, index: 8 },
+  { t: STUNT_ROUTE.ramp2Lip.t, index: 9 },
+  { t: STUNT_ROUTE.flip2Apex.t, index: 10 },
+  { t: STUNT_ROUTE.descentTop.t, index: 11 },
+  { t: STUNT_ROUTE.groundResume.t, index: 12 },
+  { t: 0.760, index: 13 },  // researchMid
+  { t: 0.840, index: 14 },  // researchEnd
+  { t: 0.890, index: 15 },  // bridgeStart
+  { t: 1.000, index: 16 },  // bridgeEnd
 ];
 
 const T_REMAP: [number, number][] = (() => {
@@ -205,26 +327,411 @@ function semanticWaypointIndex(t: number): number | undefined {
     Math.abs(anchor.t - t) <= Number.EPSILON * 8)?.index;
 }
 
-function sampleSemanticPoint(
+function smoothMergeFraction(value: number): number {
+  const clamped = THREE.MathUtils.clamp(value, 0, 1);
+  return clamped * clamped * clamped
+    * (clamped * (clamped * 6 - 15) + 10);
+}
+
+function smoothMergeDerivative(value: number): number {
+  const clamped = THREE.MathUtils.clamp(value, 0, 1);
+  return 30 * clamped * clamped
+    * (1 - clamped) * (1 - clamped);
+}
+
+type StuntArcLandmark = {
+  t: number;
+  position: readonly [number, number, number];
+};
+
+function stuntKnotSlope(landmark: StuntArcLandmark): number {
+  if (landmark.t === STUNT_ROUTE.ramp1Lip.t) {
+    return -STUNT_RAMP1.rise / STUNT_RAMP1.run;
+  }
+  if (landmark.t === STUNT_ROUTE.ramp2Lip.t) {
+    return -STUNT_RAMP2.rise / STUNT_RAMP2.run;
+  }
+  return 0;
+}
+
+function stuntKnotCurvature(landmark: StuntArcLandmark): number {
+  if (landmark.t === STUNT_ROUTE.ramp1Lip.t) {
+    return -6 * STUNT_RAMP1.rise / (STUNT_RAMP1.run * STUNT_RAMP1.run);
+  }
+  if (landmark.t === STUNT_ROUTE.ramp2Lip.t) {
+    return -6 * STUNT_RAMP2.rise / (STUNT_RAMP2.run * STUNT_RAMP2.run);
+  }
+  return 0;
+}
+
+function sampleStuntArcValue(
+  t: number,
+  start: StuntArcLandmark,
+  end: StuntArcLandmark,
+  derivative: boolean,
+): number {
+  const fraction = THREE.MathUtils.clamp(
+    (t - start.t) / (end.t - start.t),
+    0,
+    1,
+  );
+  if (!derivative && fraction === 0) return start.position[1];
+  if (!derivative && fraction === 1) return end.position[1];
+  const deltaZ = end.position[2] - start.position[2];
+  const c0 = start.position[1];
+  const c1 = stuntKnotSlope(start) * deltaZ;
+  const c2 = stuntKnotCurvature(start) * deltaZ * deltaZ / 2;
+  const remainingY = end.position[1] - c0 - c1 - c2;
+  const remainingSlope = stuntKnotSlope(end) * deltaZ - c1 - 2 * c2;
+  const remainingCurvature =
+    stuntKnotCurvature(end) * deltaZ * deltaZ - 2 * c2;
+  const c3 =
+    10 * remainingY - 4 * remainingSlope + remainingCurvature / 2;
+  const c4 =
+    -15 * remainingY + 7 * remainingSlope - remainingCurvature;
+  const c5 =
+    6 * remainingY - 3 * remainingSlope + remainingCurvature / 2;
+  if (derivative) {
+    return c1
+      + fraction * (
+        2 * c2
+        + fraction * (
+          3 * c3
+          + fraction * (4 * c4 + fraction * 5 * c5)
+        )
+      );
+  }
+  return c0 + fraction * (
+    c1 + fraction * (
+      c2 + fraction * (c3 + fraction * (c4 + fraction * c5))
+    )
+  );
+}
+
+function sampleStuntArc(
+  t: number,
+  start: { t: number; position: readonly [number, number, number] },
+  end: { t: number; position: readonly [number, number, number] },
+  optionalTarget: THREE.Vector3,
+): THREE.Vector3 {
+  const fraction = (t - start.t) / (end.t - start.t);
+  return optionalTarget.set(
+    STUNT_CENTER_X,
+    sampleStuntArcValue(t, start, end, false),
+    THREE.MathUtils.lerp(start.position[2], end.position[2], fraction),
+  );
+}
+
+function sampleStuntArcTangent(
+  t: number,
+  start: { t: number; position: readonly [number, number, number] },
+  end: { t: number; position: readonly [number, number, number] },
+  optionalTarget: THREE.Vector3,
+): THREE.Vector3 {
+  const deltaZ = end.position[2] - start.position[2];
+  return optionalTarget.set(
+    0,
+    sampleStuntArcValue(t, start, end, true),
+    deltaZ,
+  ).normalize();
+}
+
+function sampleSemanticTrajectoryPoint(
   t: number,
   optionalTarget = new THREE.Vector3(),
 ): THREE.Vector3 {
+  if (t >= 0.12 && t < SHIBUYA_TURN_START_T) {
+    const fraction = (t - 0.12) / (SHIBUYA_TURN_START_T - 0.12);
+    return optionalTarget.set(
+      THREE.MathUtils.lerp(-240, 160, fraction),
+      0,
+      0,
+    );
+  }
+  if (t >= SHIBUYA_TURN_START_T && t <= SHIBUYA_TURN_END_T) {
+    return SHIBUYA_TURN_CURVE.getPoint(
+      shibuyaTurnFraction(t),
+      optionalTarget,
+    );
+  }
+  if (t >= STUNT_ROUTE.ramp1Base.t && t <= STUNT_ROUTE.ramp1Lip.t) {
+    const fraction = (t - STUNT_ROUTE.ramp1Base.t)
+      / (STUNT_ROUTE.ramp1Lip.t - STUNT_ROUTE.ramp1Base.t);
+    return optionalTarget.set(
+      STUNT_CENTER_X,
+      sampleRideSurface(t).bikeRootY ?? STUNT_ROUTE.ramp1Base.position[1],
+      THREE.MathUtils.lerp(
+        STUNT_ROUTE.ramp1Base.position[2],
+        STUNT_ROUTE.ramp1Lip.position[2],
+        fraction,
+      ),
+    );
+  }
+  if (t > STUNT_ROUTE.ramp1Lip.t && t <= STUNT_ROUTE.flip1Apex.t) {
+    return sampleStuntArc(
+      t,
+      STUNT_ROUTE.ramp1Lip,
+      STUNT_ROUTE.flip1Apex,
+      optionalTarget,
+    );
+  }
+  if (t > STUNT_ROUTE.flip1Apex.t && t <= STUNT_ROUTE.scaffoldLanding.t) {
+    return sampleStuntArc(
+      t,
+      STUNT_ROUTE.flip1Apex,
+      STUNT_ROUTE.scaffoldLanding,
+      optionalTarget,
+    );
+  }
+  if (t >= STUNT_ROUTE.groundResume.t && t <= 0.7) {
+    const fraction = (t - STUNT_ROUTE.groundResume.t)
+      / (0.7 - STUNT_ROUTE.groundResume.t);
+    return optionalTarget.set(
+      THREE.MathUtils.lerp(
+        STUNT_CENTER_X,
+        PROJECTS_MAIN_ROAD.centerX,
+        smoothMergeFraction(fraction),
+      ),
+      0,
+      THREE.MathUtils.lerp(STUNT_ROUTE.groundResume.position[2], -375, fraction),
+    );
+  }
+  if (t >= 0.7 && t <= GROUND_ROUTE_END_T) {
+    const fraction = (t - 0.7) / (GROUND_ROUTE_END_T - 0.7);
+    return optionalTarget.set(
+      PROJECTS_MAIN_ROAD.centerX,
+      0,
+      THREE.MathUtils.lerp(-375, -600, fraction),
+    );
+  }
+  if (
+    t >= STUNT_ROUTE.scaffoldLanding.t
+    && t <= STUNT_ROUTE.ramp2Base.t
+  ) {
+    const fraction = (
+      t - STUNT_ROUTE.scaffoldLanding.t
+    ) / (
+      STUNT_ROUTE.ramp2Base.t - STUNT_ROUTE.scaffoldLanding.t
+    );
+    return optionalTarget
+      .fromArray(STUNT_ROUTE.scaffoldLanding.position)
+      .lerp(new THREE.Vector3(...STUNT_ROUTE.ramp2Base.position), fraction);
+  }
+  if (t > STUNT_ROUTE.ramp2Base.t && t <= STUNT_ROUTE.ramp2Lip.t) {
+    const fraction = (t - STUNT_ROUTE.ramp2Base.t)
+      / (STUNT_ROUTE.ramp2Lip.t - STUNT_ROUTE.ramp2Base.t);
+    return optionalTarget.set(
+      STUNT_CENTER_X,
+      sampleRideSurface(t).bikeRootY ?? STUNT_ROUTE.ramp2Base.position[1],
+      THREE.MathUtils.lerp(
+        STUNT_ROUTE.ramp2Base.position[2],
+        STUNT_ROUTE.ramp2Lip.position[2],
+        fraction,
+      ),
+    );
+  }
+  if (t > STUNT_ROUTE.ramp2Lip.t && t <= STUNT_ROUTE.flip2Apex.t) {
+    return sampleStuntArc(
+      t,
+      STUNT_ROUTE.ramp2Lip,
+      STUNT_ROUTE.flip2Apex,
+      optionalTarget,
+    );
+  }
+  if (t > STUNT_ROUTE.flip2Apex.t && t <= STUNT_ROUTE.descentTop.t) {
+    return sampleStuntArc(
+      t,
+      STUNT_ROUTE.flip2Apex,
+      STUNT_ROUTE.descentTop,
+      optionalTarget,
+    );
+  }
+  if (t > STUNT_ROUTE.descentTop.t && t < STUNT_ROUTE.groundResume.t) {
+    return sampleStuntArc(
+      t,
+      STUNT_ROUTE.descentTop,
+      STUNT_ROUTE.groundResume,
+      optionalTarget,
+    );
+  }
   const waypointIndex = semanticWaypointIndex(t);
   if (waypointIndex !== undefined) {
     return curve.getPoint(waypointIndex / _n, optionalTarget);
   }
-  return optionalTarget.copy(curve.getPointAt(semanticToArc(t)));
+  optionalTarget.copy(curve.getPointAt(semanticToArc(t)));
+  if (t >= STUNT_ROUTE.ramp1Base.t && t <= STUNT_ROUTE.groundResume.t) {
+    optionalTarget.x = STUNT_CENTER_X;
+  }
+  return optionalTarget;
+}
+
+function sampleSemanticPoint(
+  t: number,
+  optionalTarget = new THREE.Vector3(),
+): THREE.Vector3 {
+  sampleSemanticTrajectoryPoint(t, optionalTarget);
+  if (t >= 0.32 && t <= 0.7) {
+    const surface = sampleRideSurface(t);
+    if (surface.rideable && surface.bikeRootY !== null) {
+      optionalTarget.y = surface.bikeRootY;
+    }
+  }
+  return optionalTarget;
 }
 
 function sampleSemanticTangent(
   t: number,
   optionalTarget = new THREE.Vector3(),
 ): THREE.Vector3 {
+  if (t >= 0.12 && t < SHIBUYA_TURN_START_T) {
+    return optionalTarget.set(1, 0, 0);
+  }
+  if (t >= SHIBUYA_TURN_START_T && t <= SHIBUYA_TURN_END_T) {
+    return SHIBUYA_TURN_CURVE.getTangent(
+      shibuyaTurnFraction(t),
+      optionalTarget,
+    );
+  }
+  if (t >= STUNT_ROUTE.ramp1Base.t && t <= STUNT_ROUTE.ramp1Lip.t) {
+    const fraction = (t - STUNT_ROUTE.ramp1Base.t)
+      / (STUNT_ROUTE.ramp1Lip.t - STUNT_ROUTE.ramp1Base.t);
+    return optionalTarget.set(
+      0,
+      rampProfileSlope(fraction, STUNT_RAMP1.run, STUNT_RAMP1.rise),
+      -1,
+    ).normalize();
+  }
+  if (t > STUNT_ROUTE.ramp1Lip.t && t <= STUNT_ROUTE.flip1Apex.t) {
+    return sampleStuntArcTangent(
+      t,
+      STUNT_ROUTE.ramp1Lip,
+      STUNT_ROUTE.flip1Apex,
+      optionalTarget,
+    );
+  }
+  if (t > STUNT_ROUTE.flip1Apex.t && t <= STUNT_ROUTE.scaffoldLanding.t) {
+    return sampleStuntArcTangent(
+      t,
+      STUNT_ROUTE.flip1Apex,
+      STUNT_ROUTE.scaffoldLanding,
+      optionalTarget,
+    );
+  }
+  if (t >= STUNT_ROUTE.groundResume.t && t <= 0.7) {
+    const fraction = (t - STUNT_ROUTE.groundResume.t)
+      / (0.7 - STUNT_ROUTE.groundResume.t);
+    return optionalTarget.set(
+      (PROJECTS_MAIN_ROAD.centerX - STUNT_CENTER_X)
+        * smoothMergeDerivative(fraction),
+      0,
+      -15,
+    ).normalize();
+  }
+  if (t >= 0.7 && t <= GROUND_ROUTE_END_T) {
+    return optionalTarget.set(0, 0, -1);
+  }
+  if (
+    t >= STUNT_ROUTE.scaffoldLanding.t
+    && t < STUNT_ROUTE.ramp2Base.t
+  ) {
+    return optionalTarget.set(0, 0, -1);
+  }
+  if (t >= STUNT_ROUTE.ramp2Base.t && t <= STUNT_ROUTE.ramp2Lip.t) {
+    const fraction = (t - STUNT_ROUTE.ramp2Base.t)
+      / (STUNT_ROUTE.ramp2Lip.t - STUNT_ROUTE.ramp2Base.t);
+    return optionalTarget.set(
+      0,
+      rampProfileSlope(fraction, STUNT_RAMP2.run, STUNT_RAMP2.rise),
+      -1,
+    ).normalize();
+  }
+  if (t > STUNT_ROUTE.ramp2Lip.t && t <= STUNT_ROUTE.flip2Apex.t) {
+    return sampleStuntArcTangent(
+      t,
+      STUNT_ROUTE.ramp2Lip,
+      STUNT_ROUTE.flip2Apex,
+      optionalTarget,
+    );
+  }
+  if (t > STUNT_ROUTE.flip2Apex.t && t <= STUNT_ROUTE.descentTop.t) {
+    return sampleStuntArcTangent(
+      t,
+      STUNT_ROUTE.flip2Apex,
+      STUNT_ROUTE.descentTop,
+      optionalTarget,
+    );
+  }
+  if (t > STUNT_ROUTE.descentTop.t && t < STUNT_ROUTE.groundResume.t) {
+    return sampleStuntArcTangent(
+      t,
+      STUNT_ROUTE.descentTop,
+      STUNT_ROUTE.groundResume,
+      optionalTarget,
+    );
+  }
+  if (
+    t === STUNT_ROUTE.flip1Apex.t
+    || t === STUNT_ROUTE.flip2Apex.t
+  ) {
+    return optionalTarget.set(0, 0, -1);
+  }
   const waypointIndex = semanticWaypointIndex(t);
   const tangent = waypointIndex === undefined
     ? curve.getTangentAt(semanticToArc(t))
     : curve.getTangent(waypointIndex / _n);
+  if (t >= STUNT_ROUTE.ramp1Base.t && t <= STUNT_ROUTE.groundResume.t) {
+    tangent.x = 0;
+  }
   return optionalTarget.copy(tangent).normalize();
+}
+
+function sampleGroundPoint(
+  t: number,
+  optionalTarget = new THREE.Vector3(),
+): THREE.Vector3 {
+  return sampleSemanticPoint(t, optionalTarget).setY(0);
+}
+
+function sampleGroundTangent(
+  t: number,
+  optionalTarget = new THREE.Vector3(),
+): THREE.Vector3 {
+  return sampleSemanticTangent(t, optionalTarget).setY(0).normalize();
+}
+
+const ROUTE_DISTANCE_SAMPLES = 8192;
+const SEMANTIC_ROUTE_DISTANCES = (() => {
+  const distances = new Float64Array(ROUTE_DISTANCE_SAMPLES + 1);
+  let previous = sampleSemanticPoint(0);
+  let cumulative = 0;
+  for (let index = 1; index <= ROUTE_DISTANCE_SAMPLES; index += 1) {
+    const current = sampleSemanticPoint(index / ROUTE_DISTANCE_SAMPLES);
+    cumulative += previous.distanceTo(current);
+    distances[index] = cumulative;
+    previous = current;
+  }
+  return distances;
+})();
+
+/** Physical metres travelled over the complete semantic route. */
+export const SEMANTIC_ROUTE_LENGTH =
+  SEMANTIC_ROUTE_DISTANCES[ROUTE_DISTANCE_SAMPLES];
+
+/** Cumulative physical metres travelled at semantic story progress. */
+export function routeDistanceAt(semanticT: number): number {
+  if (!Number.isFinite(semanticT)) {
+    throw new Error('Route distance progress must be finite');
+  }
+  const scaled =
+    THREE.MathUtils.clamp(semanticT, 0, 1) * ROUTE_DISTANCE_SAMPLES;
+  const lower = Math.floor(scaled);
+  if (lower >= ROUTE_DISTANCE_SAMPLES) return SEMANTIC_ROUTE_LENGTH;
+  const fraction = scaled - lower;
+  return THREE.MathUtils.lerp(
+    SEMANTIC_ROUTE_DISTANCES[lower],
+    SEMANTIC_ROUTE_DISTANCES[lower + 1],
+    fraction,
+  );
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -283,10 +790,10 @@ export const ZONES: Record<string, [number, number]> = {
   about:    [0.12, 0.28],
   turn:     [0.28, 0.36],   // Shibuya 90° right turn
   ramp1:    [0.36, 0.46],   // projects-ramp1 (backflip 1, 2 big projects)
-  scaffold: [0.46, 0.52],   // scaffold-ride
-  ramp2:    [0.52, 0.62],   // projects-ramp2 (backflip 2, 3 small projects)
-  descend:  [0.62, 0.68],
-  research: [0.68, 0.84],
+  scaffold: [0.46, 0.54],   // scaffold-ride
+  ramp2:    [0.54, 0.64],   // projects-ramp2 (backflip 2, 3 small projects)
+  descend:  [0.64, 0.69],
+  research: [0.69, 0.84],
   lift:     [0.84, 0.89],   // buffer/lift onto bridge
   bridge:   [0.89, 1.00],   // bridge/finale
 };

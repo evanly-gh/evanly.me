@@ -15,6 +15,7 @@ export interface Project {
   title: string;
   stack: string;
   blurb: string;
+  displayBlurb: string;
   image: ImageSlot;
 }
 
@@ -30,6 +31,8 @@ export interface Resume {
   tagline: string;
   about: {
     paragraph: string;
+    heroTagline: [string, string];
+    heroBlurb: string;
     faceImage: ImageSlot;
     misc: [ImageSlot, ImageSlot];
   };
@@ -61,7 +64,15 @@ export const RESUME: Resume = {
       'His work centers on ML systems — model compression, on-device inference, and ' +
       'test-time training — building research and product systems that stay fast ' +
       'under tight memory budgets.',
-    faceImage: { src: null, w: 800, h: 1000, label: 'FACE PORTRAIT' },
+    heroTagline: ['CS + ECON @ UW', 'ML SYSTEMS · EDGE AI'],
+    heroBlurb:
+      'UW CS + Econ student building efficient ML for on-device systems.',
+    faceImage: {
+      src: '/images/about/about-portrait-placeholder.webp',
+      w: 1024,
+      h: 1536,
+      label: 'ANONYMOUS ABOUT PORTRAIT PLACEHOLDER',
+    },
     misc: [
       { src: null, w: 800, h: 600, label: 'ABOUT MISC 1' },
       { src: null, w: 800, h: 600, label: 'ABOUT MISC 2' }
@@ -75,6 +86,8 @@ export const RESUME: Resume = {
       blurb:
         'Dual-branch MAML-style test-time training lifts emotion-classification ' +
         'accuracy 45% → 63% on ELSA, validated across a 4-method eval harness.',
+      displayBlurb:
+        'Test-time training raises ELSA emotion accuracy from 45% to 63%.',
       image: { src: null, w: 1280, h: 720, label: 'TTT-E2E' }
     },
     {
@@ -84,29 +97,35 @@ export const RESUME: Resume = {
         'Team-lead project: +35% avg F1 over CLIP zero-shot across 25+ CelebA ' +
         'attributes. 6-model pipeline scores 120+ attributes with pgvector semantic ' +
         'search, cutting latency 5s → 2s under 2GB RAM.',
+      displayBlurb:
+        'Six-model attribute search lifts average F1 by 35% and cuts latency to 2s.',
       image: { src: null, w: 1280, h: 720, label: 'REMEMBERME' }
     }
   ],
 
   projectsSmall: [
     {
-      title: 'Mandarin Learning App',
+      title: 'Mandarin App',
       stack: 'React Native, Supabase Edge, Gemini 2.0',
       blurb:
         'Mobile Mandarin tutor: JWT-gated Deno Edge proxy to Gemini 2.0 returns ' +
         'structured JSON for inline grammar corrections.',
+      displayBlurb:
+        'JWT-gated Gemini feedback returns structured inline grammar corrections.',
       image: { src: null, w: 800, h: 600, label: 'MANDARIN APP' }
     },
     {
       title: 'Bellevue College Hackathon',
       stack: 'Hackathon',
       blurb: '2nd place, 2024.',
+      displayBlurb: 'Second place at the 2024 Bellevue College Hackathon.',
       image: { src: null, w: 800, h: 600, label: 'BELLEVUE HACKATHON' }
     },
     {
       title: 'DubHacks 2025',
       stack: 'Hackathon',
       blurb: 'Growth Track competitor.',
+      displayBlurb: 'Growth Track competitor at DubHacks 2025.',
       image: { src: null, w: 800, h: 600, label: 'DUBHACKS 2025' }
     }
   ],
@@ -118,6 +137,8 @@ export const RESUME: Resume = {
       blurb:
         'Model compression and on-device inference research for mobile/edge under ' +
         'the MAM project, advised by Wen Cheng.',
+      displayBlurb:
+        'Mobile and edge model compression.',
       image: { src: null, w: 1280, h: 720, label: 'MOBILE INTELLIGENCE LAB' }
     },
     {
@@ -127,6 +148,8 @@ export const RESUME: Resume = {
         'Advised by Prof. Ranjay Krishna. Encoder/prefill/decode phase isolation with ' +
         'a cold/warm/3-median protocol; GGUF Q4_K_M quantization cuts memory ~50% at ' +
         'minimal perplexity cost.',
+      displayBlurb:
+        'GGUF prefill/decode benchmarks.',
       image: { src: null, w: 1280, h: 720, label: 'LLM HW BENCHMARKING' }
     }
   ],

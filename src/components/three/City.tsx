@@ -1,15 +1,36 @@
-import { Suspense, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import {
+  Suspense,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, PointerLockControls, useEnvironment, useGLTF, useTexture } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { PALETTE, LIGHTING } from '../../theme';
 import {
+  buildAsphaltPixels,
+  buildConcretePixels,
+  PROCEDURAL_TEXTURE_SIZE,
+} from '../../assets/proceduralTextures';
+import {
+  buildAboutCuldesac,
   buildShibuyaIntersection,
   buildStraightRoadCrossings,
   shibuyaPlazaContains,
 } from '../../world/intersections';
-import { ROADS, buildCurveRibbon } from '../../world/roads';
+import {
+  ROADS,
+  buildCurveRibbon,
+  buildRoadGeometry,
+} from '../../world/roads';
 import {
   INSPECTION_PRESET_IDS,
   applyInspectionPreset,
@@ -21,34 +42,36 @@ import {
 
 const URL_PARAMS = new URLSearchParams(location.search);
 const FREECAM = URL_PARAMS.has('freecam');
+const VISIBILITY_RESIZE_DEBOUNCE_MS = 180;
 const IS_DEVELOPMENT = (
-  import.meta as ImportMeta & { env: { DEV: boolean } }
-).env.DEV;
+  import.meta as ImportMeta & {
+    env: { DEV: boolean; VITE_ENABLE_INSPECTION?: string };
+  }
+).env.DEV || (
+  import.meta as ImportMeta & {
+    env: { DEV: boolean; VITE_ENABLE_INSPECTION?: string };
+  }
+).env.VITE_ENABLE_INSPECTION === '1';
 const INSPECT_ENABLED = shouldEnableInspection(IS_DEVELOPMENT, location.search);
+const REQUESTED_VISIBILITY_PROFILE = resolveVisibilityProfile(location.search);
+export const VisibilityLayoutContext =
+  createContext<VisibilityLayout | null>(null);
+
+function useVisibilityLayout(): VisibilityLayout {
+  const layout = useContext(VisibilityLayoutContext);
+  if (!layout) throw new Error('Visibility layout context is unavailable');
+  return layout;
+}
 
 /** Small procedural asphalt texture: dark base + noise speckle + patches. */
 function makeAsphaltTexture(): THREE.CanvasTexture {
-  const s = 256;
+  const s = PROCEDURAL_TEXTURE_SIZE;
   const cv = document.createElement('canvas');
   cv.width = cv.height = s;
   const ctx = cv.getContext('2d')!;
-  ctx.fillStyle = '#0c0e16';
-  ctx.fillRect(0, 0, s, s);
-  // fine noise speckle
-  for (let i = 0; i < 6000; i++) {
-    const v = 8 + Math.floor(Math.random() * 26);
-    ctx.fillStyle = `rgba(${v},${v},${v + 4},${Math.random() * 0.5})`;
-    ctx.fillRect(Math.random() * s, Math.random() * s, 1.4, 1.4);
-  }
-  // a few darker patches / seams
-  for (let i = 0; i < 10; i++) {
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-    ctx.lineWidth = 1 + Math.random() * 2;
-    ctx.beginPath();
-    ctx.moveTo(Math.random() * s, Math.random() * s);
-    ctx.lineTo(Math.random() * s, Math.random() * s);
-    ctx.stroke();
-  }
+  const image = ctx.createImageData(s, s);
+  image.data.set(buildAsphaltPixels());
+  ctx.putImageData(image, 0, 0);
   const tex = new THREE.CanvasTexture(cv);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(2, 2);
@@ -56,33 +79,64 @@ function makeAsphaltTexture(): THREE.CanvasTexture {
   return tex;
 }
 import { MOON_POS, MOON_RADIUS } from '../../world/route';
-import { buildCityLayout, buildProps, buildSkyline, buildStreetFurniture } from '../../world/cityLayout';
-import { buildRampGeometry, JUNK, RAMP2, SCAFFOLD } from '../../world/setpieces';
+import {
+  buildCityLayout,
+  type Placement as CityPlacement,
+} from '../../world/cityLayout';
+import {
+  buildRampGeometry,
+  JUNK,
+  RAMP2,
+  SCAFFOLD,
+  rampProfileHeight,
+  rampProfileSlope,
+  rampRidePlateTransform,
+} from '../../world/setpieces';
+import { ridePlateCenterOffset } from '../../choreography/rideSurface';
 import { KitPiece } from './KitPiece';
-import { InstancedPieces, type InstancedMaterialTransform } from './InstancedPieces';
+import {
+  InstancedPieces,
+  pedestrianInstanceColor,
+  stylePedestrianMaterial,
+} from './InstancedPieces';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { buildCrowdLayout, ROBOT_FILES, type RobotSpot } from '../../world/crowdLayout';
-import { buildStreetDressingLayout } from '../../world/streetDressing';
+import {
+  HUMAN_FILE,
+  ROBOT_FILES,
+  type RobotSpot,
+} from '../../world/crowdLayout';
 import { buildingPlacementBounds } from '../../world/buildingCatalog';
 import { buildHighwayPillarLayout } from '../../world/highwayLayout';
 import { styleRobotMaterial } from './robotMaterial';
 import { useCommittedThreeResource } from './useCommittedThreeResources';
-import { styleShibuyaWallMaterial } from './shibuyaMaterial';
-import { buildShibuyaFacadePanels } from '../../world/visualFraming';
 import {
-  CITY_GROUND_BOUNDS,
-  buildBridgeLayout,
-} from '../../world/bridgeLayout';
+  SHIBUYA_WALL_LIGHTS,
+  buildShibuyaFacadePixels,
+  createShibuyaFacadePanelMaterial,
+  styleShibuyaWallMaterial,
+} from './shibuyaMaterial';
+import { buildShibuyaFacadePanels } from '../../world/visualFraming';
+import type { ProgressStore } from '../../choreography/progressStore';
+import { remapScroll } from '../../choreography/scrollRemap';
+import { sceneAnimationTime } from '../../scroll/scrollRuntime';
+import { BikeRider, type BikeRiderHandle } from './BikeRider';
+import { ProductionDirector } from './ProductionDirector';
 import {
   BRIDGE_RENDER_CONFIG,
+  FINALE_ATMOSPHERE_CONFIG,
   MOON_RENDER_CONFIG,
   TASK4_SCENE_NAMES,
   WATER_RENDER_CONFIG,
+  buildFinaleAtmospherePositions,
   buildBridgeRenderGeometry,
   inspectTask4Scene,
   type Task4SceneSnapshot,
 } from '../../world/finaleRender';
-import { buildSignLayout, FACADE_SIGN_TARGET, HOLOGRAM_ANCHOR_IDS } from '../../world/signLayout';
+import {
+  buildShorelineGeometry,
+  buildShorelineProfile,
+} from '../../world/shoreline';
+import { FACADE_SIGN_TARGET, HOLOGRAM_ANCHOR_IDS } from '../../world/signLayout';
 import {
   FACADE_SIGN_RENDER_CONFIG,
   HOLOGRAM_SIGN_RENDER_CONFIG,
@@ -97,6 +151,62 @@ import {
   type Task5SceneSnapshot,
 } from './signRender';
 import { buildSignPixelArt, type SignArtVariant } from './signArt';
+import {
+  buildAboutArtLayout,
+  renderAboutArt,
+  resolveAboutPortraitSrc,
+} from '../../content/aboutArt';
+import { RESUME } from '../../content/resume';
+import { buildAboutHeroReveal } from '../../world/aboutReveal';
+import {
+  ABOUT_HERO_RENDER_CONFIG,
+  TASK2_SCENE_NAMES,
+  buildAboutHeroRenderAssembly,
+  inspectTask2Scene,
+  type Task2SceneSnapshot,
+} from './aboutRender';
+import {
+  STUNT_PROJECT_PANELS,
+  buildProjectArtLayout,
+  estimateProjectGalleryTextureBytes,
+  renderProjectArt,
+} from '../../world/stuntContent';
+import { buildScaffoldStructure } from '../../world/stuntLayout';
+import {
+  PROJECT_PANEL_RENDER_CONFIG,
+  STUNT_SCENE_NAMES,
+  buildStuntPanelRenderAssembly,
+  inspectStuntProjectRasterAudit,
+  inspectStuntScene,
+  type StuntSceneSnapshot,
+} from './stuntRender';
+import {
+  RESEARCH_PANELS,
+  buildResearchArtLayout,
+  renderResearchArt,
+} from '../../world/researchContent';
+import {
+  RESEARCH_PANEL_RENDER_CONFIG,
+  RESEARCH_SCENE_NAMES,
+  buildResearchRenderAssembly,
+  inspectResearchScene,
+  type ResearchSceneSnapshot,
+} from './researchRender';
+import {
+  buildInitialVisibilityLayout,
+  buildVisibilityLayouts,
+  estimateVisibilityBudget,
+  resolveVisibilityProfile,
+  type VisibilityLayout,
+  type VisibilityLayouts,
+} from '../../world/visibilityProfile';
+import {
+  CITY_ZONE_IDS,
+  createCityZoneLoadController,
+  partitionCityZones,
+  type CityZoneLoadController,
+  type CityZoneId,
+} from '../../scroll/cityLoading';
 
 declare global {
   interface Window {
@@ -110,39 +220,80 @@ declare global {
     __EVANLY_TASK4_INSPECTION__?: {
       version: 1;
       snapshot: () => Task4SceneSnapshot;
+      setReflectionIntensityForMeasurement: (intensity: number) => void;
     };
     __EVANLY_TASK5_INSPECTION__?: {
       version: 1;
       snapshot: () => Task5SceneSnapshot;
       setView: (id: string, view: Task5CameraView) => boolean;
     };
+    __EVANLY_TASK2_INSPECTION__?: {
+      version: 1;
+      snapshot: () => Task2SceneSnapshot;
+    };
+    __EVANLY_TASK3_INSPECTION__?: {
+      version: 1;
+      snapshot: (semanticT: number) => StuntSceneSnapshot;
+      projectArtRasterAudit: () => ReturnType<
+        typeof inspectStuntProjectRasterAudit
+      >;
+    };
+    __EVANLY_SCROLL_TASK4_INSPECTION__?: {
+      version: 1;
+      snapshot: (semanticT: number) => ResearchSceneSnapshot;
+    };
+    __EVANLY_VISIBILITY__?: {
+      version: 1;
+      setProfile: (profile: VisibilityLayout['profile']) => boolean;
+      snapshot: () => {
+        profile: VisibilityLayout['profile'];
+        budget: ReturnType<typeof estimateVisibilityBudget>;
+        completeWorldBudget: {
+          triangles: number;
+          instances: number;
+          drawObjects: number;
+        };
+        audit: {
+          removed: VisibilityLayouts['audit']['removed'];
+          retained: VisibilityLayouts['audit']['retained'];
+          antiVoid: VisibilityLayouts['audit']['antiVoid'];
+          canyonFillers: VisibilityLayouts['audit']['canyonFillers'];
+          sweep: VisibilityLayouts['sweep']['bounds'] & {
+            sources: string[];
+            samples: number;
+            keys: number;
+            interpolationSamples: number;
+            aspect: number;
+          };
+        };
+        counts: {
+          buildings: number;
+          props: number;
+          skyline: number;
+          signs: number;
+        };
+      };
+    };
+    __EVANLY_CITY_LOADING__?: {
+      version: 1;
+      snapshot: () => {
+        activeZones: CityZoneId[];
+        readyZones: CityZoneId[];
+        zoneFiles: Record<CityZoneId, string[]>;
+      };
+    };
   }
 }
 
 /** Procedural concrete texture for the ground (grime + cracks + faint blocks). */
 function makeConcreteTexture(): THREE.CanvasTexture {
-  const s = 256;
+  const s = PROCEDURAL_TEXTURE_SIZE;
   const cv = document.createElement('canvas');
   cv.width = cv.height = s;
   const ctx = cv.getContext('2d')!;
-  ctx.fillStyle = '#23262e';
-  ctx.fillRect(0, 0, s, s);
-  for (let i = 0; i < 9000; i++) {
-    const v = 24 + Math.floor(Math.random() * 34);
-    ctx.fillStyle = `rgba(${v},${v},${v + 6},${Math.random() * 0.5})`;
-    ctx.fillRect(Math.random() * s, Math.random() * s, 1.5, 1.5);
-  }
-  ctx.strokeStyle = 'rgba(10,10,14,0.6)'; // block seams
-  ctx.lineWidth = 2;
-  ctx.strokeRect(0, 0, s, s);
-  for (let i = 0; i < 14; i++) { // cracks
-    ctx.strokeStyle = 'rgba(8,8,12,0.5)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(Math.random() * s, Math.random() * s);
-    ctx.lineTo(Math.random() * s, Math.random() * s);
-    ctx.stroke();
-  }
+  const image = ctx.createImageData(s, s);
+  image.data.set(buildConcretePixels());
+  ctx.putImageData(image, 0, 0);
   const tex = new THREE.CanvasTexture(cv);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(90, 90);
@@ -203,7 +354,8 @@ function SignBatchMesh({
 }
 
 export function Signs() {
-  const signs = useMemo(() => buildSignLayout(), []);
+  const layout = useVisibilityLayout();
+  const signs = layout.signs;
   const batches = useMemo(() => buildSignRenderBatches(signs), [signs]);
   const resources = useCommittedThreeResource('signs', ({ own }) => {
     const facadeTextures = Array.from({ length: 8 }, (_, index) =>
@@ -341,6 +493,442 @@ export function Signs() {
   );
 }
 
+export function ProjectsPanels() {
+  const assembly = useMemo(() => buildStuntPanelRenderAssembly(), []);
+  const resources = useCommittedThreeResource('stunt-project-panels', ({ own }) => {
+    const textureEstimate = estimateProjectGalleryTextureBytes();
+    const textures = STUNT_PROJECT_PANELS.map((panel) => {
+      const art = buildProjectArtLayout(panel);
+      const canvas = document.createElement('canvas');
+      canvas.width = art.size.width;
+      canvas.height = art.size.height;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error(`Project art canvas unavailable: ${panel.id}`);
+      renderProjectArt(context, art);
+      const texture = own(new THREE.CanvasTexture(canvas));
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = 8;
+      texture.generateMipmaps = true;
+      texture.minFilter = THREE.LinearMipmapLinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      const estimate = textureEstimate.textures.find(
+        ({ panelId }) => panelId === panel.id,
+      );
+      if (!estimate) throw new Error(`Project texture estimate missing: ${panel.id}`);
+      texture.userData.projectGallery = {
+        ...estimate,
+        artAudit: {
+          regions: art.regions.filter(({ id }) => id !== 'background'),
+        },
+      };
+      return texture;
+    });
+    const screenMaterials = textures.map((map) => own(new THREE.MeshBasicMaterial({
+      map,
+      side: PROJECT_PANEL_RENDER_CONFIG.screen.side,
+      toneMapped: PROJECT_PANEL_RENDER_CONFIG.screen.toneMapped,
+      depthTest: PROJECT_PANEL_RENDER_CONFIG.screen.depthTest,
+      polygonOffset: PROJECT_PANEL_RENDER_CONFIG.screen.polygonOffset,
+      polygonOffsetFactor:
+        PROJECT_PANEL_RENDER_CONFIG.screen.polygonOffsetFactor,
+      polygonOffsetUnits:
+        PROJECT_PANEL_RENDER_CONFIG.screen.polygonOffsetUnits,
+      transparent: PROJECT_PANEL_RENDER_CONFIG.screen.transparent,
+      opacity: PROJECT_PANEL_RENDER_CONFIG.screen.opacity,
+      blending: PROJECT_PANEL_RENDER_CONFIG.screen.blending,
+      depthWrite: PROJECT_PANEL_RENDER_CONFIG.screen.depthWrite,
+    })));
+    const backingMaterial = own(new THREE.MeshStandardMaterial({
+      color: 0x050913,
+      emissive: new THREE.Color(0x07111f),
+      emissiveIntensity: 0.25,
+      roughness: 0.72,
+      metalness: 0.66,
+    }));
+    const attachmentMaterial = own(new THREE.MeshStandardMaterial({
+      color: 0x1c2b3d,
+      emissive: new THREE.Color(PALETTE.cyan),
+      emissiveIntensity: 0.16,
+      roughness: 0.48,
+      metalness: 0.82,
+    }));
+    const emitterMaterial = own(new THREE.MeshStandardMaterial({
+      color: 0x241344,
+      emissive: new THREE.Color(0xbca2ff),
+      emissiveIntensity:
+        PROJECT_PANEL_RENDER_CONFIG.hologram.emitterEmissiveIntensity,
+      roughness: 0.32,
+      metalness: 0.82,
+      toneMapped: PROJECT_PANEL_RENDER_CONFIG.hologram.emitterToneMapped,
+    }));
+    const beamMaterial = own(new THREE.MeshBasicMaterial({
+      color: 0x7df9ff,
+      transparent: true,
+      opacity: PROJECT_PANEL_RENDER_CONFIG.hologram.beamOpacity,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    }));
+    const planeGeometry = own(new THREE.PlaneGeometry(1, 1));
+    const boxGeometry = own(new THREE.BoxGeometry(1, 1, 1));
+    const emitterGeometry = own(new THREE.CylinderGeometry(1, 1.2, 1, 20));
+    const beamGeometry = own(new THREE.CylinderGeometry(0.3, 1, 1, 20, 1, true));
+    return {
+      value: {
+        textures,
+        screenMaterials,
+        backingMaterial,
+        attachmentMaterial,
+        emitterMaterial,
+        beamMaterial,
+        planeGeometry,
+        boxGeometry,
+        emitterGeometry,
+        beamGeometry,
+      },
+      resources: [
+        ...textures,
+        ...screenMaterials,
+        backingMaterial,
+        attachmentMaterial,
+        emitterMaterial,
+        beamMaterial,
+        planeGeometry,
+        boxGeometry,
+        emitterGeometry,
+        beamGeometry,
+      ],
+    };
+  }, []);
+  if (!resources) return null;
+  return (
+    <group dispose={null}>
+      {assembly.screens.map((instance, index) => (
+        <mesh
+          key={instance.id}
+          name={STUNT_SCENE_NAMES.panelScreen}
+          matrix={instance.matrix}
+          matrixAutoUpdate={false}
+          geometry={resources.planeGeometry}
+          material={resources.screenMaterials[index]}
+          renderOrder={PROJECT_PANEL_RENDER_CONFIG.screen.renderOrder}
+          userData={{
+            id: instance.id,
+            parentId: instance.parentId,
+            screenToBackingFront: instance.screenToBackingFront,
+          }}
+          dispose={null}
+        />
+      ))}
+      {assembly.backings.map((instance) => (
+        <mesh
+          key={instance.id}
+          name={STUNT_SCENE_NAMES.panelBacking}
+          matrix={instance.matrix}
+          matrixAutoUpdate={false}
+          geometry={resources.boxGeometry}
+          material={resources.backingMaterial}
+          renderOrder={PROJECT_PANEL_RENDER_CONFIG.backing.renderOrder}
+          userData={{ id: instance.id, parentId: instance.parentId }}
+          dispose={null}
+        />
+      ))}
+      {assembly.attachments.map((instance) => (
+        <mesh
+          key={instance.id}
+          name={STUNT_SCENE_NAMES.panelAttachment}
+          matrix={instance.matrix}
+          matrixAutoUpdate={false}
+          geometry={resources.boxGeometry}
+          material={resources.attachmentMaterial}
+          userData={{ id: instance.id, parentId: instance.parentId }}
+          dispose={null}
+        />
+      ))}
+      {assembly.supports.map((instance) => (
+        <mesh
+          key={instance.id}
+          name={STUNT_SCENE_NAMES.panelSupport}
+          matrix={instance.matrix}
+          matrixAutoUpdate={false}
+          geometry={resources.boxGeometry}
+          material={resources.attachmentMaterial}
+          userData={{ id: instance.id, parentId: instance.parentId }}
+          dispose={null}
+        />
+      ))}
+      {assembly.emitters.map((instance) => (
+        <mesh
+          key={instance.id}
+          name={STUNT_SCENE_NAMES.panelEmitter}
+          matrix={instance.matrix}
+          matrixAutoUpdate={false}
+          geometry={resources.emitterGeometry}
+          material={resources.emitterMaterial}
+          userData={{ id: instance.id, parentId: instance.parentId }}
+          dispose={null}
+        />
+      ))}
+      {assembly.beams.map((instance) => (
+        <mesh
+          key={instance.id}
+          name={STUNT_SCENE_NAMES.panelBeam}
+          matrix={instance.matrix}
+          matrixAutoUpdate={false}
+          geometry={resources.beamGeometry}
+          material={resources.beamMaterial}
+          renderOrder={PROJECT_PANEL_RENDER_CONFIG.screen.renderOrder - 1}
+          userData={{ id: instance.id, parentId: instance.parentId }}
+          dispose={null}
+        />
+      ))}
+    </group>
+  );
+}
+
+export function ResearchGateways() {
+  const assembly = useMemo(() => buildResearchRenderAssembly(), []);
+  const resources = useCommittedThreeResource('research-gateways', ({ own }) => {
+    const artPool = ([0, 1] as const).map((contentIndex) => {
+      const panel = RESEARCH_PANELS.find((candidate) =>
+        candidate.contentIndex === contentIndex);
+      if (!panel) {
+        throw new Error(`Research art pool is missing content ${contentIndex}`);
+      }
+      const art = buildResearchArtLayout(panel);
+      const canvas = document.createElement('canvas');
+      canvas.width = art.size.width;
+      canvas.height = art.size.height;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error(`Research art canvas unavailable: ${panel.id}`);
+      renderResearchArt(context, art);
+      const texture = own(new THREE.CanvasTexture(canvas));
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = 8;
+      texture.generateMipmaps = true;
+      texture.minFilter = THREE.LinearMipmapLinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      return texture;
+    });
+    const screenMaterials = artPool.map((map) => own(new THREE.MeshBasicMaterial({
+      map,
+      side: RESEARCH_PANEL_RENDER_CONFIG.screen.side,
+      toneMapped: RESEARCH_PANEL_RENDER_CONFIG.screen.toneMapped,
+      depthTest: RESEARCH_PANEL_RENDER_CONFIG.screen.depthTest,
+      depthWrite: RESEARCH_PANEL_RENDER_CONFIG.screen.depthWrite,
+      polygonOffset: RESEARCH_PANEL_RENDER_CONFIG.screen.polygonOffset,
+      polygonOffsetFactor:
+        RESEARCH_PANEL_RENDER_CONFIG.screen.polygonOffsetFactor,
+      polygonOffsetUnits:
+        RESEARCH_PANEL_RENDER_CONFIG.screen.polygonOffsetUnits,
+    })));
+    const structureMaterial = own(new THREE.MeshStandardMaterial({
+      color: 0x172235,
+      emissive: new THREE.Color(PALETTE.cyan),
+      emissiveIntensity: 0.12,
+      roughness: 0.48,
+      metalness: 0.82,
+    }));
+    const backingMaterial = own(new THREE.MeshStandardMaterial({
+      color: 0x030811,
+      emissive: new THREE.Color(0x061321),
+      emissiveIntensity: 0.3,
+      roughness: 0.72,
+      metalness: 0.7,
+    }));
+    const planeGeometry = own(new THREE.PlaneGeometry(1, 1));
+    const boxGeometry = own(new THREE.BoxGeometry(1, 1, 1));
+    return {
+      value: {
+        textures: artPool,
+        screenMaterials,
+        structureMaterial,
+        backingMaterial,
+        planeGeometry,
+        boxGeometry,
+      },
+      resources: [
+        ...artPool,
+        ...screenMaterials,
+        structureMaterial,
+        backingMaterial,
+        planeGeometry,
+        boxGeometry,
+      ],
+    };
+  }, []);
+  if (!resources) return null;
+  const renderBoxes = (
+    instances: typeof assembly.beams,
+    name: string,
+    material: THREE.Material,
+  ) => instances.map((instance) => (
+    <mesh
+      key={instance.id}
+      name={name}
+      matrix={instance.matrix}
+      matrixAutoUpdate={false}
+      geometry={resources.boxGeometry}
+      material={material}
+      userData={{ id: instance.id, parentId: instance.parentId }}
+      dispose={null}
+    />
+  ));
+  return (
+    <group name="research-gateways-owned" dispose={null}>
+      {renderBoxes(
+        assembly.beams,
+        RESEARCH_SCENE_NAMES.gatewayBeam,
+        resources.structureMaterial,
+      )}
+      {renderBoxes(
+        assembly.supports,
+        RESEARCH_SCENE_NAMES.gatewaySupport,
+        resources.structureMaterial,
+      )}
+      {renderBoxes(
+        assembly.ties,
+        RESEARCH_SCENE_NAMES.gatewayTie,
+        resources.structureMaterial,
+      )}
+      {assembly.screens.map((instance) => (
+        <mesh
+          key={instance.id}
+          name={RESEARCH_SCENE_NAMES.panelScreen}
+          matrix={instance.matrix}
+          matrixAutoUpdate={false}
+          geometry={resources.planeGeometry}
+          material={resources.screenMaterials[instance.textureIndex ?? 0]}
+          renderOrder={RESEARCH_PANEL_RENDER_CONFIG.screen.renderOrder}
+          userData={{
+            id: instance.id,
+            parentId: instance.parentId,
+            screenToBackingFront: instance.screenToBackingFront,
+          }}
+          dispose={null}
+        />
+      ))}
+      {renderBoxes(
+        assembly.backings,
+        RESEARCH_SCENE_NAMES.panelBacking,
+        resources.backingMaterial,
+      )}
+      {renderBoxes(
+        assembly.attachments,
+        RESEARCH_SCENE_NAMES.panelAttachment,
+        resources.structureMaterial,
+      )}
+    </group>
+  );
+}
+
+export function AboutHero() {
+  const layout = useVisibilityLayout();
+  const reveal = useMemo(
+    () => buildAboutHeroReveal(layout.buildings),
+    [layout.buildings],
+  );
+  const assembly = useMemo(
+    () => buildAboutHeroRenderAssembly(reveal.screen),
+    [reveal],
+  );
+  const portraitSrc = resolveAboutPortraitSrc(RESUME.about.faceImage);
+  const portrait = useTexture(portraitSrc);
+  const resources = useCommittedThreeResource('about-hero', ({ own }) => {
+    const art = buildAboutArtLayout(portraitSrc);
+    const canvas = document.createElement('canvas');
+    canvas.width = art.size.width;
+    canvas.height = art.size.height;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('About hero canvas context is unavailable');
+    renderAboutArt(context, portrait.image as CanvasImageSource, art);
+    const texture = own(new THREE.CanvasTexture(canvas));
+    texture.colorSpace = ABOUT_HERO_RENDER_CONFIG.texture.colorSpace;
+    texture.anisotropy = ABOUT_HERO_RENDER_CONFIG.texture.anisotropy;
+    const screenMaterial = own(new THREE.MeshBasicMaterial({
+      map: texture,
+      side: ABOUT_HERO_RENDER_CONFIG.screen.side,
+      toneMapped: ABOUT_HERO_RENDER_CONFIG.screen.toneMapped,
+      depthTest: ABOUT_HERO_RENDER_CONFIG.screen.depthTest,
+      depthWrite: ABOUT_HERO_RENDER_CONFIG.screen.depthWrite,
+      polygonOffset: ABOUT_HERO_RENDER_CONFIG.screen.polygonOffset,
+      polygonOffsetFactor:
+        ABOUT_HERO_RENDER_CONFIG.screen.polygonOffsetFactor,
+      polygonOffsetUnits:
+        ABOUT_HERO_RENDER_CONFIG.screen.polygonOffsetUnits,
+    }));
+    const backingMaterial = own(new THREE.MeshStandardMaterial({
+      color: ABOUT_HERO_RENDER_CONFIG.backing.color,
+      roughness: ABOUT_HERO_RENDER_CONFIG.backing.roughness,
+      metalness: ABOUT_HERO_RENDER_CONFIG.backing.metalness,
+    }));
+    const attachmentMaterial = own(new THREE.MeshStandardMaterial({
+      color: ABOUT_HERO_RENDER_CONFIG.attachment.color,
+      roughness: ABOUT_HERO_RENDER_CONFIG.attachment.roughness,
+      metalness: ABOUT_HERO_RENDER_CONFIG.attachment.metalness,
+    }));
+    const plane = own(new THREE.PlaneGeometry(1, 1));
+    const box = own(new THREE.BoxGeometry(1, 1, 1));
+    const value = {
+      texture,
+      screenMaterial,
+      backingMaterial,
+      attachmentMaterial,
+      plane,
+      box,
+    };
+    return {
+      value,
+      resources: [
+        texture,
+        screenMaterial,
+        backingMaterial,
+        attachmentMaterial,
+        plane,
+        box,
+      ],
+    };
+  }, [portrait, portraitSrc]);
+  if (!resources) return null;
+  return (
+    <group name="about-hero-owned" dispose={null}>
+      <mesh
+        name={TASK2_SCENE_NAMES.screen}
+        matrix={assembly.screen.matrix}
+        matrixAutoUpdate={false}
+        geometry={resources.plane}
+        material={resources.screenMaterial}
+        userData={{ contract: assembly.screen }}
+        renderOrder={ABOUT_HERO_RENDER_CONFIG.screen.renderOrder}
+        dispose={null}
+      />
+      <mesh
+        name={TASK2_SCENE_NAMES.backing}
+        matrix={assembly.backing.matrix}
+        matrixAutoUpdate={false}
+        geometry={resources.box}
+        material={resources.backingMaterial}
+        userData={{ contract: assembly.backing }}
+        renderOrder={ABOUT_HERO_RENDER_CONFIG.backing.renderOrder}
+        dispose={null}
+      />
+      {assembly.attachments.map((attachment) => (
+        <mesh
+          key={attachment.id}
+          name={TASK2_SCENE_NAMES.attachment}
+          matrix={attachment.matrix}
+          matrixAutoUpdate={false}
+          geometry={resources.box}
+          material={resources.attachmentMaterial}
+          userData={{ contract: attachment }}
+          dispose={null}
+        />
+      ))}
+    </group>
+  );
+}
+
 function EnvMap() {
   const texture = useEnvironment({ preset: 'night' });
   const { scene } = useThree();
@@ -436,6 +1024,7 @@ export function Roads() {
     const crossingMat = own(new THREE.MeshStandardMaterial({ color: 0xd8dbe6, roughness: 0.7, emissive: new THREE.Color(0x8891a6), emissiveIntensity: 0.25 }));
     const indicatorMat = own(new THREE.MeshStandardMaterial({ color: 0x03231f, emissive: new THREE.Color(PALETTE.cyan), emissiveIntensity: 2.1, toneMapped: false }));
     const intersection = buildShibuyaIntersection();
+    const aboutCuldesac = buildAboutCuldesac();
     const straightRoadCrossings = buildStraightRoadCrossings();
     const shape = new THREE.Shape();
     intersection.plaza.outline.forEach((point, index) => {
@@ -450,21 +1039,46 @@ export function Roads() {
     geometry.rotateX(Math.PI / 2);
     geometry.translate(0, intersection.plaza.surfaceY, 0);
     const plazaGeometry = geometry;
-    const nodes = ROADS.map((r) => {
-      const deck = own(buildCurveRibbon(r.curve, r.halfWidth, { lift: r.level }));
+    const culdesacRoad = own(
+      new THREE.CircleGeometry(aboutCuldesac.roadRadius, 48)
+        .rotateX(-Math.PI / 2)
+        .translate(
+          aboutCuldesac.center.x,
+          aboutCuldesac.surfaceY,
+          aboutCuldesac.center.z,
+        ),
+    );
+    const culdesacWalk = own(
+      new THREE.RingGeometry(
+        aboutCuldesac.roadRadius,
+        aboutCuldesac.sidewalkOuterRadius,
+        48,
+      )
+        .rotateX(-Math.PI / 2)
+        .translate(
+          aboutCuldesac.center.x,
+          0.45,
+          aboutCuldesac.center.z,
+        ),
+    );
+    const nodes = ROADS.map((r, roadIndex) => {
+      const service = r.surface === 'service-concrete';
+      const deck = own(buildRoadGeometry(roadIndex));
       const infrastructureClip = r.ground ? shibuyaPlazaContains : undefined;
       const edgeGlowL = own(buildCurveRibbon(r.curve, 0.3, { offset: r.halfWidth - 0.4, lift: r.level + 0.06, clip: infrastructureClip }));
       const edgeGlowR = own(buildCurveRibbon(r.curve, 0.3, { offset: -(r.halfWidth - 0.4), lift: r.level + 0.06, clip: infrastructureClip }));
-      const centre = own(buildCurveRibbon(r.curve, 0.14, { lift: r.level + 0.06, clip: infrastructureClip }));
+      const centre = service
+        ? null
+        : own(buildCurveRibbon(r.curve, 0.14, { lift: r.level + 0.06, clip: infrastructureClip }));
       // wide raised sidewalks (half-width 4.5 → 9 m) + a raised curb lip at the road edge
-      const walkL = r.ground ? own(buildCurveRibbon(r.curve, 4.5, { offset: r.halfWidth + 4.5, lift: 0.45, clip: infrastructureClip })) : null;
-      const walkR = r.ground ? own(buildCurveRibbon(r.curve, 4.5, { offset: -(r.halfWidth + 4.5), lift: 0.45, clip: infrastructureClip })) : null;
-      const curbL = r.ground ? own(buildCurveRibbon(r.curve, 0.4, { offset: r.halfWidth + 0.4, lift: 0.5, clip: infrastructureClip })) : null;
-      const curbR = r.ground ? own(buildCurveRibbon(r.curve, 0.4, { offset: -(r.halfWidth + 0.4), lift: 0.5, clip: infrastructureClip })) : null;
+      const walkL = r.ground && !service ? own(buildCurveRibbon(r.curve, 4.5, { offset: r.halfWidth + 4.5, lift: 0.45, clip: infrastructureClip })) : null;
+      const walkR = r.ground && !service ? own(buildCurveRibbon(r.curve, 4.5, { offset: -(r.halfWidth + 4.5), lift: 0.45, clip: infrastructureClip })) : null;
+      const curbL = r.ground && !service ? own(buildCurveRibbon(r.curve, 0.4, { offset: r.halfWidth + 0.4, lift: 0.5, clip: infrastructureClip })) : null;
+      const curbR = r.ground && !service ? own(buildCurveRibbon(r.curve, 0.4, { offset: -(r.halfWidth + 0.4), lift: 0.5, clip: infrastructureClip })) : null;
       // elevated decks get a dark under-slab (slightly wider, dropped down) so
       // the highway reads as a solid deck when viewed from underneath
       const underDeck = r.ground ? null : own(buildCurveRibbon(r.curve, r.halfWidth + 0.8, { lift: r.level - 1.4 }));
-      return { deck, edgeGlowL, edgeGlowR, centre, walkL, walkR, curbL, curbR, underDeck, main: r.halfWidth > 10 };
+      return { deck, edgeGlowL, edgeGlowR, centre, walkL, walkR, curbL, curbR, underDeck, main: r.halfWidth > 10, service };
     });
     const unitBox = own(new THREE.BoxGeometry(1, 1, 1));
     const indicatorCylinder = own(new THREE.CylinderGeometry(1, 1, 1, 10));
@@ -493,6 +1107,8 @@ export function Roads() {
       intersection,
       straightRoadCrossings,
       plazaGeometry,
+      culdesacRoad,
+      culdesacWalk,
       nodes,
       unitBox,
       indicatorCylinder,
@@ -511,6 +1127,8 @@ export function Roads() {
         crossingMat,
         indicatorMat,
         plazaGeometry,
+        culdesacRoad,
+        culdesacWalk,
         unitBox,
         indicatorCylinder,
         ...nodeGeometries,
@@ -531,6 +1149,8 @@ export function Roads() {
     intersection,
     straightRoadCrossings,
     plazaGeometry,
+    culdesacRoad,
+    culdesacWalk,
     nodes,
     unitBox,
     indicatorCylinder,
@@ -541,17 +1161,19 @@ export function Roads() {
       {nodes.map((n, i) => (
         <group key={i}>
           {n.underDeck && <mesh geometry={n.underDeck} material={underMat} />}
-          <mesh geometry={n.deck} material={deckMat} />
+          <mesh geometry={n.deck} material={n.service ? walkMat : deckMat} />
           {n.walkL && <mesh geometry={n.walkL} material={walkMat} />}
           {n.walkR && <mesh geometry={n.walkR} material={walkMat} />}
           {n.curbL && <mesh geometry={n.curbL} material={curbMat} />}
           {n.curbR && <mesh geometry={n.curbR} material={curbMat} />}
           <mesh geometry={n.edgeGlowL} material={n.main ? magenta : teal} />
           <mesh geometry={n.edgeGlowR} material={n.main ? magenta : teal} />
-          <mesh geometry={n.centre} material={amber} />
+          {n.centre && <mesh geometry={n.centre} material={amber} />}
         </group>
       ))}
       <mesh geometry={plazaGeometry} material={deckMat} />
+      <mesh geometry={culdesacRoad} material={deckMat} />
+      <mesh geometry={culdesacWalk} material={walkMat} />
       {[...intersection.crossings, ...straightRoadCrossings.crossings].flatMap((crossing) =>
         crossing.stripes.map((stripe, index) => (
           <mesh
@@ -592,39 +1214,257 @@ export function Roads() {
   );
 }
 
-function Buildings() {
-  const layout = useMemo(() => buildCityLayout(), []);
-  const [walls, ordinary] = useMemo(() => [
-    layout.filter(({ layoutRole }) => layoutRole?.startsWith('shibuya-')),
-    layout.filter(({ layoutRole }) => !layoutRole?.startsWith('shibuya-')),
-  ], [layout]);
+function CanyonFillers() {
+  const { canyonFillers } = useVisibilityLayout();
+  const resources = useCommittedThreeResource('cinematic-canyon-fillers', ({ own }) => {
+    const geometry = own(new THREE.BoxGeometry(1, 1, 1));
+    const material = own(new THREE.ShaderMaterial({
+      uniforms: {},
+      vertexShader: `
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        void main() {
+          vUv = uv;
+          vNormal = normal;
+          gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix
+            * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        void main() {
+          vec3 base = vec3(0.022, 0.032, 0.052);
+          float verticalFace = 1.0 - step(0.8, abs(vNormal.y));
+          vec2 grid = fract(vUv * vec2(8.0, 18.0));
+          float pane = step(0.18, grid.x) * step(grid.x, 0.78)
+            * step(0.2, grid.y) * step(grid.y, 0.72);
+          float variation = step(0.48, fract(
+            floor(vUv.x * 8.0) * 0.37 + floor(vUv.y * 18.0) * 0.61
+          ));
+          vec3 windowColor = mix(
+            vec3(0.025, 0.12, 0.18),
+            vec3(0.16, 0.38, 0.46),
+            variation
+          );
+          gl_FragColor = vec4(mix(base, windowColor, pane * verticalFace), 1.0);
+        }
+      `,
+      fog: false,
+    }));
+    return {
+      value: { geometry, material },
+      resources: [geometry, material],
+    };
+  }, []);
+  const ref = useRef<THREE.InstancedMesh>(null);
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+    const matrix = new THREE.Matrix4();
+    const quaternion = new THREE.Quaternion();
+    const position = new THREE.Vector3();
+    const scale = new THREE.Vector3();
+    canyonFillers.forEach((filler, index) => {
+      quaternion.setFromAxisAngle(
+        new THREE.Vector3(0, 1, 0),
+        filler.rotationY,
+      );
+      matrix.compose(
+        position.set(
+          filler.position[0],
+          filler.size[1] / 2,
+          filler.position[2],
+        ),
+        quaternion,
+        scale.set(...filler.size),
+      );
+      ref.current?.setMatrixAt(index, matrix);
+    });
+    ref.current.count = canyonFillers.length;
+    ref.current.instanceMatrix.needsUpdate = true;
+    ref.current.computeBoundingSphere();
+  }, [canyonFillers, resources]);
+  if (!resources || canyonFillers.length === 0) return null;
+  return (
+    <instancedMesh
+      ref={ref}
+      name="cinematic-canyon-filler"
+      args={[resources.geometry, resources.material, canyonFillers.length]}
+      userData={{ role: 'cinematic-canyon-filler' }}
+      dispose={null}
+    />
+  );
+}
+
+function ZoneReady({
+  id,
+  onReady,
+}: {
+  id: CityZoneId;
+  onReady: (id: CityZoneId) => void;
+}) {
+  useEffect(() => onReady(id), [id, onReady]);
+  return null;
+}
+
+function BuildingZone({
+  layout,
+  props,
+  id,
+  onReady,
+}: {
+  layout: CityPlacement[];
+  props: CityPlacement[];
+  id: CityZoneId;
+  onReady: (id: CityZoneId) => void;
+}) {
+  const [backdrop, walls, research, ordinary] = useMemo(() => [
+      layout.filter(({ layoutRole }) => layoutRole === 'stunt-backdrop'),
+      layout.filter(({ layoutRole }) => layoutRole?.startsWith('shibuya-')),
+      layout.filter(({ layoutRole }) => layoutRole?.startsWith('research-')),
+      layout.filter(({ layoutRole }) =>
+        !layoutRole?.startsWith('shibuya-')
+        && !layoutRole?.startsWith('research-')
+        && layoutRole !== 'stunt-backdrop'),
+    ], [layout]);
   return (
     <>
       <InstancedPieces placements={ordinary} />
       <InstancedPieces
+        placements={backdrop}
+        inspectionGroupName={
+          INSPECT_ENABLED ? STUNT_SCENE_NAMES.backdropReadyFile : undefined
+        }
+      />
+      <InstancedPieces
         placements={walls}
         materialTransform={styleShibuyaWallMaterial}
       />
+      <InstancedPieces
+        placements={research}
+        inspectionGroupName={
+          INSPECT_ENABLED ? RESEARCH_SCENE_NAMES.wallReadyFile : undefined
+        }
+      />
+      <InstancedPieces placements={props} />
+      <ZoneReady id={id} onReady={onReady} />
     </>
   );
 }
 
+function ProceduralBuildingShells({
+  placements,
+}: {
+  placements: CityPlacement[];
+}) {
+  const resources = useCommittedThreeResource(
+    'progressive-building-shells',
+    ({ own }) => {
+      const geometry = own(new THREE.BoxGeometry(1, 1, 1));
+      const material = own(new THREE.MeshStandardMaterial({
+          color: 0x101827,
+          emissive: new THREE.Color(0x071522),
+          emissiveIntensity: 0.18,
+          roughness: 0.88,
+          metalness: 0.22,
+      }));
+      return {
+        value: { geometry, material },
+        resources: [geometry, material],
+      };
+    },
+    [],
+  );
+  const shells = useMemo(() => placements.map((placement) => {
+    const bounds = buildingPlacementBounds(placement);
+    return {
+      position: new THREE.Vector3(
+        bounds.center.x,
+        bounds.height / 2,
+        bounds.center.z,
+      ),
+      rotation: new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(0, 1, 0),
+        bounds.rotationY,
+      ),
+      scale: new THREE.Vector3(
+        bounds.halfX * 2,
+        Math.max(1, bounds.height),
+        bounds.halfZ * 2,
+      ),
+    };
+  }), [placements]);
+  const ref = useRef<THREE.InstancedMesh>(null);
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+    const matrix = new THREE.Matrix4();
+    shells.forEach((shell, index) => {
+      matrix.compose(shell.position, shell.rotation, shell.scale);
+      ref.current?.setMatrixAt(index, matrix);
+    });
+    ref.current.count = shells.length;
+    ref.current.instanceMatrix.needsUpdate = true;
+    ref.current.computeBoundingSphere();
+  }, [resources, shells]);
+  if (!resources || shells.length === 0) return null;
+  return (
+    <instancedMesh
+      ref={ref}
+      name="progressive-building-shell"
+      args={[resources.geometry, resources.material, shells.length]}
+      dispose={null}
+    />
+  );
+}
+
+function DeferredScene({ children }: { children: ReactNode }) {
+  const marked = useRef(false);
+  const [ready, setReady] = useState(false);
+  useFrame(() => {
+    if (marked.current) return;
+    marked.current = true;
+    performance.mark('evanly-first-three-procedural-frame');
+    if (!performance.getEntriesByName('evanly-first-meaningful-frame').length) {
+      performance.mark('evanly-first-meaningful-frame');
+    }
+    setReady(true);
+  });
+  return ready ? children : null;
+}
+
+function ProceduralMoonShell() {
+  return (
+    <mesh name="progressive-moon-shell" position={MOON_POS}>
+      <sphereGeometry args={[MOON_RADIUS, 24, 16]} />
+      <meshBasicMaterial color={0xc5d2e5} />
+    </mesh>
+  );
+}
+
 function ShibuyaWallLighting() {
+  const { warm, magenta, cyan } = SHIBUYA_WALL_LIGHTS;
   return (
     <group>
       <pointLight
-        position={[240, 72, 0]}
-        color={'#d7e8ff'}
-        intensity={12000}
-        distance={220}
-        decay={2}
+        position={warm.position}
+        color={warm.color}
+        intensity={warm.intensity}
+        distance={warm.distance}
+        decay={warm.decay}
       />
       <pointLight
-        position={[240, 22, 0]}
-        color={'#9fdcff'}
-        intensity={4200}
-        distance={220}
-        decay={2}
+        position={magenta.position}
+        color={magenta.color}
+        intensity={magenta.intensity}
+        distance={magenta.distance}
+        decay={magenta.decay}
+      />
+      <pointLight
+        position={cyan.position}
+        color={cyan.color}
+        intensity={cyan.intensity}
+        distance={cyan.distance}
+        decay={cyan.decay}
       />
     </group>
   );
@@ -635,20 +1475,9 @@ function makeShibuyaFacadeTexture(): THREE.CanvasTexture {
   canvas.width = 128;
   canvas.height = 256;
   const context = canvas.getContext('2d')!;
-  context.fillStyle = '#07131f';
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  for (let row = 0; row < 14; row += 1) {
-    for (let column = 0; column < 6; column += 1) {
-      const active = (row * 7 + column * 11) % 5 !== 0;
-      context.fillStyle = active
-        ? (row % 3 === 0 ? '#79ddff' : '#4e7899')
-        : '#111d28';
-      context.fillRect(8 + column * 20, 8 + row * 17, 12, 9);
-    }
-  }
-  context.strokeStyle = '#9ce8ff';
-  context.lineWidth = 2;
-  context.strokeRect(3, 3, canvas.width - 6, canvas.height - 6);
+  const image = context.createImageData(canvas.width, canvas.height);
+  image.data.set(buildShibuyaFacadePixels(canvas.width, canvas.height));
+  context.putImageData(image, 0, 0);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 4;
@@ -656,18 +1485,14 @@ function makeShibuyaFacadeTexture(): THREE.CanvasTexture {
 }
 
 export function ShibuyaFacadePanels() {
+  const layout = useVisibilityLayout();
   const panels = useMemo(() => buildShibuyaFacadePanels(
-    buildCityLayout().filter(({ layoutRole }) =>
+    layout.buildings.filter(({ layoutRole }) =>
       layoutRole?.startsWith('shibuya-')),
-  ), []);
+  ), [layout.buildings]);
   const resources = useCommittedThreeResource('shibuya-panels', ({ own }) => {
     const texture = own(makeShibuyaFacadeTexture());
-    const material = own(new THREE.MeshBasicMaterial({
-      map: texture,
-      color: 0xd7efff,
-      toneMapped: false,
-      fog: true,
-    }));
+    const material = own(createShibuyaFacadePanelMaterial(texture));
     const geometry = own(new THREE.PlaneGeometry(1, 1));
     return {
       value: { material, geometry },
@@ -680,11 +1505,16 @@ export function ShibuyaFacadePanels() {
       {panels.map((panel, index) => (
         <mesh
           key={`shibuya-facade-${index}`}
+          name="shibuya-facade-panel"
           position={panel.position}
           rotation={[0, panel.rotationY, 0]}
           scale={[panel.width, panel.height, 1]}
           geometry={resources.geometry}
           material={resources.material}
+          userData={{
+            role: 'shibuya-selective-facade-panel',
+            parentKey: panel.parentKey,
+          }}
           dispose={null}
         />
       ))}
@@ -692,17 +1522,13 @@ export function ShibuyaFacadePanels() {
   );
 }
 
-function Props() {
-  const props = useMemo(() => buildProps(), []);
-  return <InstancedPieces placements={props} />;
-}
-
 export function Ground() {
-  const width = CITY_GROUND_BOUNDS.x1 - CITY_GROUND_BOUNDS.x0;
-  const depth = CITY_GROUND_BOUNDS.z1 - CITY_GROUND_BOUNDS.z0;
   const resources = useCommittedThreeResource('ground', ({ own }) => {
     const texture = own(makeConcreteTexture());
-    const geometry = own(new THREE.PlaneGeometry(width, depth));
+    const assembly = buildShorelineGeometry(buildShorelineProfile());
+    const geometry = own(assembly.ground);
+    own(assembly.water);
+    own(assembly.retaining);
     const material = own(new THREE.MeshStandardMaterial({
       map: texture,
       roughness: 0.95,
@@ -712,26 +1538,21 @@ export function Ground() {
       value: { geometry, material },
       resources: [texture, geometry, material],
     };
-  }, [width, depth]);
+  }, []);
   if (!resources) return null;
   return (
     <mesh
+      name={TASK4_SCENE_NAMES.shorelineGround}
       geometry={resources.geometry}
       material={resources.material}
       dispose={null}
-      rotation={[-Math.PI / 2, 0, 0]}
-      position={[
-        (CITY_GROUND_BOUNDS.x0 + CITY_GROUND_BOUNDS.x1) / 2,
-        CITY_GROUND_BOUNDS.y,
-        (CITY_GROUND_BOUNDS.z0 + CITY_GROUND_BOUNDS.z1) / 2,
-      ]}
     />
   );
 }
 
 /** Lamp posts + powerline poles/cables along the roads. */
 export function StreetFurniture() {
-  const { lamps, poles, cables } = useMemo(() => buildStreetFurniture(), []);
+  const { furniture: { lamps, poles, cables } } = useVisibilityLayout();
   const resources = useCommittedThreeResource('street-furniture', ({ own }) => {
     const poleGeometry = own(new THREE.CylinderGeometry(0.2, 0.26, 9, 6));
     const headGeometry = own(new THREE.BoxGeometry(0.7, 0.28, 0.5));
@@ -828,7 +1649,7 @@ export function StreetFurniture() {
 
 // ── Cheap far-field skyline: two InstancedMeshes (dark + emissive) ──
 export function Skyline() {
-  const boxes = useMemo(() => buildSkyline(), []);
+  const { skyline: boxes } = useVisibilityLayout();
   const dark = useMemo(() => boxes.filter((b) => !b.emissive), [boxes]);
   const lit = useMemo(() => boxes.filter((b) => b.emissive), [boxes]);
   const resources = useCommittedThreeResource('skyline', ({ own }) => {
@@ -875,8 +1696,15 @@ export function Skyline() {
 }
 
 /** Ramp 1 — an improvised junk pile: a rusty truck-bed wedge dressed with
- *  crates, a dumpster and wood planks. Rises 0 → 11 over the run (toward −Z). */
-export function JunkRamp() {
+ *  crates, a dumpster and wood planks. Rises 0 → 12 over the run (toward −Z). */
+const JUNK_RAMP_CITY_FILES = [
+  '/models/neocity/KB3D_NEC_BldgSM_C_Containers.glb',
+  '/models/neocity/KB3D_NEC_BldgSM_C_CratesA.glb',
+  '/models/neocity/KB3D_NEC_BldgSM_C_CratesB.glb',
+  '/models/neocity/KB3D_NEC_BldgSM_C_Boxes.glb',
+] as const;
+
+export function JunkRamp({ loadAssets = true }: { loadAssets?: boolean }) {
   const { run, width, rise } = JUNK;
   const resources = useCommittedThreeResource('junk-ramp', ({ own }) => {
     const plank = own(new THREE.MeshStandardMaterial({ color: 0x4a3620, roughness: 0.92, metalness: 0.04 }));
@@ -889,8 +1717,6 @@ export function JunkRamp() {
       resources: [plank, rust, dark, wedge, box],
     };
   }, [run, width, rise]);
-  const ang = Math.atan2(rise, run);
-  const hyp = Math.hypot(run, rise);
   const crates: [string, number, number, number, number][] = [
     ['BldgSM_C_Containers', 4, 0, width / 2 + 2.5, 0.2],
     ['BldgSM_C_CratesA', 9, 0, -width / 2 - 2, -0.3],
@@ -899,21 +1725,44 @@ export function JunkRamp() {
   ];
   if (!resources) return null;
   return (
-    <group position={JUNK.base} rotation={[0, JUNK.rotationY, 0]}>
+    <group
+      name={STUNT_SCENE_NAMES.ramp1}
+      position={JUNK.base}
+      rotation={[0, JUNK.rotationY, 0]}
+    >
       {/* rusty wedge (the "truck bed" you ride up) */}
       <mesh geometry={resources.wedge} material={resources.rust} dispose={null} />
       {/* wood planks laid along the ride surface */}
-      {[-3.5, 0, 3.5].map((zc) => (
-        <mesh
-          key={zc}
-          geometry={resources.box}
-          material={resources.plank}
-          position={[run / 2, rise / 2 + 0.18, zc]}
-          rotation={[0, 0, ang]}
-          scale={[hyp, 0.22, 3]}
-          dispose={null}
-        />
-      ))}
+      {[-0.28, 0.28].flatMap((side, sideIndex) =>
+        Array.from({ length: 8 }, (_, index) => {
+          const fraction = (index + 0.5) / 8;
+          const transform = rampRidePlateTransform(
+            fraction,
+            run,
+            rise,
+            0.22,
+          );
+          const segment = run / 8 * 1.08;
+          return (
+            <mesh
+              key={`${sideIndex}-${index}`}
+              geometry={resources.box}
+              material={resources.plank}
+              position={[
+                transform.x,
+                transform.centerY,
+                width * side,
+              ]}
+              rotation={[0, 0, transform.angle]}
+              scale={[
+                segment / Math.cos(transform.angle),
+                0.22,
+                width * 0.42,
+              ]}
+              dispose={null}
+            />
+          );
+        }))}
       {/* dumpster shoved against the base */}
       <mesh
         geometry={resources.box}
@@ -923,16 +1772,16 @@ export function JunkRamp() {
         dispose={null}
       />
       {/* KitBash crates / containers dressing the pile */}
-      <Suspense fallback={null}>
+      {loadAssets && <Suspense fallback={null}>
         {crates.map(([f, x, y, z, r], i) => (
           <KitPiece key={i} file={`neocity/KB3D_NEC_${f}.glb`} position={[x, y, z]} rotationY={r} center />
         ))}
-      </Suspense>
+      </Suspense>}
     </group>
   );
 }
 
-/** Ramp 2 — a thin metal kicker off the end of the deck (y13 → 22). */
+/** Ramp 2 — a thin metal kicker off the end of the deck (y13 → 23). */
 export function Ramp2() {
   const { run, width, rise } = RAMP2;
   const resources = useCommittedThreeResource('ramp-2', ({ own }) => {
@@ -958,45 +1807,63 @@ export function Ramp2() {
       ],
     };
   }, [run, width, rise]);
-  const ang = Math.atan2(rise, run);
-  const hyp = Math.hypot(run, rise);
   if (!resources) return null;
   return (
-    <group position={RAMP2.base} rotation={[0, RAMP2.rotationY, 0]}>
+    <group
+      name={STUNT_SCENE_NAMES.ramp2}
+      position={RAMP2.base}
+      rotation={[0, RAMP2.rotationY, 0]}
+    >
       <mesh geometry={resources.geometry} material={resources.deckMaterial} dispose={null} />
       {/* thin ride plate + amber centre stripes */}
-      {[0.3, 0.6, 0.9].map((f, j) => (
-        <mesh
-          key={j}
-          geometry={resources.box}
-          material={resources.stripeMaterial}
-          position={[run * f, rise * f + 0.1, 0]}
-          rotation={[0, 0, ang]}
-          scale={[0.4, 0.05, width * 0.8]}
-          dispose={null}
-        />
-      ))}
+      {[0.3, 0.6, 0.9].map((fraction, index) => {
+        const transform = rampRidePlateTransform(
+          fraction,
+          run,
+          rise,
+          0.05,
+        );
+        return (
+          <mesh
+            key={index}
+            geometry={resources.box}
+            material={resources.stripeMaterial}
+            position={[transform.x, transform.centerY, 0]}
+            rotation={[0, 0, transform.angle]}
+            scale={[0.4, 0.05, width * 0.8]}
+            dispose={null}
+          />
+        );
+      })}
       {/* cyan side rails running up the slope */}
-      {[1, -1].map((s) => (
-        <mesh
-          key={s}
-          geometry={resources.box}
-          material={resources.railMaterial}
-          position={[run / 2, rise / 2 + 0.4, s * (width / 2)]}
-          rotation={[0, 0, ang]}
-          scale={[hyp, 0.12, 0.12]}
-          dispose={null}
-        />
-      ))}
+      {[1, -1].flatMap((s) =>
+        Array.from({ length: 8 }, (_, index) => {
+          const fraction = (index + 0.5) / 8;
+          const angle = Math.atan(rampProfileSlope(fraction, run, rise));
+          return (
+            <mesh
+              key={`${s}-${index}`}
+              geometry={resources.box}
+              material={resources.railMaterial}
+              position={[
+                run * fraction,
+                rampProfileHeight(fraction, rise) + 0.4,
+                s * (width / 2),
+              ]}
+              rotation={[0, 0, angle]}
+              scale={[run / 8 / Math.cos(angle), 0.12, 0.12]}
+              dispose={null}
+            />
+          );
+        }))}
     </group>
   );
 }
 
-/** A supported scaffold lattice against a tall building's road-facing wall. */
-/** Elevated scaffold deck the bike rides across (x=240, y=13), built as a
- *  pole lattice and tied into the adjacent building with cross-beams. */
+/** 120 m flat scaffold lattice tied into several protected east-wall towers. */
 export function Scaffold() {
   const S = SCAFFOLD;
+  const structure = useMemo(() => buildScaffoldStructure(), []);
   const resources = useCommittedThreeResource('scaffold', ({ own }) => {
     const metal = own(new THREE.MeshStandardMaterial({ color: 0x14161f, roughness: 0.55, metalness: 0.6 }));
     const plank = own(new THREE.MeshStandardMaterial({ color: 0x2a2e38, roughness: 0.8, metalness: 0.3 }));
@@ -1009,43 +1876,62 @@ export function Scaffold() {
   }, []);
   const [cx, y, cz] = S.deckCenter;
   const l = S.deckLen, w = S.deckWidth;
-  const z0 = cz - l / 2, z1 = cz + l / 2;
   const ex = [cx - w / 2, cx + w / 2]; // deck edges (support pole lines)
-  const nPole = 7;
-  const poleZs = Array.from({ length: nPole }, (_, i) => z0 + (l * i) / (nPole - 1));
-  const braceAng = Math.atan2(l / (nPole - 1), y);
-  const braceLen = Math.hypot(y, l / (nPole - 1));
-  const buildingFace = S.buildingPos[0] - 20; // approx road-facing wall of the tie building
   if (!resources) return null;
   const { metal, plank, rail, box } = resources;
   return (
     <group>
-      <Suspense fallback={null}>
-        <KitPiece file={`neocity/${S.building}.glb`} position={S.buildingPos} rotationY={S.buildingRot} center />
-      </Suspense>
       {/* deck slab + plank strips */}
       <mesh geometry={box} material={metal} position={[cx, y - S.deckThick / 2, cz]} scale={[w, S.deckThick, l]} dispose={null} />
       {[-w / 3, 0, w / 3].map((dx) => (
-        <mesh key={dx} geometry={box} material={plank} position={[cx + dx, y + 0.03, cz]} scale={[w / 4, 0.08, l - 1]} dispose={null} />
+        <mesh key={dx} geometry={box} material={plank} position={[cx + dx, y + ridePlateCenterOffset(0.08, 0), cz]} scale={[w / 4, 0.08, l - 1]} dispose={null} />
       ))}
       {/* support pole lattice (both deck edges → ground) */}
-      {poleZs.map((zc, i) => (
-        <group key={'pz' + i}>
-          {ex.map((px) => (
-            <mesh key={px} geometry={box} material={metal} position={[px, y / 2, zc]} scale={[0.5, y, 0.5]} dispose={null} />
-          ))}
-          {/* transverse tie under the deck */}
-          <mesh geometry={box} material={metal} position={[cx, y - 0.6, zc]} scale={[w, 0.3, 0.3]} dispose={null} />
-        </group>
+      {structure.poles.map((member) => (
+        <mesh
+          key={member.id}
+          name={STUNT_SCENE_NAMES.scaffoldPole}
+          geometry={box}
+          material={metal}
+          position={member.center}
+          scale={member.scale}
+          dispose={null}
+        />
+      ))}
+      {structure.transverseTies.map((member) => (
+        <mesh
+          key={member.id}
+          geometry={box}
+          material={metal}
+          position={member.center}
+          scale={member.scale}
+          dispose={null}
+        />
       ))}
       {/* long horizontal ledgers at two heights on both edges */}
-      {ex.map((px) => [y * 0.45, y * 0.8].map((hy, j) => (
-        <mesh key={px + '-' + j} geometry={box} material={metal} position={[px, hy, cz]} scale={[0.3, 0.3, l]} dispose={null} />
-      )))}
+      {structure.ledgers.map((member) => (
+        <mesh
+          key={member.id}
+          geometry={box}
+          material={metal}
+          position={member.center}
+          scale={member.scale}
+          dispose={null}
+        />
+      ))}
       {/* diagonal braces up each edge (scaffolding lattice) */}
-      {ex.map((px) => poleZs.slice(0, -1).map((zc, i) => (
-        <mesh key={px + 'b' + i} geometry={box} material={metal} position={[px, y / 2, zc + l / (nPole - 1) / 2]} rotation={[braceAng * (i % 2 ? -1 : 1), 0, 0]} scale={[0.22, braceLen, 0.22]} dispose={null} />
-      )))}
+      {structure.braces.map((member) => (
+        <mesh
+          key={member.id}
+          name={STUNT_SCENE_NAMES.scaffoldBrace}
+          geometry={box}
+          material={metal}
+          position={member.center}
+          rotation={[member.rotationX ?? 0, 0, 0]}
+          scale={member.scale}
+          dispose={null}
+        />
+      ))}
       {/* cyan guard rails along the two long edges (parallel to travel) */}
       {ex.map((px) => (
         <group key={'r' + px}>
@@ -1053,16 +1939,19 @@ export function Scaffold() {
           <mesh geometry={box} material={metal} position={[px, y + 0.45, cz]} scale={[0.18, 0.9, l]} dispose={null} />
         </group>
       ))}
-      {/* tie-beams + brace bolting the deck into the adjacent building */}
-      {[z0 + l * 0.25, cz, z1 - l * 0.25].map((zc, i) => (
-        <mesh key={'tie' + i} geometry={box} material={metal} position={[(ex[1] + buildingFace) / 2, y - 0.5, zc]} scale={[buildingFace - ex[1], 0.35, 0.35]} dispose={null} />
+      {/* exact beams bolt the east edge into five locations on three+ towers */}
+      {structure.tieBeams.map((tie) => (
+        <mesh
+          key={tie.id}
+          name={STUNT_SCENE_NAMES.scaffoldTie}
+          geometry={box}
+          material={metal}
+          position={tie.center}
+          scale={tie.scale}
+          userData={{ buildingId: tie.buildingId }}
+          dispose={null}
+        />
       ))}
-      {[z0 + l * 0.25, z1 - l * 0.25].map((zc, i) => {
-        const span = buildingFace - ex[1];
-        return (
-          <mesh key={'d' + i} geometry={box} material={metal} position={[(ex[1] + buildingFace) / 2, y * 0.45, zc]} rotation={[0, 0, Math.atan2(y * 0.9, span)]} scale={[Math.hypot(span, y * 0.9), 0.25, 0.25]} dispose={null} />
-        );
-      })}
     </group>
   );
 }
@@ -1070,6 +1959,10 @@ export function Scaffold() {
 export function FinaleBridge() {
   const owned = useCommittedThreeResource('finale-bridge', ({ own }) => {
     const render = buildBridgeRenderGeometry();
+    const shoreline = buildShorelineGeometry(buildShorelineProfile());
+    const retainingGeometry = own(shoreline.retaining);
+    own(shoreline.ground);
+    own(shoreline.water);
     const renderGeometries = [
       render.deckTop,
       render.underSlab,
@@ -1086,8 +1979,8 @@ export function FinaleBridge() {
     renderGeometries.forEach(own);
     const deckMaterial = own(new THREE.MeshStandardMaterial({
       color: 0x111722,
-      roughness: 0.62,
-      metalness: 0.48,
+      roughness: BRIDGE_RENDER_CONFIG.deckMaterial.roughness,
+      metalness: BRIDGE_RENDER_CONFIG.deckMaterial.metalness,
       side: THREE.DoubleSide,
     }));
     const underMaterial = own(new THREE.MeshStandardMaterial({
@@ -1124,6 +2017,7 @@ export function FinaleBridge() {
     const pylonCylinder = own(new THREE.CylinderGeometry(1, 1.35, 1, 12));
     const value = {
       render,
+      retainingGeometry,
       deckMaterial,
       underMaterial,
       structureMaterial,
@@ -1153,6 +2047,7 @@ export function FinaleBridge() {
   if (!owned) return null;
   const {
     render,
+    retainingGeometry,
     deckMaterial,
     underMaterial,
     structureMaterial,
@@ -1165,7 +2060,6 @@ export function FinaleBridge() {
   } = owned;
   const { layout } = render;
   const accentMaterials = { cyan: cyanMaterial, magenta: magentaMaterial };
-  const shorelineWidth = layout.water.x1 - layout.water.x0;
 
   return (
     <group
@@ -1302,13 +2196,8 @@ export function FinaleBridge() {
         <mesh key={`bridge-cable-${index}`} geometry={geometry} material={cyanMaterial} />
       ))}
       <mesh
-        position={[
-          (layout.water.x0 + layout.water.x1) / 2,
-          -4,
-          layout.shoreline.z,
-        ]}
-        scale={[shorelineWidth, 8, 4]}
-        geometry={unitBox}
+        name={TASK4_SCENE_NAMES.shorelineRetaining}
+        geometry={retainingGeometry}
         material={structureMaterial}
       />
     </group>
@@ -1319,21 +2208,27 @@ const WATER_VERTEX_SHADER = `
   uniform float uTime;
   varying vec2 vUv;
   varying float vWave;
+  varying vec3 vWorldPosition;
   void main() {
     vUv = uv;
     vec3 transformed = position;
     float broad = sin(position.x * 0.018 + uTime * 0.34) * 0.42;
-    float cross = sin(position.y * 0.031 - uTime * 0.48) * 0.24;
+    float cross = sin(position.z * 0.031 - uTime * 0.48) * 0.24;
     vWave = broad + cross;
-    transformed.z += vWave;
+    transformed.y += vWave * smoothstep(0.0, 0.12, vUv.y);
+    vWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
   }
 `;
 
 const WATER_FRAGMENT_SHADER = `
   uniform float uTime;
+  uniform float uReflectionX;
+  uniform float uReflectionHalfWidth;
+  uniform float uReflectionIntensity;
   varying vec2 vUv;
   varying float vWave;
+  varying vec3 vWorldPosition;
   void main() {
     float streak = pow(abs(sin(vUv.y * 420.0 + uTime * 0.7)), 28.0);
     float ripple = 0.5 + 0.5 * sin((vUv.x + vUv.y) * 90.0 - uTime);
@@ -1341,21 +2236,41 @@ const WATER_FRAGMENT_SHADER = `
     vec3 cyan = vec3(0.02, 0.22, 0.31);
     vec3 color = mix(deep, cyan, 0.16 + max(vWave, 0.0) * 0.12);
     color += cyan * streak * ripple * 0.34;
-    gl_FragColor = vec4(color, 0.96);
+    float lateral = exp(
+      -pow(abs(vWorldPosition.x - uReflectionX) / uReflectionHalfWidth, 1.65)
+    );
+    float openWater = 1.0 - smoothstep(-860.0, -620.0, vWorldPosition.z);
+    float brokenPath = 0.22 + streak * 0.58 + ripple * 0.16
+      + max(vWave, 0.0) * 0.12;
+    vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
+    float fresnel = pow(1.0 - clamp(viewDirection.y, 0.0, 1.0), 3.0);
+    vec3 moonlight = vec3(0.52, 0.70, 0.94);
+    color += moonlight * lateral * openWater * brokenPath
+      * uReflectionIntensity;
+    color += cyan * (0.08 + fresnel * 0.28) * (0.35 + ripple * 0.2);
+    gl_FragColor = vec4(color, 0.9 + fresnel * 0.08);
   }
 `;
 
 export function WaterBasin() {
-  const layout = useMemo(() => buildBridgeLayout(), []);
   const waterResources = useCommittedThreeResource('water', ({ own }) => {
-    const geometry = own(new THREE.PlaneGeometry(
-      layout.water.x1 - layout.water.x0,
-      layout.water.z1 - layout.water.z0,
-      WATER_RENDER_CONFIG.widthSegments,
-      WATER_RENDER_CONFIG.heightSegments,
-    ));
+    const assembly = buildShorelineGeometry(buildShorelineProfile());
+    const geometry = own(assembly.water);
+    own(assembly.ground);
+    own(assembly.retaining);
     const material = own(new THREE.ShaderMaterial({
-      uniforms: { uTime: { value: 0 } },
+      uniforms: {
+        uTime: { value: 0 },
+        uReflectionX: {
+          value: WATER_RENDER_CONFIG.reflection.centerX,
+        },
+        uReflectionHalfWidth: {
+          value: WATER_RENDER_CONFIG.reflection.halfWidth,
+        },
+        uReflectionIntensity: {
+          value: WATER_RENDER_CONFIG.reflection.intensity,
+        },
+      },
       vertexShader: WATER_VERTEX_SHADER,
       fragmentShader: WATER_FRAGMENT_SHADER,
       side: WATER_RENDER_CONFIG.side,
@@ -1367,10 +2282,14 @@ export function WaterBasin() {
       value: { geometry, material },
       resources: [geometry, material],
     };
-  }, [layout]);
-  useFrame(({ clock }) => {
+  }, []);
+  useFrame(({ clock, scene }) => {
     if (waterResources) {
-      waterResources.material.uniforms.uTime.value = clock.getElapsedTime();
+      waterResources.material.uniforms.uTime.value = sceneAnimationTime(
+        location.search,
+        Number(scene.userData.fxProgress ?? 0),
+        clock.getElapsedTime(),
+      );
     }
   });
   if (!waterResources) return null;
@@ -1380,14 +2299,82 @@ export function WaterBasin() {
       geometry={waterResources.geometry}
       material={waterResources.material}
       dispose={null}
-      rotation={[-Math.PI / 2, 0, 0]}
-      position={[
-        (layout.water.x0 + layout.water.x1) / 2,
-        layout.water.y,
-        (layout.water.z0 + layout.water.z1) / 2,
-      ]}
     />
   );
+}
+
+export function FinaleAtmosphere() {
+  const pointsRef = useRef<THREE.Points>(null);
+  const resources = useCommittedThreeResource(
+    'finale-atmosphere',
+    ({ own }) => {
+      const geometry = own(new THREE.BufferGeometry());
+      geometry.setAttribute(
+        'position',
+        new THREE.BufferAttribute(buildFinaleAtmospherePositions(), 3),
+      );
+      const material = own(new THREE.PointsMaterial({
+        color: 0x9fc9ef,
+        size: FINALE_ATMOSPHERE_CONFIG.size,
+        sizeAttenuation: true,
+        transparent: true,
+        opacity: FINALE_ATMOSPHERE_CONFIG.opacity,
+        depthWrite: false,
+        blending: THREE.NormalBlending,
+        fog: true,
+      }));
+      return {
+        value: { geometry, material },
+        resources: [geometry, material],
+      };
+    },
+    [],
+  );
+  useFrame(({ clock, scene }) => {
+    if (!resources || !pointsRef.current) return;
+    const time = sceneAnimationTime(
+      location.search,
+      Number(scene.userData.fxProgress ?? 0),
+      clock.getElapsedTime(),
+    );
+    pointsRef.current.rotation.y = Math.sin(time * 0.03) * 0.02;
+    resources.material.opacity = FINALE_ATMOSPHERE_CONFIG.opacity
+      * (0.92 + Math.sin(time * 0.17) * 0.08);
+  });
+  if (!resources) return null;
+  return (
+    <points
+      ref={pointsRef}
+      name={TASK4_SCENE_NAMES.atmosphere}
+      geometry={resources.geometry}
+      material={resources.material}
+      frustumCulled={false}
+      dispose={null}
+    />
+  );
+}
+
+function createMoonGlowTexture(): THREE.CanvasTexture {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const gradient = ctx.createRadialGradient(
+    size / 2, size / 2, size * 0.16,
+    size / 2, size / 2, size / 2,
+  );
+  // Bright soft core fading to nothing — a wide atmospheric bloom.
+  gradient.addColorStop(0, 'rgba(255,255,255,1)');
+  gradient.addColorStop(0.22, 'rgba(210,230,255,0.72)');
+  gradient.addColorStop(0.5, 'rgba(150,200,255,0.28)');
+  gradient.addColorStop(0.78, 'rgba(110,170,255,0.08)');
+  gradient.addColorStop(1, 'rgba(90,150,255,0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
 }
 
 export function Moon() {
@@ -1397,8 +2384,39 @@ export function Moon() {
   ]);
   albedo.colorSpace = MOON_RENDER_CONFIG.textures.albedo.colorSpace;
   height.colorSpace = MOON_RENDER_CONFIG.textures.bump.colorSpace;
+  const glowTexture = useMemo(createMoonGlowTexture, []);
+  useEffect(() => () => glowTexture.dispose(), [glowTexture]);
   return (
     <group position={MOON_POS}>
+      {/* Large soft atmospheric glow behind the moon (camera-facing). */}
+      <sprite
+        name="task4-moon-glow"
+        scale={[
+          MOON_RADIUS * 2 * MOON_RENDER_CONFIG.glow.scale,
+          MOON_RADIUS * 2 * MOON_RENDER_CONFIG.glow.scale,
+          1,
+        ]}
+      >
+        <spriteMaterial
+          map={glowTexture}
+          color={MOON_RENDER_CONFIG.glow.color}
+          transparent
+          opacity={MOON_RENDER_CONFIG.glow.opacity}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          depthTest={false}
+          fog={false}
+          toneMapped={false}
+        />
+      </sprite>
+      {/* Grazing light sculpting crater relief on the camera-facing side. */}
+      <pointLight
+        position={MOON_RENDER_CONFIG.rakeLight.offset}
+        color={MOON_RENDER_CONFIG.rakeLight.color}
+        intensity={MOON_RENDER_CONFIG.rakeLight.intensity}
+        distance={MOON_RENDER_CONFIG.rakeLight.distance}
+        decay={MOON_RENDER_CONFIG.rakeLight.decay}
+      />
       <mesh name={TASK4_SCENE_NAMES.moonSurface}>
         <sphereGeometry
           args={[
@@ -1409,6 +2427,7 @@ export function Moon() {
         />
         <meshStandardMaterial
           map={albedo}
+          emissiveMap={albedo}
           bumpMap={height}
           bumpScale={MOON_RENDER_CONFIG.surface.bumpScale}
           color={MOON_RENDER_CONFIG.surface.color}
@@ -1419,26 +2438,47 @@ export function Moon() {
           fog={MOON_RENDER_CONFIG.surface.fog}
         />
       </mesh>
-      <mesh name={TASK4_SCENE_NAMES.moonHalo} scale={MOON_RENDER_CONFIG.halo.scale}>
+      <mesh
+        name={TASK4_SCENE_NAMES.moonHalo}
+        scale={MOON_RENDER_CONFIG.halo.radiusScale}
+      >
         <sphereGeometry
           args={[
             MOON_RADIUS,
-            MOON_RENDER_CONFIG.halo.widthSegments,
-            MOON_RENDER_CONFIG.halo.heightSegments,
+            MOON_RENDER_CONFIG.surface.widthSegments,
+            MOON_RENDER_CONFIG.surface.heightSegments,
           ]}
         />
         <meshBasicMaterial
           color={MOON_RENDER_CONFIG.halo.color}
-          transparent={MOON_RENDER_CONFIG.halo.transparent}
+          transparent
           opacity={MOON_RENDER_CONFIG.halo.opacity}
-          depthWrite={MOON_RENDER_CONFIG.halo.depthWrite}
-          fog={MOON_RENDER_CONFIG.halo.fog}
-          side={MOON_RENDER_CONFIG.halo.side}
-          blending={MOON_RENDER_CONFIG.halo.blending}
+          side={THREE.BackSide}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          toneMapped={false}
         />
       </mesh>
     </group>
   );
+}
+
+function Task2SceneInspection() {
+  const { scene, camera, size } = useThree();
+  useEffect(() => {
+    if (!INSPECT_ENABLED) return undefined;
+    const inspection = {
+      version: 1 as const,
+      snapshot: () => inspectTask2Scene(scene, camera, size),
+    };
+    window.__EVANLY_TASK2_INSPECTION__ = inspection;
+    return () => {
+      if (window.__EVANLY_TASK2_INSPECTION__ === inspection) {
+        delete window.__EVANLY_TASK2_INSPECTION__;
+      }
+    };
+  }, [camera, scene, size.height, size.width]);
+  return null;
 }
 
 function Task4SceneInspection() {
@@ -1448,6 +2488,15 @@ function Task4SceneInspection() {
     const inspection = {
       version: 1 as const,
       snapshot: () => inspectTask4Scene(scene),
+      setReflectionIntensityForMeasurement: (intensity: number) => {
+        const water = scene.getObjectByName(TASK4_SCENE_NAMES.water);
+        if (!(water instanceof THREE.Mesh)) return;
+        const material = Array.isArray(water.material)
+          ? water.material[0]
+          : water.material;
+        if (!(material instanceof THREE.ShaderMaterial)) return;
+        material.uniforms.uReflectionIntensity.value = Math.max(0, intensity);
+      },
     };
     window.__EVANLY_TASK4_INSPECTION__ = inspection;
     return () => {
@@ -1456,6 +2505,46 @@ function Task4SceneInspection() {
       }
     };
   }, [scene]);
+  return null;
+}
+
+function Task3SceneInspection() {
+  const { scene, size } = useThree();
+  useEffect(() => {
+    if (!INSPECT_ENABLED) return undefined;
+    const inspection = {
+      version: 1 as const,
+      snapshot: (semanticT: number) =>
+        inspectStuntScene(scene, semanticT, size),
+      projectArtRasterAudit: () =>
+        inspectStuntProjectRasterAudit(scene),
+    };
+    window.__EVANLY_TASK3_INSPECTION__ = inspection;
+    return () => {
+      if (window.__EVANLY_TASK3_INSPECTION__ === inspection) {
+        delete window.__EVANLY_TASK3_INSPECTION__;
+      }
+    };
+  }, [scene, size.height, size.width]);
+  return null;
+}
+
+function ScrollTask4SceneInspection() {
+  const { scene, size } = useThree();
+  useEffect(() => {
+    if (!INSPECT_ENABLED) return undefined;
+    const inspection = {
+      version: 1 as const,
+      snapshot: (semanticT: number) =>
+        inspectResearchScene(scene, semanticT, size),
+    };
+    window.__EVANLY_SCROLL_TASK4_INSPECTION__ = inspection;
+    return () => {
+      if (window.__EVANLY_SCROLL_TASK4_INSPECTION__ === inspection) {
+        delete window.__EVANLY_SCROLL_TASK4_INSPECTION__;
+      }
+    };
+  }, [scene, size.height, size.width]);
   return null;
 }
 
@@ -1485,6 +2574,84 @@ function Task5SceneInspection() {
   return null;
 }
 
+function VisibilityInspection({
+  setProfile,
+  layouts,
+}: {
+  setProfile: (profile: VisibilityLayout['profile']) => void;
+  layouts: VisibilityLayouts;
+}) {
+  const layout = useVisibilityLayout();
+  const { scene } = useThree();
+  useEffect(() => {
+    if (!INSPECT_ENABLED) return undefined;
+    const inspection = {
+      version: 1 as const,
+      setProfile: (profile: VisibilityLayout['profile']) => {
+        if (profile !== 'full' && profile !== 'cinematic') return false;
+        setProfile(profile);
+        return true;
+      },
+      snapshot: () => ({
+        profile: layout.profile,
+        budget: estimateVisibilityBudget(layout),
+        completeWorldBudget: (() => {
+          let triangles = 0;
+          let instances = 0;
+          let drawObjects = 0;
+          scene.traverse((object) => {
+            if (!(object instanceof THREE.Mesh)) return;
+            const position = object.geometry.getAttribute('position');
+            const geometryTriangles = (
+              object.geometry.getIndex()?.count ?? position?.count ?? 0
+            ) / 3;
+            const count = object instanceof THREE.InstancedMesh
+              ? object.count
+              : 1;
+            triangles += geometryTriangles * count;
+            instances += count;
+            drawObjects += 1;
+          });
+          return { triangles, instances, drawObjects };
+        })(),
+        audit: {
+          removed: layouts.audit.removed,
+          retained: layouts.audit.retained,
+          antiVoid: layouts.audit.antiVoid,
+          canyonFillers: layouts.audit.canyonFillers,
+          sweep: {
+            ...layouts.sweep.bounds,
+            sources: [...new Set(layouts.sweep.samples.map(
+              ({ source }) => source,
+            ))],
+            samples: layouts.sweep.samples.length,
+            keys: layouts.sweep.samples.filter(
+              ({ kind }) => kind === 'key',
+            ).length,
+            interpolationSamples: layouts.sweep.samples.filter(
+              ({ kind }) => kind === 'interpolation',
+            ).length,
+            aspect: layouts.sweep.aspect,
+          },
+        },
+        counts: {
+          buildings: layout.buildings.length,
+          props: layout.props.length,
+          skyline: layout.skyline.length,
+          signs: layout.signs.length,
+        },
+      }),
+    };
+    window.__EVANLY_VISIBILITY__ = inspection;
+    return () => {
+      if (window.__EVANLY_VISIBILITY__ === inspection) {
+        delete window.__EVANLY_VISIBILITY__;
+      }
+    };
+  }, [layout, layouts, scene, setProfile]);
+  return null;
+}
+
 function SceneInspectionPresets() {
   const { camera, scene, size } = useThree();
   useEffect(() => {
@@ -1503,44 +2670,56 @@ function SceneInspectionPresets() {
       },
     };
     window.__EVANLY_INSPECTION__ = inspection;
+    // Dev-only free scouting camera: OrbitControls is disabled under INSPECT_ENABLED
+    // so a pose set here holds across frames. Used to art-direct camera shots.
+    const scout = {
+      view: (
+        px: number, py: number, pz: number,
+        tx: number, ty: number, tz: number,
+        fov = 55,
+      ) => {
+        camera.position.set(px, py, pz);
+        camera.up.set(0, 1, 0);
+        camera.lookAt(tx, ty, tz);
+        if (camera instanceof THREE.PerspectiveCamera) {
+          camera.fov = fov;
+          camera.updateProjectionMatrix();
+        }
+        camera.updateMatrixWorld(true);
+      },
+    };
+    (window as unknown as { __EVANLY_SCOUT__?: typeof scout }).__EVANLY_SCOUT__ = scout;
     return () => {
       if (window.__EVANLY_INSPECTION__ === inspection) {
         delete window.__EVANLY_INSPECTION__;
       }
+      delete (window as unknown as { __EVANLY_SCOUT__?: typeof scout }).__EVANLY_SCOUT__;
     };
   }, [camera, scene, size.height, size.width]);
   return null;
 }
 
 // ── Crowd: instanced humans on sidewalks with a sparse robot minority ──
-useGLTF.preload('/models/props/ped_char.glb');
+useGLTF.preload(`/models/${HUMAN_FILE}`);
 ROBOT_FILES.forEach((file) => useGLTF.preload(`/models/${file}`));
 
-const pedestrianMaterialTransform: InstancedMaterialTransform = (material) => {
-  const pedestrian = material instanceof THREE.MeshStandardMaterial
-    ? material
-    : new THREE.MeshStandardMaterial();
-  pedestrian.color.set(0x14161e);
-  pedestrian.roughness = 0.7;
-  pedestrian.metalness = 0.2;
-  pedestrian.emissive.set(PALETTE.cyan);
-  pedestrian.emissiveIntensity = 0.12;
-  return pedestrian;
-};
-
 function Pedestrians() {
-  const layout = useMemo(() => buildCrowdLayout(), []);
+  const { crowd: layout } = useVisibilityLayout();
   const humanPlacements = useMemo(() => layout.humans.map((human) => ({
-    file: 'props/ped_char.glb',
+    file: HUMAN_FILE,
+    materialVariant: human.materialVariant,
     position: [human.x, 0, human.z] as [number, number, number],
     rotationY: human.r,
+    scale: human.height / 1.8,
+    buildScale: human.buildScale,
   })), [layout.humans]);
   return (
     <group>
       <InstancedPieces
         placements={humanPlacements}
         targetHeight={1.8}
-        materialTransform={pedestrianMaterialTransform}
+        materialTransform={stylePedestrianMaterial}
+        instanceColor={pedestrianInstanceColor}
       />
       {layout.robots.map((robot, i) => <RobotCharacter key={`${robot.file}-${i}`} spot={robot} />)}
     </group>
@@ -1592,7 +2771,7 @@ export function RobotCharacter({ spot }: { spot: RobotSpot }) {
 
 // ── Procedural street dressing: crosswalks, manholes, cones, trashcans ──
 export function StreetDressing() {
-  const layout = useMemo(() => buildStreetDressingLayout(), []);
+  const { streetDressing: layout } = useVisibilityLayout();
   const resources = useCommittedThreeResource('street-dressing', ({ own }) => {
     const dark = own(new THREE.MeshStandardMaterial({ color: 0x0a0c12, roughness: 0.6, metalness: 0.6 }));
     const cone = own(new THREE.MeshStandardMaterial({ color: 0x1a0d05, emissive: new THREE.Color(PALETTE.amber), emissiveIntensity: 0.8, toneMapped: false }));
@@ -1638,19 +2817,165 @@ export function StreetDressing() {
   );
 }
 
-export default function City() {
+function scheduleCityIdle(callback: () => void): () => void {
+  if (typeof window.requestIdleCallback === 'function') {
+    const handle = window.requestIdleCallback(callback, { timeout: 1_500 });
+    return () => window.cancelIdleCallback(handle);
+  }
+  const handle = window.setTimeout(callback, 250);
+  return () => window.clearTimeout(handle);
+}
+
+export interface CityProps {
+  production?: boolean;
+  progressStore?: ProgressStore;
+  inspect?: boolean;
+  onZoneReady?: (zone: CityZoneId) => void;
+  onZoneActive?: (zone: CityZoneId) => void;
+}
+
+export default function City({
+  production = false,
+  progressStore,
+  inspect = INSPECT_ENABLED,
+  onZoneReady,
+  onZoneActive,
+}: CityProps) {
+  const [activeProfile, setActiveProfile] = useState(
+    REQUESTED_VISIBILITY_PROFILE,
+  );
+  const [visibilityViewport, setVisibilityViewport] = useState(() => ({
+    width: Math.max(1, window.innerWidth),
+    height: Math.max(1, window.innerHeight),
+  }));
+  useEffect(() => {
+    let timeout = 0;
+    const update = () => {
+      window.clearTimeout(timeout);
+      timeout = window.setTimeout(() => setVisibilityViewport({
+        width: Math.max(1, window.innerWidth),
+        height: Math.max(1, window.innerHeight),
+      }), VISIBILITY_RESIZE_DEBOUNCE_MS);
+    };
+    window.addEventListener('resize', update);
+    return () => {
+      window.clearTimeout(timeout);
+      window.removeEventListener('resize', update);
+    };
+  }, []);
+  const [initialVisibilityLayout] = useState(buildInitialVisibilityLayout);
+  const [visibilityLayouts, setVisibilityLayouts] =
+    useState<VisibilityLayouts | null>(null);
+  const bikeRef = useRef<BikeRiderHandle>(null);
+  const [activeZones, setActiveZones] = useState<CityZoneId[]>(['route']);
+  const [readyZones, setReadyZones] = useState<CityZoneId[]>([]);
+  const routeZoneReady = readyZones.includes('route');
+  useEffect(() => {
+    if (!routeZoneReady) return undefined;
+    return scheduleCityIdle(() => {
+      setVisibilityLayouts(buildVisibilityLayouts(visibilityViewport));
+    });
+  }, [routeZoneReady, visibilityViewport]);
+  const [moonReady, setMoonReady] = useState(false);
+  const onZoneActiveRef = useRef(onZoneActive);
+  onZoneActiveRef.current = onZoneActive;
+  const loadingControllerRef = useRef<CityZoneLoadController | null>(null);
+  if (!loadingControllerRef.current) {
+    loadingControllerRef.current = createCityZoneLoadController({
+      scheduleIdle: scheduleCityIdle,
+      onActivate: (zones) => {
+        zones.forEach((zone) => {
+          if (!performance.getEntriesByName(
+            `evanly-city-zone-${zone}-activated`,
+          ).length) {
+            performance.mark(`evanly-city-zone-${zone}-activated`);
+          }
+          onZoneActiveRef.current?.(zone);
+        });
+        setActiveZones(loadingControllerRef.current!.activeZones());
+      },
+    });
+  }
+  const activeLayout = visibilityLayouts?.[activeProfile]
+    ?? initialVisibilityLayout;
+  const cityZones = useMemo(
+    () => partitionCityZones(activeLayout.buildings),
+    [activeLayout.buildings],
+  );
+  const propZones = useMemo(
+    () => partitionCityZones(activeLayout.props),
+    [activeLayout.props],
+  );
+  const reportZoneReady = useCallback((zone: CityZoneId) => {
+    setReadyZones((current) =>
+      current.includes(zone) ? current : [...current, zone]);
+    loadingControllerRef.current?.ready(zone);
+    onZoneReady?.(zone);
+  }, [onZoneReady]);
+  useEffect(() => {
+    if (!performance.getEntriesByName(
+      'evanly-city-zone-route-activated',
+    ).length) {
+      performance.mark('evanly-city-zone-route-activated');
+    }
+    onZoneActiveRef.current?.('route');
+    if (!production || !progressStore) return undefined;
+    loadingControllerRef.current?.progress(remapScroll(progressStore.read().raw));
+    return progressStore.subscribe(({ raw }) => {
+      loadingControllerRef.current?.progress(remapScroll(raw));
+    });
+  }, [production, progressStore]);
+  useEffect(() => () => {
+    loadingControllerRef.current?.dispose();
+  }, []);
+  const zoneFiles = useMemo(() => Object.fromEntries(
+    CITY_ZONE_IDS.map((zone) => [zone, [...new Set([
+      ...cityZones[zone].map(({ file }) => `/models/${file}`),
+      ...propZones[zone].map(({ file }) => `/models/${file}`),
+      ...(zone === 'projects' ? JUNK_RAMP_CITY_FILES : []),
+    ])].sort()]),
+  ) as Record<CityZoneId, string[]>, [cityZones, propZones]);
+  useEffect(() => {
+    const api = {
+      version: 1 as const,
+      snapshot: () => ({
+        activeZones: [...activeZones],
+        readyZones: [...readyZones],
+        zoneFiles,
+      }),
+    };
+    window.__EVANLY_CITY_LOADING__ = api;
+    return () => {
+      if (window.__EVANLY_CITY_LOADING__ === api) {
+        delete window.__EVANLY_CITY_LOADING__;
+      }
+    };
+  }, [activeZones, readyZones, zoneFiles]);
+  const pendingShells = useMemo(
+    () => CITY_ZONE_IDS
+      .filter((zone) =>
+        activeZones.includes(zone) && !readyZones.includes(zone))
+      .flatMap((zone) => cityZones[zone]),
+    [activeZones, cityZones, readyZones],
+  );
   return (
     <>
     <Canvas
       gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
       camera={{ position: [-30, 92, 250], fov: 58, near: 1, far: 8000 }}
     >
+      <VisibilityLayoutContext.Provider value={activeLayout}>
       <color attach="background" args={['#05060f']} />
       <fog attach="fog" args={['#0a0a1c', 260, 2100]} />
       <ExposureSync />
+      <DeferredScene>
       <ambientLight intensity={LIGHTING.ambientIntensity} />
       {/* cool moonlit key from the moon's direction */}
-      <directionalLight position={[160, 380, -600]} intensity={LIGHTING.keyIntensity} color={'#aecbff'} />
+      <directionalLight
+        position={MOON_POS}
+        intensity={MOON_RENDER_CONFIG.keyLight.intensity}
+        color={MOON_RENDER_CONFIG.keyLight.color}
+      />
       {/* violet sky / dark ground bounce */}
       <hemisphereLight args={[PALETTE.violet, '#050510', 0.18]} />
       {/* subtle neon fills: magenta from one flank, cyan from the other */}
@@ -1658,37 +2983,79 @@ export default function City() {
       <directionalLight position={[340, 80, -280]} intensity={0.3} color={PALETTE.cyan} />
       <ShibuyaWallLighting />
       <Suspense fallback={null}><EnvMap /></Suspense>
+      {production && progressStore && (
+        <>
+          <BikeRider ref={bikeRef} />
+          <ProductionDirector
+            store={progressStore}
+            bikeRef={bikeRef}
+            inspect={inspect}
+          />
+        </>
+      )}
       <Ground />
       <WaterBasin />
+      <FinaleAtmosphere />
       <Roads />
+      <ProceduralBuildingShells placements={pendingShells} />
+      {!moonReady && <ProceduralMoonShell />}
       <FinaleBridge />
       <Pillars />
       <StreetFurniture />
-      <JunkRamp />
+      <JunkRamp loadAssets={activeZones.includes('projects')} />
       <Ramp2 />
-      <Suspense fallback={null}><Buildings /></Suspense>
+      <CanyonFillers />
+      {activeZones.map((zone) => (
+        <Suspense fallback={null} key={zone}>
+          <BuildingZone
+            id={zone}
+            layout={cityZones[zone]}
+            props={propZones[zone]}
+            onReady={reportZoneReady}
+          />
+        </Suspense>
+      ))}
+      <Suspense fallback={null}><AboutHero /></Suspense>
       <ShibuyaFacadePanels />
-      <Suspense fallback={null}><Props /></Suspense>
       <Suspense fallback={null}><Scaffold /></Suspense>
+      {activeZones.includes('projects') && <ProjectsPanels />}
+      <ResearchGateways />
       <Signs />
       <StreetDressing />
       <Suspense fallback={null}><Pedestrians /></Suspense>
       <Skyline />
-      <Suspense fallback={null}><Moon /></Suspense>
+      <Suspense fallback={null}>
+        <Moon />
+        <ZoneReady
+          id="finale"
+          onReady={() => setMoonReady(true)}
+        />
+      </Suspense>
       <SceneInspectionPresets />
+      <Task2SceneInspection />
+      <Task3SceneInspection />
+      <ScrollTask4SceneInspection />
       <Task4SceneInspection />
       <Task5SceneInspection />
-      {FREECAM
+      {visibilityLayouts && (
+        <VisibilityInspection
+          setProfile={setActiveProfile}
+          layouts={visibilityLayouts}
+        />
+      )}
+      {!production && (FREECAM
         ? <FreeCam />
         : <OrbitControls
             makeDefault
             enabled={!INSPECT_ENABLED}
             target={[40, 18, -130]}
             maxDistance={4000}
-          />}
-      <EffectComposer>
+          />)}
+      <EffectComposer multisampling={0}>
         <Bloom intensity={LIGHTING.bloomIntensity} luminanceThreshold={LIGHTING.bloomThreshold} radius={LIGHTING.bloomRadius} mipmapBlur />
       </EffectComposer>
+      </DeferredScene>
+      </VisibilityLayoutContext.Provider>
     </Canvas>
     {FREECAM && (
       <div style={{

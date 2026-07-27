@@ -1,0 +1,242 @@
+{
+  "schemaVersion": 1,
+  "fileCount": 47,
+  "totalBytes": 92693228,
+  "files": [
+    {
+      "file": "KB3D_NEC_BldgLG_A_Base.glb",
+      "bytes": 733600,
+      "sha256": "278deb56e20ee0ef02e5ee0eeff4fb0a086d4446b1ee3287edac14a790736d65"
+    },
+    {
+      "file": "KB3D_NEC_BldgLG_A_BuildingA.glb",
+      "bytes": 3101244,
+      "sha256": "12787841f50c12b842697ee7f40da0fa45d09a4a84916b55b3042f943ec06442"
+    },
+    {
+      "file": "KB3D_NEC_BldgLG_A_BuildingB.glb",
+      "bytes": 3993032,
+      "sha256": "c61400f4dc1b355786182201ebee1f5eff6b3875de0400438a0c1fe2d90bff11"
+    },
+    {
+      "file": "KB3D_NEC_BldgLG_A_BuildingC.glb",
+      "bytes": 3063908,
+      "sha256": "bce5ccf0bc3c1b42e33b9829683d93daeb80d31615e058f4a3922a097ab8dae4"
+    },
+    {
+      "file": "KB3D_NEC_BldgLG_A_BuildingD.glb",
+      "bytes": 2805072,
+      "sha256": "3cceef002511df851fff12e7d7d1eb0401bc73d47c3e4afaa5a9da6181978202"
+    },
+    {
+      "file": "KB3D_NEC_BldgLG_A_Main.glb",
+      "bytes": 4875876,
+      "sha256": "4fa3a1367410d90b92b603f7189998f83a6b6e69151c5b344c1143d3fcfbde47"
+    },
+    {
+      "file": "KB3D_NEC_BldgLG_A_Tree.glb",
+      "bytes": 3211532,
+      "sha256": "221f5903ac8434aaf1587301265edbecaa89c3910154bf90e0bc59d08b5c9235"
+    },
+    {
+      "file": "KB3D_NEC_BldgLG_B_AntennaA.glb",
+      "bytes": 626380,
+      "sha256": "a9ab4ac997a6406a3ea45ffee8ce99284179fba4243cdd3c64b0915b9ba0215f"
+    },
+    {
+      "file": "KB3D_NEC_BldgLG_B_Main.glb",
+      "bytes": 3847680,
+      "sha256": "7c33cc76653a850c656c699280f3c8718b21bd0e61d89ed7860944f5d65be785"
+    },
+    {
+      "file": "KB3D_NEC_BldgLG_C_AntennaA.glb",
+      "bytes": 214864,
+      "sha256": "40a3730537071561da9ccc1fc1edab59e2ccf1e4d278051c9368ba7bb8cad437"
+    },
+    {
+      "file": "KB3D_NEC_BldgLG_C_AntennaB.glb",
+      "bytes": 220468,
+      "sha256": "697f8ae89fdb52ef8eefec5e2aacfcc1f1caec77d38a01ca1b202a82c7a5785c"
+    },
+    {
+      "file": "KB3D_NEC_BldgLG_C_AntennaC.glb",
+      "bytes": 215616,
+      "sha256": "44984fd39e1d1eaedbb1711032dd83df2956824d52af211ef9f4f549ee509f07"
+    },
+    {
+      "file": "KB3D_NEC_BldgLG_C_AntennaD.glb",
+      "bytes": 220588,
+      "sha256": "e123815d295a87cb418c613ae1c55e33a1b2a673a68d2a8c02bab10c354d1ad8"
+    },
+    {
+      "file": "KB3D_NEC_BldgLG_C_Base.glb",
+      "bytes": 1455692,
+      "sha256": "cd6b1270d4ef3ad8ffbdb55fb23aa23dc4a75ad0c80bb6bfeef19e2c5df53d41"
+    },
+    {
+      "file": "KB3D_NEC_BldgLG_C_Main.glb",
+      "bytes": 3391980,
+      "sha256": "2d385dd6d3e1f8d0d0f2b2a03f436bafc86bcefcc2e36c0b396b3d12de8a4d7a"
+    },
+    {
+      "file": "KB3D_NEC_BldgMD_A_AntennaA.glb",
+      "bytes": 221772,
+      "sha256": "3c91346a9e309292de557a6b7780f20c9b88ad8133c2b16a976a6b0fb8b80267"
+    },
+    {
+      "file": "KB3D_NEC_BldgMD_A_Banners.glb",
+      "bytes": 569572,
+      "sha256": "4aef158cb885b7bd761c055f039e4039c7475793699f6711e9e685ad6dd4ed18"
+    },
+    {
+      "file": "KB3D_NEC_BldgMD_A_Base.glb",
+      "bytes": 951356,
+      "sha256": "fc10d11edcb139f60f0afdf4d68d2e5e999808f71a9bbf731dbdfef0314ecd38"
+    },
+    {
+      "file": "KB3D_NEC_BldgMD_A_Main.glb",
+      "bytes": 2501564,
+      "sha256": "74ec3878ea5a259689a543ff674552a87319f506457694899e92b163300fc73f"
+    },
+    {
+      "file": "KB3D_NEC_BldgMD_B_Main.glb",
+      "bytes": 6779204,
+      "sha256": "ff44c4f9a77ccb7a30109845bd416ab027d5cdec69f1f029a8b41e28821b039c"
+    },
+    {
+      "file": "KB3D_NEC_BldgMD_C_AntennaA.glb",
+      "bytes": 221576,
+      "sha256": "1544f8c1d3662ffdac18268276afed59d10ee11d2411bcd1c0a8fbf97c0a9d67"
+    },
+    {
+      "file": "KB3D_NEC_BldgMD_C_Banners.glb",
+      "bytes": 352060,
+      "sha256": "de4fb8909d64cb1192ca83b2ee4382e786005477fb16ae4e54bc056c2b60d882"
+    },
+    {
+      "file": "KB3D_NEC_BldgMD_C_Base.glb",
+      "bytes": 722864,
+      "sha256": "0c5295ff679363a1eb79181c28ccbf2281bd01a11f87786a01250e8ad4028d3b"
+    },
+    {
+      "file": "KB3D_NEC_BldgMD_C_BuildingA.glb",
+      "bytes": 859072,
+      "sha256": "ad3fef58081ff1e045f44a9498311de6cb2d53cb941e47f4cf8ba61ae324035f"
+    },
+    {
+      "file": "KB3D_NEC_BldgMD_C_Main.glb",
+      "bytes": 2947992,
+      "sha256": "09107331b6e9dea10cb3f50aefbc55c865b36f9284fd6f0ae1198cedb85af723"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_A_ConcreteBarrier.glb",
+      "bytes": 1957956,
+      "sha256": "56f3b91d182f175d2281d2917a6bf96717de06e707c9dfbc556c15821c3c06ef"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_A_Main.glb",
+      "bytes": 2958256,
+      "sha256": "a12c3c6866a9628b7988eac15d4d708f39edbb9673c3c4c3f297897718f32899"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_B_Bbq.glb",
+      "bytes": 2596852,
+      "sha256": "35abb80a1b735fdb2c804d3920649608d6292d8faefa6ec43429a1803982557e"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_B_Cart.glb",
+      "bytes": 2111892,
+      "sha256": "a1453ad6d145aab57d9b6e4e986558be9654308202488b1296535b394a3d3575"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_B_Computers.glb",
+      "bytes": 956908,
+      "sha256": "19f9a8af6396b8e58ea293dbe09b0395da9fa442d93e8ff278cd9fedf0e176f0"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_B_FridgeA.glb",
+      "bytes": 3300872,
+      "sha256": "cd2e54b9b81e36f0dcd24d866928b21dffe9e01ed178e8636f19d82b7802893c"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_B_FridgeB.glb",
+      "bytes": 3729100,
+      "sha256": "83527022c3c27adf00891120b86e6ef27628e99561bc6306d2bc8f448dc1efee"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_B_Main.glb",
+      "bytes": 3477752,
+      "sha256": "1dafc747da09c35917bdd3ec49115793fefbc068c8a702adb73aaa7cb91a5d48"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_B_Umbrella.glb",
+      "bytes": 1556344,
+      "sha256": "7387b59c2961e494d39ee00e79f6e3fbae16ef544c9c52879475994904009115"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_C_AC.glb",
+      "bytes": 2457796,
+      "sha256": "030e6e51cb92d1d50145e660d95dadba263df4842b06c803a610ebbfb74337a3"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_C_Boxes.glb",
+      "bytes": 1263548,
+      "sha256": "065d2005692c60503e8590733bd4ed240c7dd2bed1a053f93ebfdf4170911dd3"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_C_Containers.glb",
+      "bytes": 1527856,
+      "sha256": "395ffa808fe0859f5be92b44160a1ee111952622f88bed7eae5aab40663b04e3"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_C_CratesA.glb",
+      "bytes": 1191916,
+      "sha256": "3734449d53255d2732dc54f095a57db713622899b91e2615f41bf89d1b835508"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_C_CratesB.glb",
+      "bytes": 530996,
+      "sha256": "faee446afac007d2139f2964bfba01a8da444c8b30c5633f2aba60cab23b400b"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_C_Fan.glb",
+      "bytes": 1133308,
+      "sha256": "ffce84909e755baee8da0f483514f1669f0cb507da784eee151a652df2f07f97"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_C_Main.glb",
+      "bytes": 4668768,
+      "sha256": "854359e012af3252ae7ac506d68ad8b5a8e3c8ffa2aa058a2daa90b000783f21"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_C_NeonSignA.glb",
+      "bytes": 1507860,
+      "sha256": "67fe40ab7a3ed251ca5fe788119be56694a4f7457ffeb6372ab8c519f90eddb2"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_C_NeonSignB.glb",
+      "bytes": 1127308,
+      "sha256": "941c167c4b6c34ba9a0092a6f24585725866c642bd022cfab1a38a43951f6f92"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_C_NeonSignC.glb",
+      "bytes": 2620460,
+      "sha256": "5ecb16b8e78efc1184565fb0ccb298391bb8a2efcbcbc1363e6c6661c04c35a4"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_C_Pipes.glb",
+      "bytes": 1152376,
+      "sha256": "0cd81b8c0bc223918f9ba9821699d6e6eab19b3bbdb36d4ab58ec3288c77149c"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_C_Shelf.glb",
+      "bytes": 1575836,
+      "sha256": "e5c1645177ab44c0ed5f5aaac6b1c45a3903c7ffca2b9c842928ffc75d3ee02f"
+    },
+    {
+      "file": "KB3D_NEC_BldgSM_C_Stool.glb",
+      "bytes": 1184704,
+      "sha256": "ee7507f4d1f88df74142e65c2f119f323b1098e4a68465f0d3e28cc2127bcfd9"
+    }
+  ]
+}

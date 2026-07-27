@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 const ROBOT_DARK = new THREE.Color(0x121922);
+const ROBOT_LIGHT_SLOT = /light|neon|emissive|screen|lamp|eye/i;
 
 function materialColor(material: THREE.Material): THREE.Color {
   if ('color' in material && material.color instanceof THREE.Color) {
@@ -32,10 +33,16 @@ export function styleRobotMaterial(
     });
 
   styled.color.copy(materialColor(source)).lerp(ROBOT_DARK, 0.82);
-  styled.roughness = 0.48;
-  styled.metalness = 0.72;
-  styled.emissive.copy(accent);
-  styled.emissiveIntensity = 0.14;
+  styled.roughness = 0.68;
+  styled.metalness = 0.28;
+  if (ROBOT_LIGHT_SLOT.test(source.name)) {
+    styled.emissive.copy(accent);
+    styled.emissiveIntensity = 0.14;
+  } else {
+    styled.emissive.set(0x000000);
+    styled.emissiveIntensity = 0;
+  }
+  styled.toneMapped = true;
   styled.needsUpdate = true;
   return styled;
 }

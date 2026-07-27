@@ -1,6 +1,7 @@
 import { makeRng } from '../assets/rng';
 import { shibuyaPlazaClearance } from './intersections';
 import { groundRoadEdgePoints, groundRoadMemberships } from './roads';
+import { researchCorridorPointClearance } from './researchSightlines';
 
 export type StreetDressingKind = 'manhole' | 'can' | 'cone';
 export type StreetDressingSurface = 'road' | 'sidewalk';
@@ -22,6 +23,7 @@ export interface StreetDressingLayout {
 }
 
 function footprintIsSafe(spot: StreetDressingSpot): boolean {
+  if (researchCorridorPointClearance(spot, spot.radius) <= 0) return false;
   if (shibuyaPlazaClearance(spot.x, spot.z) <= spot.radius) return false;
   const centerMemberships = groundRoadMemberships(spot.x, spot.z);
   const centerSource = centerMemberships.find(({ roadIndex }) =>

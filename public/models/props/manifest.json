@@ -13,7 +13,19 @@
       0.61086,
       1.374499,
       1.155609
-    ]
+    ],
+    "sha256": "af61f5a28b6fe0a7e501a38a38fbe2f851dad8e233270c6e5a6e304849cb1d69",
+    "geometryHash": "88576111472042f70167d31e47ea588ec3652d09b52b425e73ca99a9395d03a3",
+    "triangles": 7520,
+    "primitives": 10,
+    "pbrMaterials": 7,
+    "texturedMaterials": 0,
+    "characterSource": {
+      "object": "Character.obj",
+      "objectSha256": "c774a055e3dfa81ee61861f8d6caa7853ee2554d916f48327671d5023ded16e5",
+      "material": "Character.mtl",
+      "materialSha256": "b2a69fbaf95a9a0bd1a86ff72be8a737a1848755cbd65a13f219b70cdea80038"
+    }
   },
   {
     "name": "robot_companion",
@@ -29,7 +41,13 @@
       2.30011,
       5.7,
       1.800146
-    ]
+    ],
+    "sha256": "dc2064cb2234cbb7db260e321e736ea37c7a66e951426e9e53cebe738bef86d5",
+    "geometryHash": "c5884bd6dfb5e7b323c0379d0b8c79ada0c52cd8fd9ee1c94442123c39c7f7b6",
+    "triangles": 2844,
+    "primitives": 1,
+    "pbrMaterials": 1,
+    "texturedMaterials": 1
   },
   {
     "name": "robot_recon",
@@ -45,7 +63,13 @@
       2.69989,
       5.9,
       2.800006
-    ]
+    ],
+    "sha256": "da52b883cb33bef4df900c432ce9817124a6b6de5086b304c85e21f8a89cabc5",
+    "geometryHash": "210d6ab6446f7e486d9ac8a539173067b463a10eae9ce9f5b21edd4969d12eac",
+    "triangles": 4118,
+    "primitives": 1,
+    "pbrMaterials": 1,
+    "texturedMaterials": 1
   },
   {
     "name": "robot_storage",
@@ -61,7 +85,13 @@
       5,
       4.59989,
       3.399866
-    ]
+    ],
+    "sha256": "96f8e26412f50a06fb8b64daaf136834595ef669f4db1d72b511e812ee710308",
+    "geometryHash": "93e8b25a268c35ca451f37061f3667648544604945f389aa9bb1c8ba9b9e6fd3",
+    "triangles": 5224,
+    "primitives": 1,
+    "pbrMaterials": 1,
+    "texturedMaterials": 1
   },
   {
     "name": "quat_ac",
@@ -77,7 +107,13 @@
       1.038104,
       0.685606,
       0.770958
-    ]
+    ],
+    "sha256": "2a862a0493af57d22c22ec71b2662237cb56dcfd811ec3871f09a9a79fd64dc7",
+    "geometryHash": "2e29b61fda147fdc7a0ac926f6d2c55e3ab381406d5213c793bb8c6651786b76",
+    "triangles": 946,
+    "primitives": 4,
+    "pbrMaterials": 4,
+    "texturedMaterials": 0
   },
   {
     "name": "quat_ac_stacked",
@@ -93,7 +129,13 @@
       0.670082,
       1.006229,
       0.511437
-    ]
+    ],
+    "sha256": "83ca5039fc16365f238addb648c9bab7078bb99a542e913218d318498c066438",
+    "geometryHash": "3944af94614961f62f015ed18cde26667fd9f4b9b0dc731233a082c0ae78ad17",
+    "triangles": 776,
+    "primitives": 4,
+    "pbrMaterials": 4,
+    "texturedMaterials": 1
   },
   {
     "name": "quat_antenna_1",
@@ -109,7 +151,13 @@
       0.401899,
       1.655596,
       0.06316
-    ]
+    ],
+    "sha256": "6473475c46ef21bf68cf5fbe582cd1dc653dbf87b101be4676a657d038473896",
+    "geometryHash": "9ac8fa16a984d13dc846fb145577010b4fd7883eaf8bfb948b665ee5dc1da8c5",
+    "triangles": 88,
+    "primitives": 1,
+    "pbrMaterials": 1,
+    "texturedMaterials": 0
   },
   {
     "name": "quat_antenna_2",
@@ -125,7 +173,13 @@
       0.617384,
       0.730613,
       0.656673
-    ]
+    ],
+    "sha256": "a9d34759690e9f5edbc1b4dcc9aca9875ff06269ccb99cfbd9561b268ba5b20f",
+    "geometryHash": "46e55ee8b0fd41b54c08eb5b9e7f4182912ee349740e81e171f6c10581f8c636",
+    "triangles": 412,
+    "primitives": 3,
+    "pbrMaterials": 3,
+    "texturedMaterials": 0
   },
   {
     "name": "quat_sign_1",
@@ -141,7 +195,13 @@
       1.29387,
       0.462249,
       0.06176
-    ]
+    ],
+    "sha256": "23252cae111f7829e4de3e526570d286e2a78295c0cdb6ae287933042d4f6b56",
+    "geometryHash": "926cb64332e4e736d9fbdd818573f6c3f82767df69a1eeccd38b89336cda7d3a",
+    "triangles": 52,
+    "primitives": 2,
+    "pbrMaterials": 2,
+    "texturedMaterials": 1
   },
   {
     "name": "quat_sign_3",
@@ -157,6 +217,12 @@
       1.271665,
       0.45548,
       0.061786
-    ]
+    ],
+    "sha256": "1d8cdd44305f52801704ffe2bd38cf72cf917ee0bafab801c12119f89fc1a61a",
+    "geometryHash": "c220a08032cb9987c7190d42ee50bf3da0ba14326eb6cd427b16fc8274292cb5",
+    "triangles": 52,
+    "primitives": 2,
+    "pbrMaterials": 2,
+    "texturedMaterials": 1
   }
 ]

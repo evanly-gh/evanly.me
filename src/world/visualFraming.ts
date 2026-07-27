@@ -81,7 +81,7 @@ export function buildShibuyaFacadePanels(
     const surfaceOffset = 0.08;
     const safeBottom = 3;
     const safeTop = bounds.height * 0.9;
-    const height = Math.min(bounds.height * 0.65, safeTop - safeBottom);
+    const height = Math.min(bounds.height * 0.5, safeTop - safeBottom);
     if (height <= 16) return [];
     const center: [number, number, number] = [
       bounds.center.x + face.normal[0] * (face.normalHalfExtent + surfaceOffset),
@@ -89,7 +89,7 @@ export function buildShibuyaFacadePanels(
       bounds.center.z + face.normal[1] * (face.normalHalfExtent + surfaceOffset),
     ];
     const corridors = buildShibuyaSightCorridors();
-    for (const widthFactor of [0.82, 0.7, 0.58, 0.46]) {
+    for (const widthFactor of [0.64, 0.56, 0.48, 0.4]) {
       const width = (face.tangentHalfExtent * 2 - 1.2) * widthFactor;
       const corners = [-1, 1].flatMap((horizontal) => [-1, 1].map((vertical) => ({
         x: center[0] + face.tangent[0] * horizontal * width / 2,

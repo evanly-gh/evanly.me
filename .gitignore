@@ -1,8 +1,19 @@
 node_modules/
 dist/
-public/models/neocity/*.glb
-public/models/neocity/manifest.json
 public/models/characters/
 *.local
 .DS_Store
+
+# Tests and local dev / agent scaffolding & scratch — never part of the repo
+test/
 .playwright-mcp/
+.cursor/
+.super/
+.superpowers/
+/C/
+tools/verification/
+assets/
+
+# Scratch screenshots / captures
+/*.jpeg
+/*.png

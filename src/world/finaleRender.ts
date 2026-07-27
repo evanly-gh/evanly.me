@@ -20,6 +20,10 @@ export const BRIDGE_RENDER_CONFIG = {
   pierCapHeight: 0.7,
   pierCapDepth: 4.2,
   pierCapOverhang: 5,
+  deckMaterial: {
+    roughness: 0.86,
+    metalness: 0.14,
+  },
 } as const;
 
 export const WATER_RENDER_CONFIG = {
@@ -29,6 +33,11 @@ export const WATER_RENDER_CONFIG = {
   side: THREE.DoubleSide,
   widthSegments: 96,
   heightSegments: 64,
+  reflection: {
+    centerX: 240,
+    halfWidth: 150,
+    intensity: 1.7,
+  },
 } as const;
 
 export const MOON_RENDER_CONFIG = {
@@ -45,32 +54,129 @@ export const MOON_RENDER_CONFIG = {
   surface: {
     widthSegments: 128,
     heightSegments: 128,
-    bumpScale: 14,
-    color: 0xffffff,
+    bumpScale: 26,
+    color: 0xf2f6ff,
     roughness: 0.92,
     metalness: 0,
-    emissive: 0xb8d8ff,
-    emissiveIntensity: 0.32,
+    // Emissive carries the albedo texture (emissiveMap) at reduced intensity so
+    // the maria/crater detail reads instead of a flat blue self-glow, while a
+    // dedicated raking light (rakeLight) adds crater relief via the bump map.
+    emissive: 0xdfeaff,
+    emissiveIntensity: 0.16,
     fog: false,
+  },
+  keyLight: {
+    color: 0xcfe4ff,
+    intensity: 1.5,
+  },
+  // Grazing light on the moon's camera-facing hemisphere. Distance-limited so it
+  // sculpts crater shadows on the moon without washing the distant city.
+  rakeLight: {
+    color: 0xf0f4ff,
+    intensity: 2.1,
+    distance: 2600,
+    decay: 0,
+    offset: [-360, 220, 780] as [number, number, number],
   },
   halo: {
-    scale: 1.08,
-    widthSegments: 64,
-    heightSegments: 64,
-    color: 0xb9dcff,
-    transparent: true,
-    opacity: 0.18,
-    depthWrite: false,
-    fog: false,
-    side: THREE.BackSide,
-    blending: THREE.AdditiveBlending,
+    radiusScale: 1.1,
+    opacity: 0.16,
+    color: 0x9fd0ff,
+  },
+  // Large soft atmospheric glow behind the moon (a camera-facing additive
+  // billboard with a radial falloff). Separate from the tight rim halo.
+  glow: {
+    scale: 3.5,
+    color: 0xa8d2ff,
+    opacity: 0.62,
   },
 } as const;
+
+export const FINALE_FADE_CONFIG = Object.freeze({
+  start: 0.965,
+  end: 1,
+});
+
+export const FINALE_ATMOSPHERE_CONFIG = Object.freeze({
+  seed: 0x46494e41,
+  particleCount: 96,
+  drawCalls: 1,
+  size: 3.1,
+  opacity: 0.34,
+  bounds: Object.freeze({
+    x0: 90,
+    x1: 390,
+    y0: -2,
+    y1: 58,
+    z0: -2240,
+    z1: -640,
+  }),
+});
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+export function finaleSubjectOpacityAt(semanticT: number): number {
+  if (!Number.isFinite(semanticT)) {
+    throw new Error('Finale subject progress must be finite');
+  }
+  if (semanticT >= FINALE_FADE_CONFIG.end - 1e-5) return 0;
+  const fraction = clamp01(
+    (semanticT - FINALE_FADE_CONFIG.start)
+      / (FINALE_FADE_CONFIG.end - FINALE_FADE_CONFIG.start),
+  );
+  const eased = fraction * fraction * (3 - 2 * fraction);
+  return 1 - eased;
+}
+
+export function buildFinaleAtmospherePositions(): Float32Array {
+  const positions = new Float32Array(
+    FINALE_ATMOSPHERE_CONFIG.particleCount * 3,
+  );
+  let state = FINALE_ATMOSPHERE_CONFIG.seed >>> 0;
+  const random = (): number => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+  const { bounds } = FINALE_ATMOSPHERE_CONFIG;
+  for (let index = 0; index < FINALE_ATMOSPHERE_CONFIG.particleCount; index += 1) {
+    const offset = index * 3;
+    positions[offset] = THREE.MathUtils.lerp(bounds.x0, bounds.x1, random());
+    positions[offset + 1] = THREE.MathUtils.lerp(bounds.y0, bounds.y1, random());
+    positions[offset + 2] = THREE.MathUtils.lerp(bounds.z0, bounds.z1, random());
+  }
+  return positions;
+}
+
+export function estimateMoonRenderMetrics(): {
+  luminanceProxy: number;
+  detailProxy: number;
+} {
+  const luminance = (color: THREE.Color): number =>
+    color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722;
+  const emissive = new THREE.Color(MOON_RENDER_CONFIG.surface.emissive);
+  const rake = new THREE.Color(MOON_RENDER_CONFIG.rakeLight.color);
+  // Visible brightness now comes mostly from the dedicated raking light that
+  // sculpts crater relief; the restrained emissive only tints the shadow side.
+  // The 0.5 factor is a nominal lunar-albedo reflectance proxy for the lit face.
+  return {
+    luminanceProxy:
+      luminance(emissive) * MOON_RENDER_CONFIG.surface.emissiveIntensity
+      + luminance(rake) * MOON_RENDER_CONFIG.rakeLight.intensity * 0.5,
+    detailProxy:
+      MOON_RENDER_CONFIG.surface.bumpScale
+      * MOON_RENDER_CONFIG.surface.roughness,
+  };
+}
 
 export const TASK4_SCENE_NAMES = {
   bridgeDeck: 'task4-bridge-deck-top',
   horizonDeck: 'task4-bridge-horizon-deck-top',
+  shorelineGround: 'scroll-task-5-shoreline-ground',
+  shorelineRetaining: 'scroll-task-5-shoreline-retaining',
   water: 'task4-water-basin',
+  atmosphere: 'finale-atmosphere',
   moonSurface: 'task4-moon-surface',
   moonHalo: 'task4-moon-halo',
 } as const;
@@ -362,6 +468,26 @@ export interface Task4SceneSnapshot {
     transparent: boolean | null;
     depthWrite: boolean | null;
     blending: THREE.Blending | null;
+    animationTime: number | null;
+    reflectionCenterX: number | null;
+    reflectionIntensity: number | null;
+  };
+  atmosphere: {
+    mounted: boolean;
+    pointCount: number;
+    rotationY: number | null;
+    opacity: number | null;
+  };
+  shoreline: {
+    groundMounted: boolean;
+    retainingMounted: boolean;
+    boundaryVertexCount: number;
+    groundTriangles: number;
+    waterTriangles: number;
+    retainingTriangles: number;
+    maximumSeamError: number | null;
+    minimumTriangleArea: number | null;
+    invertedTriangles: number;
   };
   moon: {
     surfaceMounted: boolean;
@@ -370,12 +496,82 @@ export interface Task4SceneSnapshot {
     heightSegments: number | null;
     albedoColorSpace: string | null;
     bumpColorSpace: string | null;
-    haloBlending: THREE.Blending | null;
-    haloDepthWrite: boolean | null;
     surfaceFog: boolean | null;
     surfaceEmissiveIntensity: number | null;
-    haloFog: boolean | null;
-    haloOpacity: number | null;
+  };
+}
+
+function triangleCount(geometry: THREE.BufferGeometry | undefined): number {
+  if (!geometry) return 0;
+  return (geometry.getIndex()?.count ?? 0) / 3;
+}
+
+function shorelineMeshMetrics(
+  ground: THREE.Mesh | undefined,
+  water: THREE.Mesh | undefined,
+  retaining: THREE.Mesh | undefined,
+): Task4SceneSnapshot['shoreline'] {
+  const geometries = [ground?.geometry, water?.geometry, retaining?.geometry];
+  const groundPosition = ground?.geometry.getAttribute('position');
+  const waterPosition = water?.geometry.getAttribute('position');
+  const retainingPosition = retaining?.geometry.getAttribute('position');
+  const boundaryVertexCount = Number(
+    ground?.geometry.userData.boundaryVertexCount ?? 0,
+  );
+  let maximumSeamError = 0;
+  if (!groundPosition || !waterPosition || !retainingPosition) {
+    maximumSeamError = NaN;
+  } else {
+    const groundPoint = new THREE.Vector3();
+    const comparison = new THREE.Vector3();
+    for (let index = 0; index < boundaryVertexCount; index += 1) {
+      const vertex = index * 2;
+      groundPoint.fromBufferAttribute(groundPosition, vertex);
+      comparison.fromBufferAttribute(waterPosition, vertex);
+      maximumSeamError = Math.max(
+        maximumSeamError,
+        groundPoint.distanceTo(comparison),
+      );
+      comparison.fromBufferAttribute(retainingPosition, vertex);
+      maximumSeamError = Math.max(
+        maximumSeamError,
+        groundPoint.distanceTo(comparison),
+      );
+    }
+  }
+  let minimumTriangleArea = Infinity;
+  let invertedTriangles = 0;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const normal = new THREE.Vector3();
+  geometries.forEach((geometry, geometryIndex) => {
+    const position = geometry?.getAttribute('position');
+    const index = geometry?.getIndex();
+    if (!position || !index) return;
+    for (let offset = 0; offset < index.count; offset += 3) {
+      a.fromBufferAttribute(position, index.getX(offset));
+      b.fromBufferAttribute(position, index.getX(offset + 1));
+      c.fromBufferAttribute(position, index.getX(offset + 2));
+      normal.crossVectors(b.clone().sub(a), c.clone().sub(a));
+      minimumTriangleArea = Math.min(minimumTriangleArea, normal.length() / 2);
+      if (geometryIndex < 2 && normal.y <= 0) invertedTriangles += 1;
+    }
+  });
+  return {
+    groundMounted: Boolean(ground),
+    retainingMounted: Boolean(retaining),
+    boundaryVertexCount,
+    groundTriangles: triangleCount(ground?.geometry),
+    waterTriangles: triangleCount(water?.geometry),
+    retainingTriangles: triangleCount(retaining?.geometry),
+    maximumSeamError: Number.isFinite(maximumSeamError)
+      ? maximumSeamError
+      : null,
+    minimumTriangleArea: Number.isFinite(minimumTriangleArea)
+      ? minimumTriangleArea
+      : null,
+    invertedTriangles,
   };
 }
 
@@ -395,7 +591,22 @@ export function inspectTask4Scene(scene: THREE.Object3D): Task4SceneSnapshot {
     ? ribbonEndpointCenter(horizonDeck.geometry, 'end')
     : undefined;
   const water = asMesh(scene.getObjectByName(TASK4_SCENE_NAMES.water));
+  const ground = asMesh(scene.getObjectByName(TASK4_SCENE_NAMES.shorelineGround));
+  const retaining = asMesh(
+    scene.getObjectByName(TASK4_SCENE_NAMES.shorelineRetaining),
+  );
   const waterMaterial = firstMaterial(water);
+  const waterShader = waterMaterial instanceof THREE.ShaderMaterial
+    ? waterMaterial
+    : undefined;
+  const atmosphereObject = scene.getObjectByName(TASK4_SCENE_NAMES.atmosphere);
+  const atmosphere = atmosphereObject instanceof THREE.Points
+    ? atmosphereObject
+    : undefined;
+  const atmosphereMaterial = atmosphere && !Array.isArray(atmosphere.material)
+    && atmosphere.material instanceof THREE.PointsMaterial
+    ? atmosphere.material
+    : undefined;
   const moonSurface = asMesh(scene.getObjectByName(TASK4_SCENE_NAMES.moonSurface));
   const moonMaterial = firstMaterial(moonSurface);
   const sphere = moonSurface?.geometry instanceof THREE.SphereGeometry
@@ -405,10 +616,6 @@ export function inspectTask4Scene(scene: THREE.Object3D): Task4SceneSnapshot {
     ? moonMaterial
     : undefined;
   const halo = asMesh(scene.getObjectByName(TASK4_SCENE_NAMES.moonHalo));
-  const haloMaterial = firstMaterial(halo);
-  const haloBasic = haloMaterial instanceof THREE.MeshBasicMaterial
-    ? haloMaterial
-    : undefined;
 
   const snapshot: Task4SceneSnapshot = {
     version: 1,
@@ -416,6 +623,8 @@ export function inspectTask4Scene(scene: THREE.Object3D): Task4SceneSnapshot {
       bridgeDeck
       && horizonDeck
       && water
+      && ground
+      && retaining
       && moonSurface
       && halo
       && standard?.map
@@ -439,7 +648,25 @@ export function inspectTask4Scene(scene: THREE.Object3D): Task4SceneSnapshot {
       transparent: waterMaterial?.transparent ?? null,
       depthWrite: waterMaterial?.depthWrite ?? null,
       blending: waterMaterial?.blending ?? null,
+      animationTime: Number.isFinite(waterShader?.uniforms.uTime?.value)
+        ? Number(waterShader?.uniforms.uTime.value)
+        : null,
+      reflectionCenterX:
+        Number.isFinite(waterShader?.uniforms.uReflectionX?.value)
+          ? Number(waterShader?.uniforms.uReflectionX.value)
+          : null,
+      reflectionIntensity:
+        Number.isFinite(waterShader?.uniforms.uReflectionIntensity?.value)
+          ? Number(waterShader?.uniforms.uReflectionIntensity.value)
+          : null,
     },
+    atmosphere: {
+      mounted: Boolean(atmosphere),
+      pointCount: atmosphere?.geometry.getAttribute('position')?.count ?? 0,
+      rotationY: atmosphere?.rotation.y ?? null,
+      opacity: atmosphereMaterial?.opacity ?? null,
+    },
+    shoreline: shorelineMeshMetrics(ground, water, retaining),
     moon: {
       surfaceMounted: Boolean(moonSurface),
       haloMounted: Boolean(halo),
@@ -447,12 +674,8 @@ export function inspectTask4Scene(scene: THREE.Object3D): Task4SceneSnapshot {
       heightSegments: sphere?.parameters.heightSegments ?? null,
       albedoColorSpace: standard?.map?.colorSpace ?? null,
       bumpColorSpace: standard?.bumpMap?.colorSpace ?? null,
-      haloBlending: haloMaterial?.blending ?? null,
-      haloDepthWrite: haloMaterial?.depthWrite ?? null,
       surfaceFog: standard?.fog ?? null,
       surfaceEmissiveIntensity: standard?.emissiveIntensity ?? null,
-      haloFog: haloBasic?.fog ?? null,
-      haloOpacity: haloBasic?.opacity ?? null,
     },
   };
   return snapshot;

@@ -98,6 +98,22 @@ export interface ShibuyaSightCorridor {
   halfWidth: number;
 }
 
+export interface AboutCuldesac {
+  center: THREE.Vector3;
+  roadRadius: number;
+  sidewalkOuterRadius: number;
+  surfaceY: number;
+}
+
+export function buildAboutCuldesac(): AboutCuldesac {
+  return {
+    center: new THREE.Vector3(-60, 0.03, -205),
+    roadRadius: 16,
+    sidewalkOuterRadius: 22,
+    surfaceY: 0.03,
+  };
+}
+
 function pointSegmentDistance(
   x: number,
   z: number,

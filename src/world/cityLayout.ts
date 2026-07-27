@@ -30,6 +30,18 @@ import {
 } from './buildingCatalog';
 import { buildHighwayPillarLayout } from './highwayLayout';
 import { WATER_BASIN } from './bridgeLayout';
+import {
+  ABOUT_HERO_BACKDROP_ID,
+  ABOUT_HERO_BACKDROP_PLACEMENT,
+  aboutSightlineFootprintMargin,
+  aboutSightlinePointMargin,
+} from './aboutReveal';
+import { STUNT_BACKDROP } from './stuntLayout';
+import { RESEARCH_WALLS } from './researchLayout';
+import {
+  researchCorridorPointClearance,
+  researchCorridorSegmentClearance,
+} from './researchSightlines';
 
 /**
  * City placement. A dense grid fills the WHOLE map with building blocks; the
@@ -67,6 +79,7 @@ export const SERVICE_FILES = [
 ] as const;
 
 export interface Placement {
+  id?: string;
   file: string;
   position: [number, number, number];
   rotationY: number;
@@ -76,7 +89,15 @@ export interface Placement {
   centerOffset?: [number, number];
   roadId?: string;
   roadIndex?: number;
-  layoutRole?: 'shibuya-front' | 'shibuya-back' | 'shibuya-corner' | 'low-base';
+  layoutRole?:
+    | 'shibuya-front'
+    | 'shibuya-back'
+    | 'shibuya-corner'
+    | 'low-base'
+    | 'stunt-backdrop'
+    | 'research-front'
+    | 'research-back'
+    | typeof ABOUT_HERO_BACKDROP_ID;
   shibuyaApproach?: ApproachId;
   shibuyaSide?: -1 | 1;
   shibuyaDistance?: number;
@@ -152,7 +173,11 @@ const FOOT_B = 28;      // back-row footprint radius (tall towers / heroes)
  */
 export function buildCityLayout(seed = 20260720): Placement[] {
   const rng = makeRng(seed);
-  const out: Placement[] = [];
+  const out: Placement[] = [
+    { ...ABOUT_HERO_BACKDROP_PLACEMENT },
+    ...STUNT_BACKDROP.map((placement) => ({ ...placement })),
+    ...RESEARCH_WALLS.map((placement) => ({ ...placement })),
+  ];
 
   const anchorA = SIDEWALK + GAP;                  // front wall hugs the sidewalk (hw+10)
   const anchorB = anchorA + 2 * FOOT_A + ALLEY;    // back towers behind a narrow alley
@@ -162,7 +187,11 @@ export function buildCityLayout(seed = 20260720): Placement[] {
     placement.layoutRole === 'shibuya-front'
     || placement.layoutRole === 'shibuya-back'
     || placement.layoutRole === 'shibuya-corner'
-    || placement.layoutRole === 'low-base';
+    || placement.layoutRole === 'low-base'
+    || placement.layoutRole === 'stunt-backdrop'
+    || placement.layoutRole === 'research-front'
+    || placement.layoutRole === 'research-back'
+    || placement.layoutRole === ABOUT_HERO_BACKDROP_ID;
 
   const clearsEveryGroundRoad = (x: number, z: number, radius: number): boolean =>
     shibuyaPlazaClearance(x, z) >= radius + 1
@@ -213,6 +242,7 @@ export function buildCityLayout(seed = 20260720): Placement[] {
     if (resolved.outcome === 'rejected') return;
     const { placement, bounds } = resolved.placement;
     if (!clearsOpenWater(bounds)) return;
+    if (aboutSightlineFootprintMargin(bounds) <= 0) return;
     // Safety uses each exact projected road membership. The sampled nearest-road
     // approximation remains useful for district selection only.
     if (keepClearFootprint(bounds.center.x, bounds.center.z, bounds.radius)) return;
@@ -334,6 +364,7 @@ export function buildCityLayout(seed = 20260720): Placement[] {
       groundRoadMemberships(point.x, point.z)
         .some((membership) => membership.clearance < 10 - 1e-6))) return undefined;
     if (!buildingClearsElevatedDeck(bounds)) return undefined;
+    if (aboutSightlineFootprintMargin(bounds) <= 0) return undefined;
     if (shibuyaSightCorridors.some((corridor) =>
       segmentFootprintClearance(corridor.start, corridor.end, bounds)
         <= corridor.halfWidth)) return undefined;
@@ -367,7 +398,7 @@ export function buildCityLayout(seed = 20260720): Placement[] {
     const distances = approach.id === 'north' || approach.id === 'east'
       ? [41, 78]
       : approach.id === 'south'
-        ? [16, 53, 90, 127, 275]
+        ? [16, 34, 53, 90, 127, 275]
         : [16, 53, 90, 127];
 
     for (let distanceIndex = 0; distanceIndex < distances.length; distanceIndex++) {
@@ -500,6 +531,7 @@ export function buildCityLayout(seed = 20260720): Placement[] {
     if (perimeter.some((point) => groundRoadMemberships(point.x, point.z)
       .some(({ clearance }) => clearance < 10 - 1e-6))) return;
     if (!buildingClearsElevatedDeck(bounds)) return;
+    if (aboutSightlineFootprintMargin(bounds) <= 0) return;
     if (shibuyaSightCorridors.some((corridor) =>
       segmentFootprintClearance(corridor.start, corridor.end, bounds)
         <= corridor.halfWidth)) return;
@@ -509,24 +541,35 @@ export function buildCityLayout(seed = 20260720): Placement[] {
     for (const conflict of conflicts) out.splice(out.indexOf(conflict), 1);
     out.push(placement);
   };
-  const placeShibuyaCorner = (
-    forward: number,
-    lateral: number,
-    model: string,
-    foot: number,
-    side: -1 | 1,
-  ): void => {
-    const center = southApproach.center.clone()
-      .addScaledVector(southApproach.tangent, forward)
-      .addScaledVector(southApproach.binormal, lateral);
-    placeShibuyaCornerAt(center, model, foot, side, 'south', forward);
-  };
-  placeShibuyaCorner(29.386, -49.296, `${P}BldgMD_C_Main`, 18, 1);
-  placeShibuyaCorner(4.718, -45.252, `${P}BldgMD_C_Main`, 18, 1);
-  placeShibuyaCorner(12.772, 34.494, `${P}BldgLG_A_BuildingA`, 14, -1);
+  // Keep the approved south frontage fixed in world space while the bike and
+  // road centerlines ease through the plaza independently of facade placement.
   placeShibuyaCornerAt(
-    new THREE.Vector3(200, 0, 40),
-    `${P}BldgLG_A_Main`,
+    new THREE.Vector3(181, 0, -67),
+    `${P}BldgMD_C_Main`,
+    18,
+    1,
+    'south',
+    29.386,
+  );
+  placeShibuyaCornerAt(
+    new THREE.Vector3(184.796, 0, -42.114),
+    `${P}BldgMD_C_Main`,
+    18,
+    1,
+    'south',
+    4.5,
+  );
+  placeShibuyaCornerAt(
+    new THREE.Vector3(340, 0, -45),
+    `${P}BldgLG_A_BuildingA`,
+    14,
+    -1,
+    'east',
+    109.659,
+  );
+  placeShibuyaCornerAt(
+    new THREE.Vector3(220, 0, 140),
+    `${P}BldgLG_A_BuildingA`,
     18,
     1,
     'north',
@@ -541,12 +584,12 @@ export function buildCityLayout(seed = 20260720): Placement[] {
     116.726,
   );
   placeShibuyaCornerAt(
-    new THREE.Vector3(195, 0, -90),
+    new THREE.Vector3(145, 0, 90),
     `${P}BldgLG_A_BuildingB`,
     18,
     1,
     'west',
-    100.623,
+    145.344,
   );
 
   // The former Shibuya candidate pass consumed two draws (asset and rotation)
@@ -603,6 +646,7 @@ export function buildCityLayout(seed = 20260720): Placement[] {
         bounds = buildingPlacementBounds(placement);
       }
       if (!buildingClearsElevatedDeck(bounds)) continue;
+      if (aboutSightlineFootprintMargin(bounds) <= 0) continue;
       if (!clearsOpenWater(bounds)) continue;
       if (keepClearFootprint(bounds.center.x, bounds.center.z, bounds.radius)) continue;
       if (!clearsEveryGroundRoad(bounds.center.x, bounds.center.z, bounds.radius)) continue;
@@ -617,7 +661,9 @@ export function buildCityLayout(seed = 20260720): Placement[] {
   // Refill only the supported landward shoreline shoulders outside the
   // protected bridge corridor. No ordinary massing is allowed past z=-600.
   const ordinaryCount = (): number => out.filter(({ layoutRole }) =>
-    !layoutRole?.startsWith('shibuya-')).length;
+    !layoutRole?.startsWith('shibuya-')
+    && layoutRole !== 'stunt-backdrop'
+    && !layoutRole?.startsWith('research-')).length;
   const shorelineFiles = [...SMALL, ...MID];
   let shorelineIndex = 0;
   for (let z = -570; z <= -350 && ordinaryCount() < 280; z += 20) {
@@ -636,6 +682,7 @@ export function buildCityLayout(seed = 20260720): Placement[] {
       if (protectedOrientedFootprintClearance(bounds) < 1) continue;
       if (!clearsEveryGroundRoad(bounds.center.x, bounds.center.z, bounds.radius)) continue;
       if (!buildingClearsElevatedDeck(bounds)) continue;
+      if (aboutSightlineFootprintMargin(bounds) <= 0) continue;
       if (overlaps(bounds)) continue;
       out.push(placement);
     }
@@ -648,6 +695,7 @@ export function buildProps(seed = 8891): Placement[] {
   const rng = makeRng(seed);
   const out: Placement[] = [];
   const sightCorridors = buildShibuyaSightCorridors();
+  const aboutParentBounds = buildingPlacementBounds(ABOUT_HERO_BACKDROP_PLACEMENT);
   const isSafe = (placement: Placement): boolean => {
     const bounds = renderedPlacementBounds(placement);
     const memberships = groundRoadMemberships(bounds.center.x, bounds.center.z);
@@ -660,6 +708,9 @@ export function buildProps(seed = 8891): Placement[] {
       && shibuyaPlazaClearance(bounds.center.x, bounds.center.z) > bounds.radius
       && protectedOrientedFootprintClearance(bounds) > 0
       && clearsOpenWater(bounds)
+      && researchCorridorPointClearance(bounds.center, bounds.radius) > 0
+      && aboutSightlineFootprintMargin(bounds) > 0
+      && !orientedFootprintsOverlap(bounds, aboutParentBounds, 1)
       && sightCorridors.every((corridor) =>
         segmentFootprintClearance(corridor.start, corridor.end, bounds)
           > corridor.halfWidth);
@@ -672,8 +723,9 @@ export function buildProps(seed = 8891): Placement[] {
     rot: number,
     roadIndex: number,
     outward: [number, number],
+    maxShift = 40,
   ): Placement | undefined => {
-    for (let shift = 0; shift <= 40; shift += 1) {
+    for (let shift = 0; shift <= maxShift; shift += 1) {
       const placement: Placement = {
         file,
         position: [
@@ -750,11 +802,16 @@ export function buildProps(seed = 8891): Placement[] {
       const p = e.pos.clone().addScaledVector(e.bin, side * offset);
       const memberships = groundRoadMemberships(p.x, p.z);
       const source = memberships.find((membership) => membership.roadIndex === e.roadIndex);
+      const serviceStrips = memberships.filter((membership) =>
+        !membership.endpointCap
+        && membership.clearance >= 11.5
+        && membership.clearance <= 14);
       if (
         !source
         || source.endpointCap
         || source.clearance < 11.5
         || source.clearance > 14
+        || serviceStrips.length !== 1
         || keepClear(p.x, p.z)
         || groundRoadClearance(p.x, p.z) < 10
         || memberships.some((membership) => membership.withinRoadOrSidewalk)
@@ -771,6 +828,7 @@ export function buildProps(seed = 8891): Placement[] {
         Math.atan2(-e.bin.x * side, -e.bin.z * side),
         e.roadIndex,
         [e.bin.x * side, e.bin.z * side],
+        0,
       );
       if (!placed) continue;
       serviceIndex = (serviceIndex + 1) % SERVICE_FILES.length;
@@ -799,6 +857,8 @@ export function buildStreetFurniture(seed = 5150): StreetFurniture {
   let prevPoleTop: { pos: THREE.Vector3; roadIndex: number } | null = null;
   const isExactRoadSafe = (pos: THREE.Vector3, roadIndex: number): boolean => {
     if (keepClear(pos.x, pos.z)) return false;
+    if (aboutSightlinePointMargin(pos, 0.5) <= 0) return false;
+    if (researchCorridorPointClearance(pos, 0.5) <= 0) return false;
     const memberships = groundRoadMemberships(pos.x, pos.z);
     const source = memberships.find((membership) => membership.roadIndex === roadIndex);
     return source !== undefined
@@ -813,7 +873,16 @@ export function buildStreetFurniture(seed = 5150): StreetFurniture {
     const base = e.pos.clone().addScaledVector(e.bin, side * off);
     // lamp facing the road — skip if this spot lands on a crossing road (an
     // intersection sidewalk point can otherwise sit in the middle of a street)
-    if (groundRoadClearance(base.x, base.z) >= 1 && isExactRoadSafe(base, e.roadIndex)) {
+    const lampHead = base.clone().add(new THREE.Vector3(
+      Math.sin(Math.atan2(-e.bin.x * side, -e.bin.z * side)) * 1.5,
+      0,
+      Math.cos(Math.atan2(-e.bin.x * side, -e.bin.z * side)) * 1.5,
+    ));
+    if (
+      groundRoadClearance(base.x, base.z) >= 1
+      && isExactRoadSafe(base, e.roadIndex)
+      && researchCorridorPointClearance(lampHead, 0.5) > 0
+    ) {
       lamps.push({
         pos: base.clone(),
         rotationY: Math.atan2(-e.bin.x * side, -e.bin.z * side),
@@ -832,11 +901,23 @@ export function buildStreetFurniture(seed = 5150): StreetFurniture {
           const crossesKeepClear = Array.from(
             { length: segmentCount + 1 },
             (_, sample) => sample / segmentCount,
-          ).some((t) => keepClear(
-            THREE.MathUtils.lerp(prevPoleTop!.pos.x, top.x, t),
-            THREE.MathUtils.lerp(prevPoleTop!.pos.z, top.z, t),
-          ));
+          ).some((t) => {
+            const point = {
+              x: THREE.MathUtils.lerp(prevPoleTop!.pos.x, top.x, t),
+              z: THREE.MathUtils.lerp(prevPoleTop!.pos.z, top.z, t),
+            };
+            return keepClear(point.x, point.z)
+              || aboutSightlinePointMargin(point, 0.1) <= 0;
+          });
           if (!crossesKeepClear) {
+            if (researchCorridorSegmentClearance(
+              prevPoleTop.pos,
+              top,
+              0.15,
+            ) <= 0) {
+              prevPoleTop = { pos: top, roadIndex: e.roadIndex };
+              return;
+            }
             cables.push({
               a: prevPoleTop.pos.clone(),
               b: top.clone(),

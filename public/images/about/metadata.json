@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "provenance": "Provided generated portrait source supplied with Scroll Task 2.",
+  "subject": "Anonymous placeholder portrait",
+  "realPerson": false,
+  "replacementNote": "This is not Evan’s real portrait and may be replaced through RESUME.about.faceImage.src.",
+  "optimizer": {
+    "name": "Sharp",
+    "version": "0.34.5",
+    "outputFormat": "WebP"
+  },
+  "source": {
+    "suppliedPath": "assets/source/about-portrait-placeholder.png",
+    "file": "about-portrait-placeholder.png",
+    "format": "png",
+    "width": 1024,
+    "height": 1536,
+    "bytes": 1951038,
+    "sha256": "1fcd875b5ec21d7e20525650a6f9cb05cbf2e9fc0810163b291d55d3d63ecf27"
+  },
+  "optimization": {
+    "resize": {
+      "width": 1024,
+      "height": 1536,
+      "fit": "fill",
+      "kernel": "lanczos3"
+    },
+    "webp": {
+      "quality": 88,
+      "effort": 6,
+      "smartSubsample": true
+    }
+  },
+  "output": {
+    "file": "about-portrait-placeholder.webp",
+    "format": "webp",
+    "width": 1024,
+    "height": 1536,
+    "bytes": 142774,
+    "sha256": "02f8665f621f174f2917db0216e07a11f4da967ab9f4a276a044a23274644053"
+  }
+}

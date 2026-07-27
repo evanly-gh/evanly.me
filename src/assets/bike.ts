@@ -51,13 +51,21 @@ export interface BikeAsset {
 // two ENORMOUS near-equal hubless wheels wrapped in a bright cyan ring, joined
 // by a long, low blade body. A single bright cyan light-beam spears the full
 // length at axle height. Total length ≈ 2*(AXLE_X + WHEEL_OUTER) ≈ 2.9m.
-const WHEEL_R = 0.475; // tyre centerline radius
-const WHEEL_TUBE = 0.12; // FAT tyre body → outer 0.595 (thick & wide, per reference)
-const WHEEL_OUTER = WHEEL_R + WHEEL_TUBE; // 0.595 → axle height so tire kisses y=0
-const AXLE_X = 1.05; // half wheelbase → long body between the wheels (reference)
-const AXLE_Y = WHEEL_OUTER;
+export const BIKE_WHEEL_CENTERLINE_RADIUS = 0.475;
+export const BIKE_WHEEL_TIRE_RADIUS = 0.12;
+export const BIKE_WHEEL_OUTER_RADIUS =
+  BIKE_WHEEL_CENTERLINE_RADIUS + BIKE_WHEEL_TIRE_RADIUS;
+export const BIKE_WHEEL_AXLE_HEIGHT = BIKE_WHEEL_OUTER_RADIUS;
+export const BIKE_WHEELBASE_HALF = 1.05;
+export const BIKE_PITCH_PIVOT_Y = 0.6;
+export const BIKE_WHEEL_RADIAL_SEGMENTS = 16;
+export const BIKE_WHEEL_TUBULAR_SEGMENTS = 38;
+const WHEEL_R = BIKE_WHEEL_CENTERLINE_RADIUS;
+const WHEEL_TUBE = BIKE_WHEEL_TIRE_RADIUS;
+const AXLE_X = BIKE_WHEELBASE_HALF;
+const AXLE_Y = BIKE_WHEEL_AXLE_HEIGHT;
 const BODY_HALF_W = 0.24; // half-width of the central body (thicker overall)
-const PITCH_PIVOT_Y = 0.6;
+const PITCH_PIVOT_Y = BIKE_PITCH_PIVOT_Y;
 
 const LEAN_MAX = THREE.MathUtils.degToRad(35);
 
@@ -296,7 +304,12 @@ function buildBikeStatic(rng: Rng): Part[] {
     const ax = s * AXLE_X;
     // FAT dark tyre. Lower tubular-segment counts give the rings a faceted,
     // TEXTURED look (fairly round, not a perfect smooth circle).
-    add(new THREE.TorusGeometry(WHEEL_R, WHEEL_TUBE, 16, 38), xform(ax, AY, 0), M.metal);
+    add(new THREE.TorusGeometry(
+      WHEEL_R,
+      WHEEL_TUBE,
+      BIKE_WHEEL_RADIAL_SEGMENTS,
+      BIKE_WHEEL_TUBULAR_SEGMENTS,
+    ), xform(ax, AY, 0), M.metal);
     for (const z of [1, -1]) {
       const fz = z * (WHEEL_TUBE - 0.03);
       // thick BRIGHT cyan rim on the outer face (dark tyre shows outside & inside it)
@@ -640,16 +653,13 @@ function buildGhostGeometry(): THREE.BufferGeometry {
     parts.push({ geom, matrix, mat: 0 });
   };
 
-  // Wheel hoops — rotated 90 degrees around the Y axis so the torus ring lies in
-  // the YZ plane (perpendicular to the bike's forward axis +X). This makes the
-  // wheels appear as circles when the camera looks from behind or in front
-  // (the typical finale chase angle). Without this rotation the default XY-plane
-  // torus renders as a thin sliver from the ±X directions.
-  // Keep radialSegments=4, tubularSegments=10 to stay within the 400-tri budget.
+  // Wheel hoops share the canonical bike XY wheel plane; their axle is local Z.
+  // Match the canonical tire's 38 ring samples so echo contact history does
+  // not drift vertically from the rendered bike/ribbon.
   for (const s of [1, -1]) {
     add(
-      new THREE.TorusGeometry(WHEEL_R, WHEEL_TUBE, 4, 10),
-      xform(s * AXLE_X, AXLE_Y, 0, 0, Math.PI / 2, 0)
+      new THREE.TorusGeometry(WHEEL_R, WHEEL_TUBE, 4, 38),
+      xform(s * AXLE_X, AXLE_Y, 0)
     );
   }
 

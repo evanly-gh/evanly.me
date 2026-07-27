@@ -2,13 +2,34 @@ import { useLayoutEffect, useMemo, useRef } from 'react';
 import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { calculateRenderedScale } from '../../world/buildingCatalog';
+import {
+  buildModelSpatialBuckets,
+  buildSpatialChunks,
+  INSTANCE_CHUNK_SIZE,
+  type SpatialChunk,
+} from '../../world/instanceBuckets';
+import {
+  HUMAN_VARIANTS,
+  type HumanVariantId,
+} from '../../world/crowdLayout';
 import { useCommittedThreeResource } from './useCommittedThreeResources';
+
+export {
+  buildModelSpatialBuckets,
+  buildSpatialChunks,
+  INSTANCE_CHUNK_SIZE,
+};
+export type { SpatialChunk };
 
 export interface Placement {
   file: string;
   position: [number, number, number];
   rotationY: number;
   scale?: number;
+  /** Stable palette key resolved to per-instance colors without splitting draws. */
+  materialVariant?: string;
+  /** Horizontal body-width multiplier applied after uniform height scaling. */
+  buildScale?: number;
   /** Max footprint radius (m). The instance is uniformly scaled so its
    *  circumscribed footprint never exceeds this — guarantees no road overlap. */
   foot?: number;
@@ -21,10 +42,84 @@ export interface Placement {
 }
 
 const EMISSIVE_HINT = /light|neon|glass|screen|banner|letter|sign|decal/i;
+const MATERIAL_MAP_KEYS = [
+  'map',
+  'normalMap',
+  'roughnessMap',
+  'metalnessMap',
+  'aoMap',
+  'emissiveMap',
+  'alphaMap',
+  'bumpMap',
+  'displacementMap',
+  'lightMap',
+] as const;
 
 export type InstancedMaterialTransform = (
   material: THREE.Material,
+  materialVariant: string,
 ) => THREE.Material;
+export type InstancedColorResolver = (
+  item: Placement,
+  material: THREE.Material,
+) => THREE.ColorRepresentation | undefined;
+
+const HUMAN_PALETTES = new Map(
+  HUMAN_VARIANTS.map((variant) => [variant.id, variant]),
+);
+
+export function stylePedestrianMaterial(
+  material: THREE.Material,
+  _variant: string,
+): THREE.Material {
+  if (!(material instanceof THREE.MeshStandardMaterial)) {
+    return material;
+  }
+  const name = material.name.toLowerCase();
+  let roughness = 0.68;
+  let metalness = 0.08;
+  if (name === 'material') {
+    roughness = 0.82;
+    metalness = 0;
+  } else if (name === 'black') {
+    roughness = 0.78;
+    metalness = 0.02;
+  } else if (name === 'accent') {
+    roughness = 0.74;
+    metalness = 0.03;
+  } else if (name === 'accent_dark') {
+    roughness = 0.8;
+    metalness = 0.04;
+  } else if (name === 'blade' || name === 'blade_edge') {
+    roughness = name === 'blade_edge' ? 0.66 : 0.72;
+    metalness = name === 'blade_edge' ? 0.12 : 0.08;
+  }
+  material.color.set(0xffffff);
+  material.roughness = roughness;
+  material.metalness = metalness;
+  material.emissive.set(0x000000);
+  material.emissiveIntensity = 0;
+  material.toneMapped = true;
+  material.needsUpdate = true;
+  return material;
+}
+
+export function pedestrianInstanceColor(
+  item: Pick<Placement, 'materialVariant'>,
+  material: THREE.Material,
+): THREE.ColorRepresentation | undefined {
+  const palette = HUMAN_PALETTES.get(
+    item.materialVariant as HumanVariantId,
+  );
+  if (!palette) return undefined;
+  const name = material.name.toLowerCase();
+  if (name === 'material') return palette.skin;
+  if (name === 'black') return palette.hair;
+  if (name === 'accent') return palette.shirt;
+  if (name === 'accent_dark') return palette.pants;
+  if (name === 'blade' || name === 'blade_edge') return palette.accent;
+  return palette.jacket;
+}
 
 function tuneClonedMaterial(c: THREE.Material): THREE.Material {
   const standard = c as THREE.MeshStandardMaterial;
@@ -42,36 +137,12 @@ function tuneClonedMaterial(c: THREE.Material): THREE.Material {
 export function cloneInstancedMaterial(
   material: THREE.Material,
   transform?: InstancedMaterialTransform,
+  materialVariant = 'default',
 ): THREE.Material {
   const cloned = material.clone();
-  return transform ? transform(cloned) : tuneClonedMaterial(cloned);
-}
-
-export const INSTANCE_CHUNK_SIZE = 180;
-
-export interface SpatialChunk<T> {
-  id: string;
-  items: T[];
-}
-
-export function buildSpatialChunks<T extends {
-  position: [number, number, number];
-}>(
-  items: T[],
-  chunkSize = INSTANCE_CHUNK_SIZE,
-): SpatialChunk<T>[] {
-  const chunks = new Map<string, T[]>();
-  for (const item of items) {
-    const x = Math.floor(item.position[0] / chunkSize);
-    const z = Math.floor(item.position[2] / chunkSize);
-    const id = `${x}:${z}`;
-    const chunk = chunks.get(id) ?? [];
-    chunk.push(item);
-    chunks.set(id, chunk);
-  }
-  return [...chunks]
-    .sort(([a], [b]) => a.localeCompare(b, 'en', { numeric: true }))
-    .map(([id, members]) => ({ id, items: members }));
+  return transform
+    ? transform(cloned, materialVariant)
+    : tuneClonedMaterial(cloned);
 }
 
 export function composePlacementMatrix(
@@ -107,7 +178,11 @@ export function composePlacementMatrix(
     new THREE.Quaternion().setFromEuler(
       new THREE.Euler(0, item.rotationY, 0),
     ),
-    new THREE.Vector3(scale, scale, scale),
+    new THREE.Vector3(
+      scale * (item.buildScale ?? 1),
+      scale,
+      scale * (item.buildScale ?? 1),
+    ),
   );
   return new THREE.Matrix4().multiplyMatrices(instance, local);
 }
@@ -120,6 +195,22 @@ export function applyInstanceMatrices(
   mesh.count = matrices.length;
   mesh.instanceMatrix.needsUpdate = true;
   mesh.computeBoundingSphere();
+}
+
+export function applyInstanceColors<T extends Placement>(
+  mesh: THREE.InstancedMesh,
+  items: T[],
+  material: THREE.Material,
+  resolver: InstancedColorResolver,
+): void {
+  const colors = items.map((item) => resolver(item, material));
+  if (colors.every((color) => color === undefined)) return;
+  const resolved = new THREE.Color();
+  colors.forEach((color, index) => {
+    resolved.set(color ?? 0xffffff);
+    mesh.setColorAt(index, resolved);
+  });
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
 }
 
 export function createOwnedMaterialDisposer(
@@ -138,16 +229,127 @@ export function createOwnedMaterialDisposer(
  * (#meshes × #material-groups) per file, independent of instance count — so the
  * city can be dense. Each placement is grounded (file bbox min.y → 0).
  */
+function createGeometryView(
+  source: THREE.BufferGeometry,
+  start: number,
+  count: number,
+): THREE.BufferGeometry {
+  const view = new THREE.BufferGeometry();
+  view.name = `${source.name || 'geometry'}:${start}:${count}`;
+  view.setIndex(source.getIndex());
+  for (const [name, attribute] of Object.entries(source.attributes)) {
+    view.setAttribute(name, attribute);
+  }
+  view.morphAttributes = source.morphAttributes;
+  view.morphTargetsRelative = source.morphTargetsRelative;
+  view.setDrawRange(start, count);
+  view.boundingBox = source.boundingBox?.clone() ?? null;
+  view.boundingSphere = source.boundingSphere?.clone() ?? null;
+  return view;
+}
+
+interface ResolvedInstancedPart {
+  geometry: THREE.BufferGeometry;
+  sourceMaterial: THREE.Material;
+  material: THREE.Material;
+  local: THREE.Matrix4;
+}
+
+function InstancedSpatialChunk({
+  chunk,
+  parts,
+  footRadius,
+  height,
+  targetHeight,
+  instanceColor,
+}: {
+  chunk: SpatialChunk<Placement>;
+  parts: ResolvedInstancedPart[];
+  footRadius: number;
+  height: number;
+  targetHeight?: number;
+  instanceColor?: InstancedColorResolver;
+}) {
+  const refs = useRef<(THREE.InstancedMesh | null)[]>([]);
+  useLayoutEffect(() => () => {
+    // Fiber must not recursively dispose shared geometry/materials, but every
+    // keyed chunk owns its InstancedMesh buffers. Disposing the mesh releases
+    // instanceMatrix/instanceColor when this chunk alone leaves the profile.
+    const meshes = new Set(
+      refs.current.filter(
+        (mesh): mesh is THREE.InstancedMesh => mesh !== null,
+      ),
+    );
+    for (const mesh of meshes) mesh.dispose();
+  }, []);
+  useLayoutEffect(() => {
+    parts.forEach((part, partIndex) => {
+      const mesh = refs.current[partIndex];
+      if (!mesh) return;
+      applyInstanceMatrices(
+        mesh,
+        chunk.items.map((item) => composePlacementMatrix(
+          item,
+          footRadius,
+          height,
+          targetHeight,
+          part.local,
+        )),
+      );
+      if (instanceColor) {
+        applyInstanceColors(
+          mesh,
+          chunk.items,
+          part.sourceMaterial,
+          instanceColor,
+        );
+      }
+    });
+  }, [
+    chunk,
+    parts,
+    footRadius,
+    height,
+    targetHeight,
+    instanceColor,
+  ]);
+  return (
+    <>
+      {parts.map((part, partIndex) => (
+        <instancedMesh
+          key={partIndex}
+          name="lifecycle-spatial-chunk"
+          ref={(element) => {
+            refs.current[partIndex] = element;
+          }}
+          args={[
+            part.geometry,
+            part.material,
+            chunk.items.length,
+          ]}
+          dispose={null}
+          castShadow={false}
+          receiveShadow={false}
+        />
+      ))}
+    </>
+  );
+}
+
 function InstancedFile({
   file,
   items,
   targetHeight,
   materialTransform,
+  instanceColor,
+  inspectionGroupName,
 }: {
   file: string;
   items: Placement[];
   targetHeight?: number;
   materialTransform?: InstancedMaterialTransform;
+  instanceColor?: InstancedColorResolver;
+  inspectionGroupName?: string;
 }) {
   const { scene } = useGLTF('/models/' + file);
   const { sourceParts, footRadius, height } = useMemo(() => {
@@ -162,17 +364,35 @@ function InstancedFile({
     const radius = 0.5 * Math.hypot(sizeX, sizeZ) || 1;
     const out: {
       geometry: THREE.BufferGeometry;
-      sourceMaterial: THREE.Material | THREE.Material[];
+      sourceMaterial: THREE.Material;
+      drawRange?: { start: number; count: number };
       local: THREE.Matrix4;
     }[] = [];
     scene.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
-      out.push({
-        geometry: m.geometry,
-        sourceMaterial: m.material,
-        local: new THREE.Matrix4().multiplyMatrices(ground, m.matrixWorld),
-      });
+      const local = new THREE.Matrix4().multiplyMatrices(
+        ground,
+        m.matrixWorld,
+      );
+      if (Array.isArray(m.material)) {
+        for (const group of m.geometry.groups) {
+          const sourceMaterial = m.material[group.materialIndex ?? 0];
+          if (!sourceMaterial) continue;
+          out.push({
+            geometry: m.geometry,
+            sourceMaterial,
+            drawRange: { start: group.start, count: group.count },
+            local,
+          });
+        }
+      } else {
+        out.push({
+          geometry: m.geometry,
+          sourceMaterial: m.material,
+          local,
+        });
+      }
     });
     return {
       sourceParts: out,
@@ -184,66 +404,75 @@ function InstancedFile({
   const owned = useCommittedThreeResource(
     `instanced:${file}`,
     ({ own }) => {
-      const resources: THREE.Material[] = [];
+      const resources: Array<THREE.Material | THREE.BufferGeometry> = [];
       const parts = sourceParts.map((part) => {
-        const material = Array.isArray(part.sourceMaterial)
-          ? part.sourceMaterial.map((source) =>
-              own(cloneInstancedMaterial(source, materialTransform)))
-          : own(cloneInstancedMaterial(part.sourceMaterial, materialTransform));
-        resources.push(...(Array.isArray(material) ? material : [material]));
-        return { ...part, material };
+        const material = own(cloneInstancedMaterial(
+          part.sourceMaterial,
+          materialTransform,
+        ));
+        const geometry = part.drawRange
+          ? own(createGeometryView(
+              part.geometry,
+              part.drawRange.start,
+              part.drawRange.count,
+            ))
+          : part.geometry;
+        resources.push(material);
+        if (geometry !== part.geometry) resources.push(geometry);
+        return { ...part, geometry, material };
       });
       return { value: { parts }, resources };
     },
     [sourceParts, materialTransform],
   );
   const parts = owned?.parts ?? [];
+  const sourceMaterials = useMemo(
+    () => sourceParts.map(({ sourceMaterial }) => sourceMaterial),
+    [sourceParts],
+  );
+  const sourceMapCount = useMemo(() => sourceMaterials.reduce(
+    (count, material) => count + MATERIAL_MAP_KEYS.filter((key) =>
+      (material as unknown as Record<string, unknown>)[key] instanceof THREE.Texture,
+    ).length,
+    0,
+  ), [sourceMaterials]);
+  const sourcePbrMaterialCount = useMemo(() => sourceMaterials.filter(
+    (material) =>
+      material instanceof THREE.MeshStandardMaterial
+      || material instanceof THREE.MeshPhysicalMaterial,
+  ).length, [sourceMaterials]);
   const chunks = useMemo(() => buildSpatialChunks(items), [items]);
-  const refs = useRef<(THREE.InstancedMesh | null)[][]>([]);
-  useLayoutEffect(() => {
-    parts.forEach((part, pi) => {
-      chunks.forEach((chunk, chunkIndex) => {
-        const mesh = refs.current[pi]?.[chunkIndex];
-        if (!mesh) return;
-        const matrices = chunk.items.map((item) =>
-          composePlacementMatrix(
-            item,
-            footRadius,
-            height,
-            targetHeight,
-            part.local,
-          ));
-        applyInstanceMatrices(mesh, matrices);
-      });
-    });
-  }, [chunks, parts, footRadius, height, targetHeight]);
 
   if (!owned) return null;
 
-  return (
+  const content = (
     <>
-      {parts.flatMap((part, partIndex) =>
-        chunks.map((chunk, chunkIndex) => (
-          <instancedMesh
-            key={`${partIndex}:${chunk.id}`}
-            name="lifecycle-spatial-chunk"
-            ref={(element) => {
-              const partRefs = refs.current[partIndex] ?? [];
-              partRefs[chunkIndex] = element;
-              refs.current[partIndex] = partRefs;
-            }}
-            args={[
-              part.geometry,
-              part.material as THREE.Material,
-              chunk.items.length,
-            ]}
-            dispose={null}
-            castShadow={false}
-            receiveShadow={false}
-          />
-        )))}
+      {chunks.map((chunk) => (
+        <InstancedSpatialChunk
+          key={chunk.id}
+          chunk={chunk}
+          parts={parts}
+          footRadius={footRadius}
+          height={height}
+          targetHeight={targetHeight}
+          instanceColor={instanceColor}
+        />
+      ))}
     </>
   );
+  return inspectionGroupName ? (
+    <group
+      name={inspectionGroupName}
+      userData={{
+        sourceFile: file,
+        placementCount: items.length,
+        sourceMapCount,
+        sourcePbrMaterialCount,
+      }}
+    >
+      {content}
+    </group>
+  ) : content;
 }
 
 /** Groups placements by file and instances each file. */
@@ -251,27 +480,46 @@ export function InstancedPieces({
   placements,
   targetHeight,
   materialTransform,
+  instanceColor,
+  inspectionGroupName,
 }: {
   placements: Placement[];
   /** Uniformly normalize each source GLB to this world-space height. */
   targetHeight?: number;
   /** Optional styling applied only to cloned instance materials. */
   materialTransform?: InstancedMaterialTransform;
+  /** Optional per-placement color, applied without splitting spatial chunks. */
+  instanceColor?: InstancedColorResolver;
+  /** Optional dev-only group name emitted after GLB/material resolution. */
+  inspectionGroupName?: string;
 }) {
   const groups = useMemo(() => {
-    const g: Record<string, Placement[]> = {};
-    for (const p of placements) (g[p.file] ??= []).push(p);
-    return g;
+    const g = new Map<string, {
+      file: string;
+      items: Placement[];
+    }>();
+    for (const placement of placements) {
+      const key = placement.file;
+      const group = g.get(key) ?? {
+        file: placement.file,
+        items: [],
+      };
+      group.items.push(placement);
+      g.set(key, group);
+    }
+    return [...g].sort(([a], [b]) => a.localeCompare(b));
   }, [placements]);
   return (
     <>
-      {Object.entries(groups).map(([file, items]) => (
+      {groups.map(([key, { file, items }]) => (
         <InstancedFile
-          key={file}
+          key={key}
           file={file}
           items={items}
           targetHeight={targetHeight}
           materialTransform={materialTransform}
+          instanceColor={instanceColor}
+          inspectionGroupName={inspectionGroupName}
         />
       ))}
     </>

@@ -1,10 +1,17 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { createHash } from 'crypto';
 import { createRequire } from 'module';
 import { getBounds, NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { dedup, draco, prune, textureCompress, weld } from '@gltf-transform/functions';
+import {
+  dedup,
+  draco,
+  prune,
+  textureCompress,
+  weld,
+} from '@gltf-transform/functions';
 import draco3d from 'draco3dgltf';
 
 const require = createRequire(import.meta.url);
@@ -13,9 +20,10 @@ const obj2gltf = require('obj2gltf');
 const CY = path.join(os.homedir(), 'Downloads', 'Cyber Assets');
 const QUAT = path.join(CY, 'Cyberpunk Game Kit - Quaternius-20260716T040550Z-1-001', 'Cyberpunk Game Kit - Quaternius');
 const ROBOTS = path.join(CY, 'Cyber Robots');
+const CHARACTER_SOURCE = path.join(QUAT, 'Character', 'Character.obj');
 
 export const JOBS = [
-  { name: 'ped_char', input: path.join(QUAT, 'Character', 'Character.obj'), type: 'obj', expectedTextures: 0, sourceBbox: [0.61086, 1.374499, 1.155609] },
+  { name: 'ped_char', input: CHARACTER_SOURCE, type: 'obj', expectedTextures: 0, sourceBbox: [0.61086, 1.374499, 1.155609] },
   { name: 'robot_companion', input: path.join(ROBOTS, 'Companion-bot', 'Package', 'Companion-bot.obj'), type: 'obj', expectedTextures: 1, sourceBbox: [2.30011, 5.7, 1.800146] },
   { name: 'robot_recon', input: path.join(ROBOTS, 'ReconBot', 'Package', 'ReconBot.obj'), type: 'obj', expectedTextures: 1, sourceBbox: [2.69989, 5.9, 2.800006] },
   { name: 'robot_storage', input: path.join(ROBOTS, 'MobileStorageBot', 'Package', 'MobileStorageBot.obj'), type: 'obj', expectedTextures: 1, sourceBbox: [5, 4.59989, 3.399866] },
@@ -32,6 +40,26 @@ export const DELIVERY_BUDGETS = {
   maxFileBytes: 200 * 1024,
   maxTotalBytes: 700 * 1024,
 };
+
+export const CHARACTER_SOURCE_PROVENANCE = Object.freeze({
+  package: 'Cyberpunk Game Kit - Quaternius-20260716T040550Z-1-001',
+  objectSha256: 'c774a055e3dfa81ee61861f8d6caa7853ee2554d916f48327671d5023ded16e5',
+  materialSha256: 'b2a69fbaf95a9a0bd1a86ff72be8a737a1848755cbd65a13f219b70cdea80038',
+  licenseSha256: 'de990ef6fc68cffd7fd1ae342c4d0c823b541b8848d8f76bca5d3339f4de6f6e',
+});
+
+export const CC0_LICENSE_TEXT = `------------------------------------------------------
+Ultimate Platformer Pack by @Quaternius
+Consider supporting me on Patreon, even $1 helps me a lot!
+
+https://www.patreon.com/quaternius
+-------------------------------------------------------
+
+License:
+CC0 1.0 Universal (CC0 1.0)
+Public Domain Dedication
+https://creativecommons.org/publicdomain/zero/1.0/
+`;
 
 export function parseResolution(args) {
   const values = args.filter(arg => arg.startsWith('--res='));
@@ -167,6 +195,56 @@ function readGLBJson(buffer) {
   throw new Error('GLB has no JSON chunk');
 }
 
+function updateAccessorHash(hash, label, accessor) {
+  hash.update(label);
+  hash.update(String(accessor.getType()));
+  hash.update(String(accessor.getComponentType()));
+  const array = accessor.getArray();
+  if (array) {
+    hash.update(Buffer.from(array.buffer, array.byteOffset, array.byteLength));
+  }
+}
+
+function inspectGeometry(document) {
+  const hash = createHash('sha256');
+  let triangles = 0;
+  let primitives = 0;
+  document.getRoot().listMeshes().forEach((mesh, meshIndex) => {
+    hash.update(`mesh:${meshIndex}:${mesh.getName()}`);
+    mesh.listPrimitives().forEach((primitive, primitiveIndex) => {
+      primitives += 1;
+      hash.update(`primitive:${primitiveIndex}:${primitive.getMode()}`);
+      const indices = primitive.getIndices();
+      const position = primitive.getAttribute('POSITION');
+      triangles += (indices?.getCount() ?? position?.getCount() ?? 0) / 3;
+      if (indices) updateAccessorHash(hash, 'indices', indices);
+      for (const semantic of [...primitive.listSemantics()].sort()) {
+        const accessor = primitive.getAttribute(semantic);
+        if (accessor) updateAccessorHash(hash, semantic, accessor);
+      }
+    });
+  });
+  return {
+    geometryHash: hash.digest('hex'),
+    primitives,
+    triangles: Math.round(triangles),
+  };
+}
+
+function inspectMaterials(document) {
+  const materials = document.getRoot().listMaterials();
+  const texturedMaterials = materials.filter((material) =>
+    material.getBaseColorTexture()
+    || material.getNormalTexture()
+    || material.getMetallicRoughnessTexture()
+    || material.getEmissiveTexture()
+    || material.getOcclusionTexture());
+  return {
+    pbrMaterials: materials.length,
+    texturedMaterials: texturedMaterials.length,
+  };
+}
+
 export async function createArtifactValidator() {
   const io = await createValidationIO();
 
@@ -209,12 +287,16 @@ export async function createArtifactValidator() {
 
     const bbox = documentBbox(document);
     assertBbox(bbox, undefined, path.basename(file));
+    const geometry = inspectGeometry(document);
+    const materials = inspectMaterials(document);
     return {
       bytes: buffer.length,
+      sha256: createHash('sha256').update(buffer).digest('hex'),
       meshes: root.listMeshes().length,
-      primitives: jsonPrimitives.length,
       textures: textures.length,
       bbox,
+      ...geometry,
+      ...materials,
     };
   };
 }
@@ -225,6 +307,65 @@ function assertTotalBudget(results, budgets = DELIVERY_BUDGETS) {
     throw new Error(`total output is ${totalBytes} bytes; must be under ${budgets.maxTotalBytes}`);
   }
   return totalBytes;
+}
+
+function artifactManifestMetadata(result) {
+  if (
+    typeof result.sha256 !== 'string'
+    || typeof result.geometryHash !== 'string'
+    || !Number.isInteger(result.triangles)
+    || !Number.isInteger(result.primitives)
+    || !Number.isInteger(result.pbrMaterials)
+    || !Number.isInteger(result.texturedMaterials)
+  ) {
+    return {};
+  }
+  return {
+    sha256: result.sha256,
+    geometryHash: result.geometryHash,
+    triangles: result.triangles,
+    primitives: result.primitives,
+    pbrMaterials: result.pbrMaterials,
+    texturedMaterials: result.texturedMaterials,
+  };
+}
+
+function buildProvenanceMarkdown(results) {
+  const result = results.find((candidate) => candidate.name === 'ped_char');
+  const generated = result
+    ? `- \`ped_char.glb\` bytes: ${result.bytes}
+- \`ped_char.glb\` SHA-256: \`${result.sha256}\`
+- Geometry SHA-256: \`${result.geometryHash}\`
+- Triangles: ${result.triangles}
+- Mesh primitives: ${result.primitives}`
+    : '- Canonical human output was not part of this custom processor run.';
+  return `# Prop asset provenance
+
+## Canonical Quaternius Character 1
+
+- Local package: \`${CHARACTER_SOURCE_PROVENANCE.package}\`
+- Geometry source: \`Cyberpunk Game Kit - Quaternius/Character/Character.obj\`
+- \`Character.obj\` SHA-256: \`${CHARACTER_SOURCE_PROVENANCE.objectSha256}\`
+- Material source: \`Cyberpunk Game Kit - Quaternius/Character/Character.mtl\`
+- \`Character.mtl\` SHA-256: \`${CHARACTER_SOURCE_PROVENANCE.materialSha256}\`
+- Bundled license: \`Cyberpunk Game Kit - Quaternius/License.txt\`
+- \`License.txt\` SHA-256: \`${CHARACTER_SOURCE_PROVENANCE.licenseSha256}\`
+- License: **CC0 1.0 Universal (CC0 1.0), Public Domain Dedication**
+- License URL: https://creativecommons.org/publicdomain/zero/1.0/
+- Checked-in license text: \`LICENSE-CC0.txt\`
+
+The package folder is named \`Cyberpunk Game Kit - Quaternius\`; its bundled
+\`License.txt\` header identifies \`Ultimate Platformer Pack\`. The exact local
+source path and checksums above are recorded without renaming that provenance.
+
+The source has seven color-only material regions and no image textures. The
+pipeline preserves the one canonical geometry, welds/deduplicates it, and
+DRACO-compresses the GLB. The runtime per-instance PBR colors apply
+deterministic skin, hair, jacket/shirt, pants, and accent palettes without
+claiming texture maps exist or creating duplicate GLBs or material buckets.
+
+${generated}
+`;
 }
 
 function publishDirectory(
@@ -320,7 +461,16 @@ export async function runProcessor({
             expectedTextures: job.expectedTextures,
             sourceBbox,
             bbox: result.bbox,
+            ...artifactManifestMetadata(result),
           });
+        }
+        if (job.name === 'ped_char') {
+          entry.characterSource = {
+            object: 'Character.obj',
+            objectSha256: CHARACTER_SOURCE_PROVENANCE.objectSha256,
+            material: 'Character.mtl',
+            materialSha256: CHARACTER_SOURCE_PROVENANCE.materialSha256,
+          };
         }
         manifest.push(entry);
         logger.log(`Validated ${job.name}: ${result.bytes} bytes`);
@@ -336,6 +486,8 @@ export async function runProcessor({
 
     const totalBytes = assertTotalBudget(results, budgets);
     fs.writeFileSync(path.join(stageDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+    fs.writeFileSync(path.join(stageDir, 'PROVENANCE.md'), buildProvenanceMarkdown(results));
+    fs.writeFileSync(path.join(stageDir, 'LICENSE-CC0.txt'), CC0_LICENSE_TEXT);
     publishDirectory(stageDir, outDir, { logger, removeBackup });
     logger.log(`Done. ${manifest.length} props, ${totalBytes} bytes → ${outDir}`);
     return { manifest, results, totalBytes };
@@ -405,14 +557,28 @@ export async function validatePublishedArtifacts({
     } catch (error) {
       throw new Error(`Published manifest is unreadable: ${errorMessage(error)}`);
     }
-    const expectedManifest = results.map((result) => ({
-      name: result.name,
-      file: `props/${result.name}.glb`,
-      kb: +(result.bytes / 1024).toFixed(0),
-      expectedTextures: result.expectedTextures,
-      sourceBbox: result.sourceBbox,
-      bbox: result.bbox,
-    }));
+    const expectedManifest = results.map((result) => {
+      const job = jobs.find(({ name }) => name === result.name);
+      return {
+        name: result.name,
+        file: `props/${result.name}.glb`,
+        kb: +(result.bytes / 1024).toFixed(0),
+        expectedTextures: result.expectedTextures,
+        sourceBbox: result.sourceBbox,
+        bbox: result.bbox,
+        ...artifactManifestMetadata(result),
+        ...(job?.name === 'ped_char'
+          ? {
+              characterSource: {
+                object: 'Character.obj',
+                objectSha256: CHARACTER_SOURCE_PROVENANCE.objectSha256,
+                material: 'Character.mtl',
+                materialSha256: CHARACTER_SOURCE_PROVENANCE.materialSha256,
+              },
+            }
+          : {}),
+      };
+    });
     if (JSON.stringify(manifest) !== JSON.stringify(expectedManifest)) {
       throw new Error(
         `Published manifest contents do not exactly match validated artifacts: expected ${JSON.stringify(expectedManifest)}, received ${JSON.stringify(manifest)}`,
