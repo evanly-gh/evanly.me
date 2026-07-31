@@ -65,9 +65,12 @@ export const MOON_RENDER_CONFIG = {
     emissiveIntensity: 0.16,
     fog: false,
   },
+  // Scene-wide moonlight. This is a directionalLight (no falloff), so its
+  // intensity is exactly "how much the moon spills over everything else" —
+  // kept low so the asset stays bright without washing the whole city.
   keyLight: {
     color: 0xcfe4ff,
-    intensity: 1.5,
+    intensity: 0.85,
   },
   // Grazing light on the moon's camera-facing hemisphere. Distance-limited so it
   // sculpts crater shadows on the moon without washing the distant city.
@@ -86,9 +89,9 @@ export const MOON_RENDER_CONFIG = {
   // Large soft atmospheric glow behind the moon (a camera-facing additive
   // billboard with a radial falloff). Separate from the tight rim halo.
   glow: {
-    scale: 3.5,
+    scale: 2.3,
     color: 0xa8d2ff,
-    opacity: 0.62,
+    opacity: 0.46,
   },
 } as const;
 
@@ -96,6 +99,27 @@ export const FINALE_FADE_CONFIG = Object.freeze({
   start: 0.965,
   end: 1,
 });
+
+// The moon should not be a character until the exit. Its visible elements (disc
+// self-light, halo, atmospheric glow, crater rake light) and its scene-wide key
+// light are held down through the city and ramped up only as the ride lifts onto
+// the bridge toward the finale — so nothing bleeds through the skyline earlier.
+export const MOON_PRESENCE_RAMP = Object.freeze({ start: 0.8, end: 0.92 });
+// Scene key-light floor kept before the ramp so the night city stays readable
+// without the moon "spilling over everything"; it rises to the full config
+// intensity by the finale.
+export const MOON_KEYLIGHT_FLOOR_FRACTION = 0.4;
+
+export function moonPresenceAt(semanticT: number): number {
+  if (!Number.isFinite(semanticT)) {
+    throw new Error('Moon presence progress must be finite');
+  }
+  const fraction = clamp01(
+    (semanticT - MOON_PRESENCE_RAMP.start)
+      / (MOON_PRESENCE_RAMP.end - MOON_PRESENCE_RAMP.start),
+  );
+  return fraction * fraction * (3 - 2 * fraction);
+}
 
 export const FINALE_ATMOSPHERE_CONFIG = Object.freeze({
   seed: 0x46494e41,

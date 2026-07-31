@@ -19,7 +19,7 @@ import { rampProfileSlope } from './setpieces';
 // the waypoint coordinates encode the route Evan approved).
 // ──────────────────────────────────────────────────────────────────────────────
 const WAYPOINTS: [number, number, number][] = [
-  [-320,  0,     0],   // introStart
+  [-420,  0,     0],   // introStart — pushed west for a longer intro runway
   [-240,  0,     0],   // aboutStart
   [ 160,  0,     0],   // aboutEnd
   [ 232,  0,     0],   // straight-entry support for the explicit Shibuya turn
@@ -172,7 +172,11 @@ export function buildGroundRouteSegmentCurve(
  */
 export function buildProjectsTrafficCurve(): THREE.Curve<THREE.Vector3> {
   const approach = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(-320, 0, 0),
+    // Runs west of the bike's introStart (x=-420) so the opening chase camera,
+    // parked ~40 m behind the rider, sees an unbroken street under and ahead of
+    // it instead of the asphalt/neon ending at a hard edge in the foreground.
+    new THREE.Vector3(-560, 0, 0),
+    new THREE.Vector3(-420, 0, 0),
     new THREE.Vector3(-240, 0, 0),
     new THREE.Vector3(160, 0, 0),
     new THREE.Vector3(210, 0, -8),
@@ -344,96 +348,81 @@ type StuntArcLandmark = {
   position: readonly [number, number, number];
 };
 
+// dy/dz launch slope at a ramp lip. Negative because the corridor rides toward
+// −Z. This is the ACTUAL ramp surface slope at the exit (rampProfileSlope at
+// fraction 1), so the airborne parabola leaves tangent to the ramp — it keeps
+// travelling at the same angle the bike climbed, with no flat spot at takeoff.
 function stuntKnotSlope(landmark: StuntArcLandmark): number {
   if (landmark.t === STUNT_ROUTE.ramp1Lip.t) {
-    return -STUNT_RAMP1.rise / STUNT_RAMP1.run;
+    return -rampProfileSlope(1, STUNT_RAMP1.run, STUNT_RAMP1.rise);
   }
   if (landmark.t === STUNT_ROUTE.ramp2Lip.t) {
-    return -STUNT_RAMP2.rise / STUNT_RAMP2.run;
+    return -rampProfileSlope(1, STUNT_RAMP2.run, STUNT_RAMP2.rise);
   }
   return 0;
 }
 
-function stuntKnotCurvature(landmark: StuntArcLandmark): number {
-  if (landmark.t === STUNT_ROUTE.ramp1Lip.t) {
-    return -6 * STUNT_RAMP1.rise / (STUNT_RAMP1.run * STUNT_RAMP1.run);
-  }
-  if (landmark.t === STUNT_ROUTE.ramp2Lip.t) {
-    return -6 * STUNT_RAMP2.rise / (STUNT_RAMP2.run * STUNT_RAMP2.run);
-  }
-  return 0;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Ballistic jump arc
+//
+// Each ramp jump is a single projectile parabola from the ramp lip (takeoff) to
+// the surface it lands on. The earlier implementation split the airborne phase
+// at a fixed apex knot and fit a quintic to each half, forcing zero slope AND
+// zero curvature at the apex — which flattened the top of the arc, so the bike
+// "hung" at peak height for a beat before dropping. A parabola has constant
+// downward curvature the whole way (no plateau), is launched at exactly the ramp
+// exit slope so the takeoff stays smooth, and puts its apex at the natural
+// mid-point of the flight.
+// ──────────────────────────────────────────────────────────────────────────────
+function jumpParabolaCoeffs(
+  lip: StuntArcLandmark,
+  landing: StuntArcLandmark,
+): { b: number; a: number } {
+  const b = stuntKnotSlope(lip); // dy/dz at the lip == ramp exit slope
+  const deltaZ = landing.position[2] - lip.position[2];
+  const a =
+    (landing.position[1] - lip.position[1] - b * deltaZ) / (deltaZ * deltaZ);
+  return { b, a };
 }
 
-function sampleStuntArcValue(
+function sampleJumpArc(
   t: number,
-  start: StuntArcLandmark,
-  end: StuntArcLandmark,
-  derivative: boolean,
-): number {
+  lip: StuntArcLandmark,
+  landing: StuntArcLandmark,
+  optionalTarget: THREE.Vector3,
+): THREE.Vector3 {
   const fraction = THREE.MathUtils.clamp(
-    (t - start.t) / (end.t - start.t),
+    (t - lip.t) / (landing.t - lip.t),
     0,
     1,
   );
-  if (!derivative && fraction === 0) return start.position[1];
-  if (!derivative && fraction === 1) return end.position[1];
-  const deltaZ = end.position[2] - start.position[2];
-  const c0 = start.position[1];
-  const c1 = stuntKnotSlope(start) * deltaZ;
-  const c2 = stuntKnotCurvature(start) * deltaZ * deltaZ / 2;
-  const remainingY = end.position[1] - c0 - c1 - c2;
-  const remainingSlope = stuntKnotSlope(end) * deltaZ - c1 - 2 * c2;
-  const remainingCurvature =
-    stuntKnotCurvature(end) * deltaZ * deltaZ - 2 * c2;
-  const c3 =
-    10 * remainingY - 4 * remainingSlope + remainingCurvature / 2;
-  const c4 =
-    -15 * remainingY + 7 * remainingSlope - remainingCurvature;
-  const c5 =
-    6 * remainingY - 3 * remainingSlope + remainingCurvature / 2;
-  if (derivative) {
-    return c1
-      + fraction * (
-        2 * c2
-        + fraction * (
-          3 * c3
-          + fraction * (4 * c4 + fraction * 5 * c5)
-        )
-      );
-  }
-  return c0 + fraction * (
-    c1 + fraction * (
-      c2 + fraction * (c3 + fraction * (c4 + fraction * c5))
-    )
-  );
-}
-
-function sampleStuntArc(
-  t: number,
-  start: { t: number; position: readonly [number, number, number] },
-  end: { t: number; position: readonly [number, number, number] },
-  optionalTarget: THREE.Vector3,
-): THREE.Vector3 {
-  const fraction = (t - start.t) / (end.t - start.t);
+  const z = THREE.MathUtils.lerp(lip.position[2], landing.position[2], fraction);
+  const { b, a } = jumpParabolaCoeffs(lip, landing);
+  const dz = z - lip.position[2];
   return optionalTarget.set(
     STUNT_CENTER_X,
-    sampleStuntArcValue(t, start, end, false),
-    THREE.MathUtils.lerp(start.position[2], end.position[2], fraction),
+    lip.position[1] + b * dz + a * dz * dz,
+    z,
   );
 }
 
-function sampleStuntArcTangent(
+function sampleJumpArcTangent(
   t: number,
-  start: { t: number; position: readonly [number, number, number] },
-  end: { t: number; position: readonly [number, number, number] },
+  lip: StuntArcLandmark,
+  landing: StuntArcLandmark,
   optionalTarget: THREE.Vector3,
 ): THREE.Vector3 {
-  const deltaZ = end.position[2] - start.position[2];
-  return optionalTarget.set(
+  const fraction = THREE.MathUtils.clamp(
+    (t - lip.t) / (landing.t - lip.t),
     0,
-    sampleStuntArcValue(t, start, end, true),
-    deltaZ,
-  ).normalize();
+    1,
+  );
+  const deltaZ = landing.position[2] - lip.position[2];
+  const z = lip.position[2] + deltaZ * fraction;
+  const { b, a } = jumpParabolaCoeffs(lip, landing);
+  const dyDz = b + 2 * a * (z - lip.position[2]);
+  return optionalTarget.set(0, dyDz * deltaZ, deltaZ).normalize();
 }
 
 function sampleSemanticTrajectoryPoint(
@@ -467,18 +456,11 @@ function sampleSemanticTrajectoryPoint(
       ),
     );
   }
-  if (t > STUNT_ROUTE.ramp1Lip.t && t <= STUNT_ROUTE.flip1Apex.t) {
-    return sampleStuntArc(
+  // Jump 1: one parabola from the ramp lip to the scaffold-deck landing.
+  if (t > STUNT_ROUTE.ramp1Lip.t && t <= STUNT_ROUTE.scaffoldLanding.t) {
+    return sampleJumpArc(
       t,
       STUNT_ROUTE.ramp1Lip,
-      STUNT_ROUTE.flip1Apex,
-      optionalTarget,
-    );
-  }
-  if (t > STUNT_ROUTE.flip1Apex.t && t <= STUNT_ROUTE.scaffoldLanding.t) {
-    return sampleStuntArc(
-      t,
-      STUNT_ROUTE.flip1Apex,
       STUNT_ROUTE.scaffoldLanding,
       optionalTarget,
     );
@@ -530,26 +512,14 @@ function sampleSemanticTrajectoryPoint(
       ),
     );
   }
-  if (t > STUNT_ROUTE.ramp2Lip.t && t <= STUNT_ROUTE.flip2Apex.t) {
-    return sampleStuntArc(
+  // Jump 2: the bike is airborne the whole way from the ramp lip down to the
+  // ground (both 'aerial-2' and 'descent' phases are non-rideable; descentTop is
+  // only a shaping knot, not a landing). One parabola carries it from takeoff to
+  // the ground touchdown at groundResume.
+  if (t > STUNT_ROUTE.ramp2Lip.t && t < STUNT_ROUTE.groundResume.t) {
+    return sampleJumpArc(
       t,
       STUNT_ROUTE.ramp2Lip,
-      STUNT_ROUTE.flip2Apex,
-      optionalTarget,
-    );
-  }
-  if (t > STUNT_ROUTE.flip2Apex.t && t <= STUNT_ROUTE.descentTop.t) {
-    return sampleStuntArc(
-      t,
-      STUNT_ROUTE.flip2Apex,
-      STUNT_ROUTE.descentTop,
-      optionalTarget,
-    );
-  }
-  if (t > STUNT_ROUTE.descentTop.t && t < STUNT_ROUTE.groundResume.t) {
-    return sampleStuntArc(
-      t,
-      STUNT_ROUTE.descentTop,
       STUNT_ROUTE.groundResume,
       optionalTarget,
     );
@@ -601,18 +571,10 @@ function sampleSemanticTangent(
       -1,
     ).normalize();
   }
-  if (t > STUNT_ROUTE.ramp1Lip.t && t <= STUNT_ROUTE.flip1Apex.t) {
-    return sampleStuntArcTangent(
+  if (t > STUNT_ROUTE.ramp1Lip.t && t <= STUNT_ROUTE.scaffoldLanding.t) {
+    return sampleJumpArcTangent(
       t,
       STUNT_ROUTE.ramp1Lip,
-      STUNT_ROUTE.flip1Apex,
-      optionalTarget,
-    );
-  }
-  if (t > STUNT_ROUTE.flip1Apex.t && t <= STUNT_ROUTE.scaffoldLanding.t) {
-    return sampleStuntArcTangent(
-      t,
-      STUNT_ROUTE.flip1Apex,
       STUNT_ROUTE.scaffoldLanding,
       optionalTarget,
     );
@@ -645,26 +607,10 @@ function sampleSemanticTangent(
       -1,
     ).normalize();
   }
-  if (t > STUNT_ROUTE.ramp2Lip.t && t <= STUNT_ROUTE.flip2Apex.t) {
-    return sampleStuntArcTangent(
+  if (t > STUNT_ROUTE.ramp2Lip.t && t < STUNT_ROUTE.groundResume.t) {
+    return sampleJumpArcTangent(
       t,
       STUNT_ROUTE.ramp2Lip,
-      STUNT_ROUTE.flip2Apex,
-      optionalTarget,
-    );
-  }
-  if (t > STUNT_ROUTE.flip2Apex.t && t <= STUNT_ROUTE.descentTop.t) {
-    return sampleStuntArcTangent(
-      t,
-      STUNT_ROUTE.flip2Apex,
-      STUNT_ROUTE.descentTop,
-      optionalTarget,
-    );
-  }
-  if (t > STUNT_ROUTE.descentTop.t && t < STUNT_ROUTE.groundResume.t) {
-    return sampleStuntArcTangent(
-      t,
-      STUNT_ROUTE.descentTop,
       STUNT_ROUTE.groundResume,
       optionalTarget,
     );

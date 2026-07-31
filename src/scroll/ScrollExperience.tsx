@@ -6,13 +6,12 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  useSyncExternalStore,
   type ErrorInfo,
   type ReactNode,
 } from 'react';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { createProgressStore } from '../choreography/progressStore';
+import { createProgressStore, type ProgressStore } from '../choreography/progressStore';
 import { rawForSemantic, remapScroll } from '../choreography/scrollRemap';
 import {
   CITY_ZONE_IDS,
@@ -79,6 +78,43 @@ function useReducedMotion(): boolean {
   return reduced;
 }
 
+// The intro title is the only DOM whose opacity tracks live scroll. Rather than
+// subscribe the whole ScrollExperience (and the heavy <City> child) to the
+// progress store — which forced a React commit on every scrub frame — this leaf
+// subscribes on its own and drives style.opacity imperatively, so scrolling
+// costs zero React renders.
+function IntroTitle({
+  store,
+  shotT,
+}: {
+  store: ProgressStore;
+  shotT: number | undefined;
+}) {
+  const headerRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const apply = (semanticT: number) => {
+      const el = headerRef.current;
+      if (!el) return;
+      const opacity = introOverlayOpacityAt(semanticT);
+      el.style.opacity = String(opacity);
+      el.setAttribute('aria-hidden', opacity <= 0.01 ? 'true' : 'false');
+    };
+    if (shotT !== undefined) {
+      apply(shotT);
+      return undefined;
+    }
+    apply(remapScroll(store.read().raw));
+    return store.subscribe((snapshot) => apply(remapScroll(snapshot.raw)));
+  }, [store, shotT]);
+  return (
+    <header ref={headerRef} className="city-intro-title" style={{ opacity: 1 }}>
+      <span className="city-intro-title__index">SCENE_00 / ENTER</span>
+      <h1>EVAN LI // PORTFOLIO CITY</h1>
+      <p>A THREE.JS RIDE</p>
+    </header>
+  );
+}
+
 export default function ScrollExperience() {
   const sentinelRef = useRef<HTMLElement>(null);
   const pinRef = useRef<HTMLDivElement>(null);
@@ -105,9 +141,6 @@ export default function ScrollExperience() {
   ) && new URLSearchParams(location.search).has('inspect');
   const isShot = mode.kind === 'shot';
   const shotT = isShot ? mode.semanticT : undefined;
-  const progress = useSyncExternalStore(store.subscribe, store.read, store.read);
-  const semanticT = shotT ?? remapScroll(progress.raw);
-  const introOpacity = introOverlayOpacityAt(semanticT);
   const reducedScroll = mode.kind === 'scroll' && mode.reducedMotion;
   const presentation = isShot
     ? 'immersive'
@@ -235,15 +268,7 @@ export default function ScrollExperience() {
                   />
                 </Suspense>
               </ScrollCanvasBoundary>
-              <header
-                className="city-intro-title"
-                style={{ opacity: introOpacity }}
-                aria-hidden={introOpacity <= 0.01}
-              >
-                <span className="city-intro-title__index">SCENE_00 / ENTER</span>
-                <h1>EVAN LI // PORTFOLIO CITY</h1>
-                <p>A THREE.JS RIDE</p>
-              </header>
+              <IntroTitle store={store} shotT={shotT} />
               {!isShot && !loading.complete && (
                 <div
                   className="city-loading-status"

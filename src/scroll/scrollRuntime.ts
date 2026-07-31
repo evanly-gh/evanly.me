@@ -1,7 +1,10 @@
 import { snapReducedMotion } from '../choreography/reducedMotion';
 import { rawForSemantic, remapScroll } from '../choreography/scrollRemap';
 
-export const SCROLL_SENTINEL_VH = 1450;
+// Whole-ride scroll length. Bumped ~2.5× again (3625 → 9063 vh) so every section
+// dwells much longer under the finger instead of blowing past in a few notches;
+// per-section weighting (see scrollRemap.ts) still rides on top of this.
+export const SCROLL_SENTINEL_VH = 9063;
 export const SCROLL_TOTAL_LENGTH_RATIO = SCROLL_SENTINEL_VH / 800;
 export const SCROLL_PINNED_TRAVEL_VH = SCROLL_SENTINEL_VH - 100;
 export const SCROLL_PINNED_TRAVEL_RATIO = SCROLL_PINNED_TRAVEL_VH / 700;

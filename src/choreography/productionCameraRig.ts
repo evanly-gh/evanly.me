@@ -5,6 +5,7 @@ import {
 import { STUNT_CAMERA_KEYS } from '../world/stuntCamera';
 import { STUNT_CAMERA_SIDE, STUNT_CENTER_X } from '../world/stuntGeometry';
 import { MOON_POS, sampleRoute } from '../world/route';
+import { ABOUT_REVEAL_CAMERA } from '../world/aboutReveal';
 import { CameraRig, type CamKey, type CamPose } from './cameraRig';
 
 export type ProductionCameraSection =
@@ -205,118 +206,42 @@ export const PRODUCTION_CAMERA_KEYS: readonly ProductionCamKey[] =
     chaseKey('intro-start', 0, 38, 34, 52),
     chaseKey('intro-crane-descent', 0.04, 32, 28, 48),
     chaseKey('intro-follow-acquire', 0.08, 24, 18, 42),
-    chaseKey('intro-handoff', 0.12, 18, 10, 34, 'dolly'),
-    key(
-      'intro-about-road-follow',
-      'about',
-      0.13,
-      [-225, 9, 0],
-      [-200, 3, 0],
-      31,
-      'dolly',
-    ),
-    key(
-      'intro-about-cross-street',
-      'about',
-      0.155,
-      [-150, 8, -10],
-      [-130, 5, 20],
-      26,
-      'dolly',
-    ),
-    key(
-      'intro-about-street-follow',
-      'about',
-      0.176,
-      [-90, 6, -12],
-      [-85, 7, 55],
-      23,
-      'dolly',
-    ),
-    // Push across the boulevard into the cul-de-sac and hold on the About
-    // poster from the near (north) side so it fills the frame — an intimate
-    // alcove reveal, inverted from the old across-the-intersection framing.
-    key(
-      'intro-about-street-rise',
-      'about',
-      0.184,
-      [-72, 9, 6],
-      [-62, 15, 112],
-      42,
-      'smooth',
-    ),
-    key(
-      'intro-to-about',
-      'about',
-      0.192,
-      [-60, 15, 50],
-      [-60, 15, 112],
-      43,
-      'smooth',
-    ),
-    key(
-      'about-constant-reveal',
-      'about',
-      0.2,
-      [-60, 15, 47],
-      [-60, 15, 112],
-      43,
-      'smooth',
-    ),
-    key(
-      'about-reveal-hold',
-      'about',
-      0.214,
-      [-60, 15, 47],
-      [-60, 15, 112],
-      43,
-      'smooth',
-    ),
-    key(
-      'about-shibuya-cross-street',
-      'about',
-      0.221,
-      [-34, 12, 12],
-      [40, 9, 6],
-      52,
-      'smooth',
-    ),
-    key(
-      'about-shibuya-road-follow-1',
-      'about',
-      0.225,
-      [35, 21, 0],
-      [60, 8, 45],
-      33.9,
-      'dolly',
-    ),
-    key(
-      'about-shibuya-road-follow-2',
-      'about',
-      0.25,
-      [125, 23, 0],
-      [175, 6, 0],
-      56.5,
-      'smooth',
-    ),
-    key(
-      'about-shibuya-plaza-entry',
-      'about',
-      0.267,
-      [205, 22, 0],
-      [245, 8, -25],
-      67,
-      'smooth',
-    ),
-    key(
-      'about-shibuya-turn-lead',
-      'about',
-      0.276,
-      [236, 32, -78],
-      [256, 8, -44],
-      60,
-      'smooth',
-    ),
+    // Crane (not cut) from the intro chase into the locked dead-end billboard.
+    // The About station sits far north/high at the cross-street terminus, so the
+    // bridge lifts UP over the boulevard, swings north/east along the OPEN
+    // intersection + cross-street corridor (never through the flanking canyon
+    // walls), and settles onto the locked station facing the sign — the target
+    // eases from the rider to the poster across the move.
+    chaseKey('intro-handoff', 0.12, 18, 10, 34, 'smooth'),
+    key('intro-about-crane-1', 'about', 0.128, [-180, 30, 6], [-110, 6, 0], 38, 'smooth'),
+    key('intro-about-crane-2', 'about', 0.136, [-80, 40, 22], [-60, 22, -34], 40, 'smooth'),
+    key('intro-about-crane-3', 'about', 0.144, [-62, 33, 66], [-60, 28, -55], 42, 'smooth'),
+    // Locked-off dead-end About beat. A stationary camera parked at the cross
+    // street's north terminus, staring straight south (90° to the boulevard,
+    // pitch≈0) at the big About billboard capping the dead-end across the
+    // intersection. The rider drives east along z=0 and crosses the lower frame
+    // left→right as the user scrolls — the camera never moves. Pose is the
+    // load-time-solved ABOUT_REVEAL_CAMERA (see aboutReveal.ts). The single
+    // 'smooth' segment from intro-handoff (t=0.12) eases the camera into this
+    // station; every hold key is identical, so the shot is dead still through the
+    // crossing (bike passes x=-60 around t≈0.192).
+    key('about-lock-in', 'about', 0.15, ABOUT_REVEAL_CAMERA.position, ABOUT_REVEAL_CAMERA.target, ABOUT_REVEAL_CAMERA.fov, 'hold'),
+    key('about-hold-cross-enter', 'about', 0.172, ABOUT_REVEAL_CAMERA.position, ABOUT_REVEAL_CAMERA.target, ABOUT_REVEAL_CAMERA.fov, 'hold'),
+    key('about-hold-cross-center', 'about', 0.192, ABOUT_REVEAL_CAMERA.position, ABOUT_REVEAL_CAMERA.target, ABOUT_REVEAL_CAMERA.fov, 'hold'),
+    key('about-hold-cross-exit', 'about', 0.206, ABOUT_REVEAL_CAMERA.position, ABOUT_REVEAL_CAMERA.target, ABOUT_REVEAL_CAMERA.fov, 'hold'),
+    key('about-hold-settle', 'about', 0.216, ABOUT_REVEAL_CAMERA.position, ABOUT_REVEAL_CAMERA.target, ABOUT_REVEAL_CAMERA.fov, 'smooth'),
+    // Bridge the locked dead-end shot into the eastbound Shibuya road-follow.
+    // Stay over the CLEAR corridors: descend down the cross-street axis (x=-60),
+    // then out over the boulevard, keeping the bike framed (target follows
+    // sampleRoute) so the swing east never buries the camera in a facade.
+    trackKey('about-shibuya-bridge-1', 'about', 0.226, [-60, 25, 42], 48, 'smooth'),
+    trackKey('about-shibuya-bridge-2', 'about', 0.238, [18, 23, 8], 50, 'smooth'),
+    // Trail the bike east along the boulevard (camera BEHIND it, target follows
+    // sampleRoute) so it stays framed the whole way instead of the camera racing
+    // ahead and losing it, then arc up to the elevated Shibuya station.
+    trackKey('about-shibuya-follow-1', 'about', 0.25, [55, 22, 8], 48),
+    trackKey('about-shibuya-follow-2', 'about', 0.262, [90, 26, 4], 50),
+    trackKey('about-shibuya-follow-3', 'about', 0.273, [128, 30, -14], 52),
     // Locked-off Shibuya crossing: the camera parks at one elevated station and
     // tracks the bike (target follows sampleRoute) as it carves the scramble,
     // keeping it framed the whole turn instead of a moving dolly.

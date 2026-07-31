@@ -195,6 +195,11 @@ function assertScrollZoneMap(
 
 assertScrollZoneMap(ZONES);
 const PROJECTS_SEMANTIC_INTERVAL = Object.freeze([0.36, 0.69] as const);
+// Give the About beat (intro cut → locked billboard hold → swing to Shibuya) a
+// heavier scroll allocation so it dwells longer under the finger instead of
+// blowing past in ~3 wheel notches.
+const ABOUT_SEMANTIC_INTERVAL = Object.freeze([0.12, 0.28] as const);
+const ABOUT_SEMANTIC_WEIGHT = 3;
 const BASELINE_PINNED_TRAVEL_VH = 700;
 const CURRENT_PINNED_TRAVEL_VH = 1350;
 const LEGACY_SCROLL_REMAP = buildScrollRemap(ZONES, STUNT_FLIP_TIMINGS);
@@ -210,10 +215,16 @@ const projectsSemanticWeight =
 const CURRENT_SCROLL_REMAP = buildScrollRemap(
   ZONES,
   STUNT_FLIP_TIMINGS,
-  [{
-    interval: PROJECTS_SEMANTIC_INTERVAL,
-    weight: projectsSemanticWeight,
-  }],
+  [
+    {
+      interval: PROJECTS_SEMANTIC_INTERVAL,
+      weight: projectsSemanticWeight,
+    },
+    {
+      interval: ABOUT_SEMANTIC_INTERVAL,
+      weight: ABOUT_SEMANTIC_WEIGHT,
+    },
+  ],
 );
 const currentProjectsRawDistance =
   CURRENT_SCROLL_REMAP.rawForSemantic(PROJECTS_SEMANTIC_INTERVAL[1])

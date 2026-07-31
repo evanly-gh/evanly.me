@@ -57,40 +57,6 @@ scroll-position-driven camera timeline. No test suite currently exists (see
 Use Playwright (or manual browser) + these URL params to visually confirm any
 camera/geometry change — this is the primary verification method right now.
 
-## Testing
-
-The entire `test/` suite, `vitest.config.ts`, and `tools/verification/` (browser
-contract tests, audit scripts, CDP screenshot runner) were deleted in a repo cleanup
-pass. There is currently **no automated test coverage** — verify changes visually
-via the harness above and with `npx tsc --noEmit`. If tests are reintroduced, prefer
-real behavioral checks over the old audit-script pattern (which asserted hard-coded
-config values at import time and fought every intentional design change).
-
-## Known open work (visual/camera edits requested by user, only partially done)
-
-A user review pass against annotated reference screenshots requested 9 edits.
-Status as of the last work session:
-
-- ✅ Done: About camera (fixed inversion, removed duplicate panel), Shibuya locked
-  tracking camera, jumps→research transition (no hard cut), research camera pan-right,
-  bigger project billboards, moon detail + glow.
-- ⚠️ Partial / unverified: elevated highway reroute (`ELEVATED_HIGHWAY_CONTROL_POINTS`
-  in `src/world/roads.ts`) — rerouted to sweep across the city core at rooftop height,
-  but the old clearance-test assumptions (`overheadClearance`, a horizontal-only
-  distance check) were in tension with the new high-altitude crossing design and the
-  tests are now gone, so this needs fresh visual re-verification, particularly near
-  the Shibuya building cluster where the deck threads a narrow gap.
-- ❌ Not started:
-  - Delete buildings in a region never seen by the camera (top-down reference,
-    red-box area).
-  - Fill a building gap along the About boulevard; extend street/canyon over an
-    adjacent foreground gap.
-  - Fill road/building gaps near Shibuya (green-marked areas were too sparse).
-  - Fix the bike's ramp launch trajectory at the stunt jumps to match a clean
-    parabolic arc (currently visibly off from the intended curve).
-  - Delete unused tall buildings left of the research-section canal (never seen
-    by the camera after the pan-right fix).
-
 ## Working conventions
 
 - Camera edits: add keys to the relevant array in `productionCameraRig.ts`, keeping
@@ -102,3 +68,13 @@ Status as of the last work session:
   `?city&inspect` or `?shot=<t>&inspect` at the relevant t.
 - No commits/pushes were made until this handoff — `git log` on `phase1-assets` now
   reflects everything through the camera/geometry pass + repo cleanup described above.
+
+fill in empty space gaps
+fix lag
+camera smooth
+
+lighting fix
+Add on screen visuals
+Update actual information
+Ugrade billboards
+The "lightrail"

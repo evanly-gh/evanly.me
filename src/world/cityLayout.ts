@@ -3,6 +3,7 @@ import { makeRng } from '../assets/rng';
 import {
   buildingClearsElevatedDeck,
   elevatedDeckBuildingClearance,
+  type GroundRoadEdgePoint,
   groundRoadClearance,
   groundRoadEdgePoints,
   groundRoadMemberships,
@@ -33,6 +34,7 @@ import { WATER_BASIN } from './bridgeLayout';
 import {
   ABOUT_HERO_BACKDROP_ID,
   ABOUT_HERO_BACKDROP_PLACEMENT,
+  ABOUT_PLAZA_PLACEMENTS,
   aboutSightlineFootprintMargin,
   aboutSightlinePointMargin,
 } from './aboutReveal';
@@ -56,17 +58,24 @@ const HERO = [`${P}BldgLG_C_Main`, `${P}BldgLG_A_BuildingC`, `${P}BldgLG_B_Main`
 const TALL = [`${P}BldgLG_A_Main`, `${P}BldgMD_C_Main`];                            // ~90–150k
 const MID = [`${P}BldgMD_A_Main`, `${P}BldgMD_B_Main`, `${P}BldgLG_A_BuildingA`, `${P}BldgLG_A_BuildingB`, `${P}BldgLG_A_BuildingD`, `${P}BldgMD_C_BuildingA`]; // ~15–35k
 const SMALL = [`${P}BldgSM_A_Main`, `${P}BldgSM_B_Main`, `${P}BldgSM_C_Main`];      // ~3–25k
-const LOW_BASE = [`${P}BldgLG_C_Base`, `${P}BldgMD_A_Base`];
+const LOW_BASE = [`${P}BldgLG_C_Base`, `${P}BldgMD_A_Base`, `${P}BldgLG_A_Base`, `${P}BldgMD_C_Base`];
 const EDGE = [
   `${P}BldgSM_C_AC`, `${P}BldgSM_C_Boxes`, `${P}BldgSM_C_CratesA`,
-  `${P}BldgSM_C_CratesB`, `${P}BldgSM_C_Pipes`,
+  `${P}BldgSM_C_CratesB`, `${P}BldgSM_C_Pipes`, `${P}BldgSM_A_ConcreteBarrier`,
 ];
 const SHOP = [
   `${P}BldgSM_B_Cart`, `${P}BldgSM_B_Bbq`, `${P}BldgSM_B_Umbrella`, `${P}BldgSM_B_FridgeA`,
   `${P}BldgSM_B_FridgeB`, `${P}BldgSM_C_Shelf`, `${P}BldgSM_C_Stool`, `${P}BldgSM_B_Computers`,
   `${P}BldgSM_C_NeonSignA`, `${P}BldgSM_C_NeonSignB`, `${P}BldgSM_C_NeonSignC`, `${P}BldgSM_C_Fan`,
 ];
-const DECOR = [`${P}BldgLG_A_Tree`]; // trees only — the banner assets read badly, so drop them
+// Tall, narrow (~0.5–6m footprint) lit spires — thin enough to plant like a
+// tree in the back planting strip without ever threatening sidewalk clearance.
+const SPIRE = [
+  `${P}BldgLG_B_AntennaA`, `${P}BldgLG_C_AntennaA`, `${P}BldgLG_C_AntennaB`,
+  `${P}BldgLG_C_AntennaC`, `${P}BldgLG_C_AntennaD`, `${P}BldgMD_A_AntennaA`,
+  `${P}BldgMD_C_AntennaA`,
+];
+const DECOR = [`${P}BldgLG_A_Tree`, ...SPIRE]; // trees + antenna spires — the banner assets read badly, so drop them
 const SHIBUYA_FRONT = [`${P}BldgMD_C_Main`];
 const SHIBUYA_BACK = [`${P}BldgLG_C_Main`, `${P}BldgLG_B_Main`];
 export const SERVICE_FILES = [
@@ -97,6 +106,7 @@ export interface Placement {
     | 'stunt-backdrop'
     | 'research-front'
     | 'research-back'
+    | 'about-plaza'
     | typeof ABOUT_HERO_BACKDROP_ID;
   shibuyaApproach?: ApproachId;
   shibuyaSide?: -1 | 1;
@@ -175,6 +185,7 @@ export function buildCityLayout(seed = 20260720): Placement[] {
   const rng = makeRng(seed);
   const out: Placement[] = [
     { ...ABOUT_HERO_BACKDROP_PLACEMENT },
+    ...ABOUT_PLAZA_PLACEMENTS.map((placement) => ({ ...placement })),
     ...STUNT_BACKDROP.map((placement) => ({ ...placement })),
     ...RESEARCH_WALLS.map((placement) => ({ ...placement })),
   ];
@@ -191,6 +202,7 @@ export function buildCityLayout(seed = 20260720): Placement[] {
     || placement.layoutRole === 'stunt-backdrop'
     || placement.layoutRole === 'research-front'
     || placement.layoutRole === 'research-back'
+    || placement.layoutRole === 'about-plaza'
     || placement.layoutRole === ABOUT_HERO_BACKDROP_ID;
 
   const clearsEveryGroundRoad = (x: number, z: number, radius: number): boolean =>
@@ -210,7 +222,7 @@ export function buildCityLayout(seed = 20260720): Placement[] {
   const place = (
     base: THREE.Vector3, bin: THREE.Vector3, tan: THREE.Vector3,
     side: number, hw: number, anchor: number, pool: string[], foot: number,
-  ): void => {
+  ): boolean => {
     const jit = rng.range(-2, 2);
     const ax = base.x + bin.x * side * (hw + anchor) + tan.x * jit;
     const az = base.z + bin.z * side * (hw + anchor) + tan.z * jit;
@@ -239,16 +251,17 @@ export function buildCityLayout(seed = 20260720): Placement[] {
       },
       ({ bounds }) => buildingClearsElevatedDeck(bounds),
     );
-    if (resolved.outcome === 'rejected') return;
+    if (resolved.outcome === 'rejected') return false;
     const { placement, bounds } = resolved.placement;
-    if (!clearsOpenWater(bounds)) return;
-    if (aboutSightlineFootprintMargin(bounds) <= 0) return;
+    if (!clearsOpenWater(bounds)) return false;
+    if (aboutSightlineFootprintMargin(bounds) <= 0) return false;
     // Safety uses each exact projected road membership. The sampled nearest-road
     // approximation remains useful for district selection only.
-    if (keepClearFootprint(bounds.center.x, bounds.center.z, bounds.radius)) return;
-    if (!clearsEveryGroundRoad(bounds.center.x, bounds.center.z, bounds.radius)) return;
-    if (overlaps(bounds, true)) return;
+    if (keepClearFootprint(bounds.center.x, bounds.center.z, bounds.radius)) return false;
+    if (!clearsEveryGroundRoad(bounds.center.x, bounds.center.z, bounds.radius)) return false;
+    if (overlaps(bounds, true)) return false;
     out.push(placement);
+    return true;
   };
 
   const isShibuyaWallSample = (
@@ -687,6 +700,57 @@ export function buildCityLayout(seed = 20260720): Placement[] {
       out.push(placement);
     }
   }
+
+  // Targeted infill: the sparse per-sample skip roll in the front-wall pass
+  // above can (rarely) leave a visible gap in the wall. Force a retry at each
+  // reported gap by snapping to the nearest dense road-edge sample and
+  // re-running the exact same safety pipeline as the ordinary front wall.
+  const GAP_FILL_TARGETS: Array<{ x: number; z: number }> = [
+    { x: -202.08, z: 26.14 },
+    { x: -104.45, z: -20.48 },
+    { x: 45.74, z: 24.8 },
+    // (188.89, 14.67) removed: it force-planted a lone BldgLG_A on the north
+    // frontage of the Shibuya approach — a strip the isShibuyaWallSample skip
+    // otherwise clears — where its oversized mesh overhung the sidewalk.
+    { x: 348.63, z: -3.46 },
+    { x: 241.54, z: 108.43 },
+  ];
+  const denseEdgePoints = groundRoadEdgePoints(6);
+  for (const target of GAP_FILL_TARGETS) {
+    let nearest: GroundRoadEdgePoint | undefined;
+    let bestDistSq = Infinity;
+    for (const e of denseEdgePoints) {
+      const dx = e.pos.x - target.x;
+      const dz = e.pos.z - target.z;
+      const distSq = dx * dx + dz * dz;
+      if (distSq < bestDistSq) {
+        bestDistSq = distSq;
+        nearest = e;
+      }
+    }
+    if (!nearest) continue;
+    const side: 1 | -1 = (nearest.bin.x * (target.x - nearest.pos.x)
+      + nearest.bin.z * (target.z - nearest.pos.z)) >= 0 ? 1 : -1;
+    // Try progressively smaller footprints/pools so a tight curve or a
+    // neighboring landmark's larger footprint doesn't leave the gap empty.
+    // On a sharp curve the sidewalk-hugging anchor alone isn't enough road
+    // clearance even for a small footprint, so also step the anchor back in
+    // small increments — still snapped to this gap, still gated by the same
+    // safety pipeline, just standing a little further off the road.
+    const tiers: Array<{ pool: string[]; foot: number }> = [
+      { pool: rng.chance(0.35) ? TALL : MID, foot: FOOT_A },
+      { pool: SMALL, foot: 11 },
+      { pool: EDGE, foot: 3 },
+    ];
+    outer: for (const tier of tiers) {
+      for (const anchorPush of [0, 3, 6, 9, 12, 15]) {
+        if (place(nearest.pos, nearest.bin, nearest.tan, side, nearest.hw, anchorA + anchorPush, tier.pool, tier.foot)) {
+          break outer;
+        }
+      }
+    }
+  }
+
   return out;
 }
 
@@ -696,7 +760,7 @@ export function buildProps(seed = 8891): Placement[] {
   const out: Placement[] = [];
   const sightCorridors = buildShibuyaSightCorridors();
   const aboutParentBounds = buildingPlacementBounds(ABOUT_HERO_BACKDROP_PLACEMENT);
-  const isSafe = (placement: Placement): boolean => {
+  const isSafe = (placement: Placement, minClearance = SIDEWALK): boolean => {
     const bounds = renderedPlacementBounds(placement);
     const memberships = groundRoadMemberships(bounds.center.x, bounds.center.z);
     const source = memberships.find(({ roadIndex }) =>
@@ -704,7 +768,7 @@ export function buildProps(seed = 8891): Placement[] {
     return source !== undefined
       && !source.endpointCap
       && memberships.every(({ clearance }) =>
-        clearance >= bounds.radius + SIDEWALK)
+        clearance >= bounds.radius + minClearance)
       && shibuyaPlazaClearance(bounds.center.x, bounds.center.z) > bounds.radius
       && protectedOrientedFootprintClearance(bounds) > 0
       && clearsOpenWater(bounds)
@@ -724,6 +788,7 @@ export function buildProps(seed = 8891): Placement[] {
     roadIndex: number,
     outward: [number, number],
     maxShift = 40,
+    minClearance = SIDEWALK,
   ): Placement | undefined => {
     for (let shift = 0; shift <= maxShift; shift += 1) {
       const placement: Placement = {
@@ -736,7 +801,7 @@ export function buildProps(seed = 8891): Placement[] {
         rotationY: rot,
         roadIndex,
       };
-      if (!isSafe(placement)) continue;
+      if (!isSafe(placement, minClearance)) continue;
       out.push(placement);
       return placement;
     }
@@ -745,10 +810,10 @@ export function buildProps(seed = 8891): Placement[] {
   // small props / shop stalls sit on the OUTER half of the sidewalk (hw+5.5)
   for (const e of groundRoadEdgePoints(22)) {
     for (const side of [1, -1] as const) {
-      if (rng.chance(0.6)) continue;
+      if (rng.chance(0.45)) continue;
       const rot = Math.atan2(e.bin.x * side, e.bin.z * side) + rng.range(-0.3, 0.3);
-      if (rng.chance(0.3)) {
-        const n = 2 + rng.int(0, 1);
+      if (rng.chance(0.4)) {
+        const n = 2 + rng.int(0, 2);
         for (let i = 0; i < n; i++) {
           const p = e.pos.clone()
             .addScaledVector(e.bin, side * (e.hw + 5.5))
@@ -791,6 +856,111 @@ export function buildProps(seed = 8891): Placement[] {
       );
     }
   }
+  // ── Intro runway dressing: the western opening straight (x ≲ -150) reads as a
+  //    bare dark road flanked by empty sidewalks in the very first shots. Pack
+  //    BOTH sidewalks, curb-to-facade, with a lit, lived-in market street:
+  //    glowing stalls + neon signs right at the curb, crates behind them, and
+  //    trees/spires in the planting strip. Uses its own RNG substream so the
+  //    rest of the city's arrangement is unchanged. Runs BEFORE the service
+  //    loop's early return so it always executes. ──
+  const introRng = makeRng(seed ^ 0x1c7a0);
+  const NEON = SHOP.filter((f) => f.includes('NeonSign'));
+  for (const e of groundRoadEdgePoints(5)) {
+    if (e.roadId !== 'main-route' || e.pos.x > -150 || e.pos.x < -565) continue;
+    for (const side of [1, -1] as const) {
+      const outward: [number, number] = [e.bin.x * side, e.bin.z * side];
+      const facing = Math.atan2(e.bin.x * side, e.bin.z * side);
+
+      // Curb line: glowing stalls / neon carts that line the neon road. A 3 m
+      // clearance floor (the driving-lane safety margin) lets these sit on the
+      // inner sidewalk, right beside the glowing lanes, instead of being shoved
+      // back against the facades like the ≥9 m default props.
+      // Curb line always carries something so no stretch of sidewalk reads bare:
+      // mostly rows of glowing market stalls, otherwise a neon sign right at the
+      // kerb.
+      const curbRoll = introRng();
+      if (curbRoll < 0.68) {
+        const n = 2 + introRng.int(0, 2);
+        for (let i = 0; i < n; i++) {
+          const p = e.pos.clone()
+            .addScaledVector(e.bin, side * (e.hw + 2))
+            .addScaledVector(e.tan, (i - 1) * 2.1);
+          push(
+            g(introRng.pick(SHOP)),
+            p.x,
+            p.z,
+            facing + introRng.range(-0.25, 0.25),
+            e.roadIndex,
+            outward,
+            12,
+            3,
+          );
+        }
+      } else {
+        const p = e.pos.clone().addScaledVector(e.bin, side * (e.hw + 2));
+        push(
+          g(introRng.pick(NEON)),
+          p.x,
+          p.z,
+          facing + introRng.range(-0.15, 0.15),
+          e.roadIndex,
+          outward,
+          12,
+          3,
+        );
+      }
+
+      // Facade billboards: tall lit neon signs stood against the buildings behind
+      // the planting strip, filling the upper canyon wall with signage.
+      if (introRng.chance(0.5)) {
+        const p = e.pos.clone()
+          .addScaledVector(e.bin, side * (e.hw + 9))
+          .addScaledVector(e.tan, introRng.range(-2, 2));
+        push(
+          g(introRng.pick(NEON)),
+          p.x,
+          p.z,
+          facing + introRng.range(-0.2, 0.2),
+          e.roadIndex,
+          outward,
+          12,
+          8,
+        );
+      }
+
+      // Mid sidewalk: crates / AC / barriers so the walkway itself isn't bare.
+      if (introRng.chance(0.7)) {
+        const p = e.pos.clone()
+          .addScaledVector(e.bin, side * (e.hw + 5))
+          .addScaledVector(e.tan, introRng.range(-1.5, 1.5));
+        push(
+          g(introRng.pick(EDGE)),
+          p.x,
+          p.z,
+          facing + introRng.range(-0.3, 0.3),
+          e.roadIndex,
+          outward,
+          12,
+          5,
+        );
+      }
+
+      // Planting strip: trees / antenna spires against the facades.
+      if (introRng.chance(0.7)) {
+        const p = e.pos.clone()
+          .addScaledVector(e.bin, side * (e.hw + 10.5 + introRng.range(0, 2)));
+        push(
+          g(introRng.pick(DECOR)),
+          p.x,
+          p.z,
+          introRng.range(0, Math.PI * 2),
+          e.roadIndex,
+          outward,
+        );
+      }
+    }
+  }
+
   // Sparse service hardware belongs in the facade planting strip, past the
   // sidewalk edge. Per-road membership rejects crossings rather than relying
   // on a nearest-road approximation.

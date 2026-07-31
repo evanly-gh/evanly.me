@@ -1,6 +1,7 @@
 import {
   Suspense,
   createContext,
+  memo,
   useCallback,
   useContext,
   useEffect,
@@ -11,7 +12,7 @@ import {
   type ReactNode,
 } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
-import { OrbitControls, PointerLockControls, useEnvironment, useGLTF, useTexture } from '@react-three/drei';
+import { GizmoHelper, GizmoViewport, OrbitControls, PointerLockControls, useEnvironment, useGLTF, useTexture } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { PALETTE, LIGHTING } from '../../theme';
@@ -21,15 +22,19 @@ import {
   PROCEDURAL_TEXTURE_SIZE,
 } from '../../assets/proceduralTextures';
 import {
-  buildAboutCuldesac,
+  boulevardWalkClipAtCrossStreet,
+  buildCrossStreetCrossings,
   buildShibuyaIntersection,
   buildStraightRoadCrossings,
+  crossStreetInfraClipAtBoulevard,
   shibuyaPlazaContains,
 } from '../../world/intersections';
 import {
   ROADS,
+  ELEVATED_HIGHWAY_ID,
   buildCurveRibbon,
   buildRoadGeometry,
+  buildCurveBoxBeam,
 } from '../../world/roads';
 import {
   INSPECTION_PRESET_IDS,
@@ -124,12 +129,14 @@ import { ProductionDirector } from './ProductionDirector';
 import {
   BRIDGE_RENDER_CONFIG,
   FINALE_ATMOSPHERE_CONFIG,
+  MOON_KEYLIGHT_FLOOR_FRACTION,
   MOON_RENDER_CONFIG,
   TASK4_SCENE_NAMES,
   WATER_RENDER_CONFIG,
   buildFinaleAtmospherePositions,
   buildBridgeRenderGeometry,
   inspectTask4Scene,
+  moonPresenceAt,
   type Task4SceneSnapshot,
 } from '../../world/finaleRender';
 import {
@@ -162,6 +169,7 @@ import {
   ABOUT_HERO_RENDER_CONFIG,
   TASK2_SCENE_NAMES,
   buildAboutHeroRenderAssembly,
+  buildAboutPlazaDressing,
   inspectTask2Scene,
   type Task2SceneSnapshot,
 } from './aboutRender';
@@ -833,6 +841,10 @@ export function AboutHero() {
     () => buildAboutHeroRenderAssembly(reveal.screen),
     [reveal],
   );
+  const dressing = useMemo(
+    () => buildAboutPlazaDressing(reveal.screen),
+    [reveal],
+  );
   const portraitSrc = resolveAboutPortraitSrc(RESUME.about.faceImage);
   const portrait = useTexture(portraitSrc);
   const resources = useCommittedThreeResource('about-hero', ({ own }) => {
@@ -870,13 +882,22 @@ export function AboutHero() {
     }));
     const plane = own(new THREE.PlaneGeometry(1, 1));
     const box = own(new THREE.BoxGeometry(1, 1, 1));
+    const glowMaterial = own(new THREE.MeshStandardMaterial({
+      color: 0x081a20,
+      emissive: new THREE.Color(PALETTE.cyan),
+      emissiveIntensity: 2.2,
+      toneMapped: false,
+    }));
+    const cylinder = own(new THREE.CylinderGeometry(1, 1, 1, 12));
     const value = {
       texture,
       screenMaterial,
       backingMaterial,
       attachmentMaterial,
+      glowMaterial,
       plane,
       box,
+      cylinder,
     };
     return {
       value,
@@ -885,8 +906,10 @@ export function AboutHero() {
         screenMaterial,
         backingMaterial,
         attachmentMaterial,
+        glowMaterial,
         plane,
         box,
+        cylinder,
       ],
     };
   }, [portrait, portraitSrc]);
@@ -925,6 +948,38 @@ export function AboutHero() {
           dispose={null}
         />
       ))}
+      {/* Plaza dressing — a low mounting plinth + approach light poles. Real
+          surrounding buildings/trees/signs come from the city layout. */}
+      {dressing.structure.map((matrix, index) => (
+        <mesh
+          key={`about-struct-${index}`}
+          matrix={matrix}
+          matrixAutoUpdate={false}
+          geometry={resources.box}
+          material={resources.attachmentMaterial}
+          dispose={null}
+        />
+      ))}
+      {dressing.poles.map((matrix, index) => (
+        <mesh
+          key={`about-pole-${index}`}
+          matrix={matrix}
+          matrixAutoUpdate={false}
+          geometry={resources.cylinder}
+          material={resources.attachmentMaterial}
+          dispose={null}
+        />
+      ))}
+      {dressing.lamps.map((matrix, index) => (
+        <mesh
+          key={`about-lamp-${index}`}
+          matrix={matrix}
+          matrixAutoUpdate={false}
+          geometry={resources.box}
+          material={resources.glowMaterial}
+          dispose={null}
+        />
+      ))}
     </group>
   );
 }
@@ -950,34 +1005,153 @@ function ExposureSync() {
  * FPS-style fly camera: pointer-lock mouse-look (yaw/pitch only, no roll) +
  * frame-rate-independent WASD movement, Q/E for down/up, Shift to boost.
  */
+// Mutable, non-reactive store so the DOM telemetry readout (outside the R3F
+// Canvas) can be updated every frame without triggering React re-renders.
+const freeCamTelemetry = { x: 0, y: 0, z: 0, headingDeg: 0, pitchDeg: 0 };
+
+// Compass rose: heading convention is 0°=+Z, 90°=+X, 180°=-Z, 270°=-X, so +Z
+// reads as North, +X as East (matches the world axes + GizmoViewport HUD).
+const COMPASS_POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'] as const;
+function compassCardinal(headingDeg: number): string {
+  const normalized = ((headingDeg % 360) + 360) % 360;
+  return COMPASS_POINTS[Math.round(normalized / 45) % COMPASS_POINTS.length];
+}
+
 function FreeCam() {
   const { camera } = useThree();
   const keys = useRef<Record<string, boolean>>({});
   useEffect(() => {
     const dn = (e: KeyboardEvent) => { keys.current[e.code] = true; };
     const up = (e: KeyboardEvent) => { keys.current[e.code] = false; };
+    // Releasing pointer lock (Esc) must stop the fly camera dead. Drop every
+    // held key on release so a movement key still physically down across the
+    // transition can't keep nudging the camera after it's been "released".
+    const onLockChange = () => {
+      if (!document.pointerLockElement) keys.current = {};
+    };
     window.addEventListener('keydown', dn);
     window.addEventListener('keyup', up);
-    return () => { window.removeEventListener('keydown', dn); window.removeEventListener('keyup', up); };
+    document.addEventListener('pointerlockchange', onLockChange);
+    return () => {
+      window.removeEventListener('keydown', dn);
+      window.removeEventListener('keyup', up);
+      document.removeEventListener('pointerlockchange', onLockChange);
+    };
   }, []);
   const dir = useRef(new THREE.Vector3());
   const right = useRef(new THREE.Vector3());
   useFrame((_, dt) => {
     const k = keys.current;
+    // Only fly while the pointer is captured. Once Esc releases the lock the
+    // camera holds its pose instead of drifting on a lingering keypress.
+    const flying = document.pointerLockElement != null;
     const speed = (k['ShiftLeft'] || k['ShiftRight'] ? 520 : 170) * Math.min(dt, 0.05);
     camera.getWorldDirection(dir.current).normalize();
     right.current.crossVectors(dir.current, camera.up).normalize();
-    if (k['KeyW']) camera.position.addScaledVector(dir.current, speed);
-    if (k['KeyS']) camera.position.addScaledVector(dir.current, -speed);
-    if (k['KeyD']) camera.position.addScaledVector(right.current, speed);
-    if (k['KeyA']) camera.position.addScaledVector(right.current, -speed);
-    if (k['KeyE'] || k['Space']) camera.position.y += speed;
-    if (k['KeyQ']) camera.position.y -= speed;
+    if (flying) {
+      if (k['KeyW']) camera.position.addScaledVector(dir.current, speed);
+      if (k['KeyS']) camera.position.addScaledVector(dir.current, -speed);
+      if (k['KeyD']) camera.position.addScaledVector(right.current, speed);
+      if (k['KeyA']) camera.position.addScaledVector(right.current, -speed);
+      if (k['KeyE'] || k['Space']) camera.position.y += speed;
+      if (k['KeyQ']) camera.position.y -= speed;
+    }
+    freeCamTelemetry.x = camera.position.x;
+    freeCamTelemetry.y = camera.position.y;
+    freeCamTelemetry.z = camera.position.z;
+    // 0°=+Z, 90°=+X, 180°=-Z, 270°=-X (matches the world axes drawn by the
+    // GizmoViewport HUD, so heading + gizmo agree on the same convention)
+    freeCamTelemetry.headingDeg = (THREE.MathUtils.radToDeg(Math.atan2(dir.current.x, dir.current.z)) + 360) % 360;
+    freeCamTelemetry.pitchDeg = THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(dir.current.y, -1, 1)));
   });
-  return <PointerLockControls makeDefault pointerSpeed={0.9} />;
+  return (
+    <>
+      <PointerLockControls makeDefault pointerSpeed={0.9} />
+      <GizmoHelper alignment="top-right" margin={[80, 80]}>
+        <GizmoViewport axisColors={['#ff5d7a', '#7dffb2', '#5dd8ff']} labelColor="black" />
+      </GizmoHelper>
+    </>
+  );
+}
+
+/** Live position/heading readout for FreeCam — polls the telemetry store via
+ * rAF and writes straight to the DOM, bypassing React state so a 60fps
+ * update doesn't force a React re-render of the whole overlay. */
+function FreeCamHud() {
+  const textRef = useRef<HTMLSpanElement>(null);
+  const [copied, setCopied] = useState(false);
+  const copy = useCallback(() => {
+    const t = freeCamTelemetry;
+    const line = `x ${t.x.toFixed(2)}, y ${t.y.toFixed(2)}, z ${t.z.toFixed(2)}, hdg ${t.headingDeg.toFixed(0)}, pitch ${t.pitchDeg.toFixed(0)}`;
+    navigator.clipboard?.writeText(line).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 900);
+    });
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.code === 'KeyC') copy(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [copy]);
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const el = textRef.current;
+      if (el) {
+        const t = freeCamTelemetry;
+        el.textContent =
+          `x ${t.x.toFixed(1)}  y ${t.y.toFixed(1)}  z ${t.z.toFixed(1)}   `
+          + `hdg ${t.headingDeg.toFixed(0)}° ${compassCardinal(t.headingDeg)}`
+          + `  pitch ${t.pitchDeg.toFixed(0)}°`;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  return (
+    <div
+      style={{
+        position: 'fixed', bottom: 44, left: 12, zIndex: 10,
+        font: '12px/1.5 ui-monospace, monospace', color: PALETTE.cyan,
+        background: 'rgba(10,11,30,0.8)', border: `1px solid ${PALETTE.panel}`,
+        padding: '8px 12px', borderRadius: 6,
+        display: 'flex', alignItems: 'center', gap: 10,
+      }}
+    >
+      <span ref={textRef} style={{ pointerEvents: 'none' }} />
+      <button
+        // Stop the click from bubbling to drei's document-level listener, which
+        // otherwise calls PointerLockControls.lock() and yanks us into camera view.
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => { e.stopPropagation(); copy(); }}
+        style={{
+          pointerEvents: 'auto', cursor: 'pointer', font: 'inherit',
+          color: copied ? '#7dffb2' : PALETTE.cyan, background: 'transparent',
+          border: `1px solid ${PALETTE.panel}`, borderRadius: 4, padding: '2px 8px',
+        }}
+      >
+        {copied ? 'copied' : 'copy (C)'}
+      </button>
+    </div>
+  );
 }
 
 // ── Roads: deck + sidewalks (raised curbs) + glowing edge/centre lines ──
+// Monorail guideway + train-car sizing. The safety systems in roads.ts /
+// highwayLayout.ts guarantee buildings clear at least BUILDING_DECK_VERTICAL_MARGIN
+// (4m) below the deck underside offset (curve.y - DECK_UNDERSIDE_OFFSET), i.e. a
+// solid clear volume from the beam top down to curve.y - DECK_UNDERSIDE_OFFSET -
+// BUILDING_DECK_VERTICAL_MARGIN = curve.y - 5.4. The beam + strut + car stack
+// below must stay within that.
+const MONORAIL_BEAM_HEIGHT = 1.6;
+const MONORAIL_STRUT_DROP = 0.8;
+const MONORAIL_CAR_HEIGHT = 2.2;
+const MONORAIL_CAR_WIDTH = 3;
+const MONORAIL_CAR_LENGTH = 8;
+const MONORAIL_CAR_GAP = 1.2;
+const MONORAIL_CAR_COUNT = 3;
+
 export function Pillars() {
   const pillars = useMemo(() => buildHighwayPillarLayout(
     buildCityLayout().map(buildingPlacementBounds),
@@ -1011,6 +1185,63 @@ export function Pillars() {
   );
 }
 
+export function MonorailTrain() {
+  const road = useMemo(() => ROADS.find((r) => r.id === ELEVATED_HIGHWAY_ID)!, []);
+  const curveLength = useMemo(() => road.curve.getLength(), [road]);
+  const groupRefs = useRef<(THREE.Group | null)[]>([]);
+  const phaseRef = useRef(0);
+  const resources = useCommittedThreeResource('monorail-train', ({ own }) => {
+    const carGeometry = own(new THREE.BoxGeometry(MONORAIL_CAR_LENGTH, MONORAIL_CAR_HEIGHT, MONORAIL_CAR_WIDTH));
+    const strutGeometry = own(new THREE.BoxGeometry(0.3, MONORAIL_STRUT_DROP, 0.3));
+    const carMat = own(new THREE.MeshStandardMaterial({
+      color: 0x181a24,
+      roughness: 0.4,
+      metalness: 0.5,
+      emissive: new THREE.Color(PALETTE.cyan),
+      emissiveIntensity: 0.18,
+    }));
+    const strutMat = own(new THREE.MeshStandardMaterial({ color: 0x0d0f18, roughness: 0.6, metalness: 0.5 }));
+    return {
+      value: { carGeometry, strutGeometry, carMat, strutMat },
+      resources: [carGeometry, strutGeometry, carMat, strutMat],
+    };
+  }, []);
+
+  useFrame((_, delta) => {
+    phaseRef.current = (phaseRef.current + delta * 6) % curveLength;
+    const spacing = MONORAIL_CAR_LENGTH + MONORAIL_CAR_GAP;
+    for (let i = 0; i < MONORAIL_CAR_COUNT; i++) {
+      const group = groupRefs.current[i];
+      if (!group) continue;
+      const s = (phaseRef.current - i * spacing + curveLength * 100) % curveLength;
+      const u = s / curveLength;
+      const p = road.curve.getPointAt(u);
+      const tangent = road.curve.getTangentAt(u);
+      const carTopY = p.y + road.level - MONORAIL_BEAM_HEIGHT - MONORAIL_STRUT_DROP;
+      group.position.set(p.x, carTopY - MONORAIL_CAR_HEIGHT / 2, p.z);
+      group.rotation.y = Math.atan2(-tangent.z, tangent.x);
+    }
+  });
+
+  if (!resources) return null;
+  const { carGeometry, strutGeometry, carMat, strutMat } = resources;
+  return (
+    <group dispose={null}>
+      {Array.from({ length: MONORAIL_CAR_COUNT }).map((_, i) => (
+        <group key={i} ref={(el) => { groupRefs.current[i] = el; }} dispose={null}>
+          <mesh geometry={carGeometry} material={carMat} dispose={null} />
+          <mesh
+            geometry={strutGeometry}
+            material={strutMat}
+            position={[0, MONORAIL_CAR_HEIGHT / 2 + MONORAIL_STRUT_DROP / 2, 0]}
+            dispose={null}
+          />
+        </group>
+      ))}
+    </group>
+  );
+}
+
 export function Roads() {
   const resources = useCommittedThreeResource('roads', ({ own }) => {
     const asphalt = own(makeAsphaltTexture());
@@ -1021,11 +1252,13 @@ export function Roads() {
     const magenta = own(new THREE.MeshStandardMaterial({ color: 0x1a0616, emissive: new THREE.Color(PALETTE.magenta), emissiveIntensity: 2.2, toneMapped: false }));
     const amber = own(new THREE.MeshStandardMaterial({ color: 0x1a1206, emissive: new THREE.Color(PALETTE.amber), emissiveIntensity: 1.8, toneMapped: false }));
     const teal = own(new THREE.MeshStandardMaterial({ color: 0x03231f, emissive: new THREE.Color('#b7f5e9'), emissiveIntensity: 1.6, toneMapped: false }));
+    const monorailMat = own(new THREE.MeshStandardMaterial({ color: 0x12131c, roughness: 0.5, metalness: 0.6 }));
+    const monorailGlow = own(new THREE.MeshStandardMaterial({ color: 0x160c22, emissive: new THREE.Color(PALETTE.violet), emissiveIntensity: 2, toneMapped: false }));
     const crossingMat = own(new THREE.MeshStandardMaterial({ color: 0xd8dbe6, roughness: 0.7, emissive: new THREE.Color(0x8891a6), emissiveIntensity: 0.25 }));
     const indicatorMat = own(new THREE.MeshStandardMaterial({ color: 0x03231f, emissive: new THREE.Color(PALETTE.cyan), emissiveIntensity: 2.1, toneMapped: false }));
     const intersection = buildShibuyaIntersection();
-    const aboutCuldesac = buildAboutCuldesac();
     const straightRoadCrossings = buildStraightRoadCrossings();
+    const crossStreetCrossings = buildCrossStreetCrossings();
     const shape = new THREE.Shape();
     intersection.plaza.outline.forEach((point, index) => {
       if (index === 0) shape.moveTo(point.x, point.z);
@@ -1039,51 +1272,69 @@ export function Roads() {
     geometry.rotateX(Math.PI / 2);
     geometry.translate(0, intersection.plaza.surfaceY, 0);
     const plazaGeometry = geometry;
-    const culdesacRoad = own(
-      new THREE.CircleGeometry(aboutCuldesac.roadRadius, 48)
-        .rotateX(-Math.PI / 2)
-        .translate(
-          aboutCuldesac.center.x,
-          aboutCuldesac.surfaceY,
-          aboutCuldesac.center.z,
-        ),
-    );
-    const culdesacWalk = own(
-      new THREE.RingGeometry(
-        aboutCuldesac.roadRadius,
-        aboutCuldesac.sidewalkOuterRadius,
-        48,
-      )
-        .rotateX(-Math.PI / 2)
-        .translate(
-          aboutCuldesac.center.x,
-          0.45,
-          aboutCuldesac.center.z,
-        ),
-    );
     const nodes = ROADS.map((r, roadIndex) => {
       const service = r.surface === 'service-concrete';
+      const isMonorail = r.id === ELEVATED_HIGHWAY_ID;
+      if (isMonorail) {
+        // a straddle-beam monorail guideway: a solid box-beam (not a flat
+        // deck) with a lit fascia pinstripe along its lower edges
+        const beam = own(buildCurveBoxBeam(r.curve, r.halfWidth, MONORAIL_BEAM_HEIGHT, { lift: r.level }));
+        const edgeGlowL = own(buildCurveRibbon(r.curve, 0.22, { offset: r.halfWidth - 0.3, lift: r.level - MONORAIL_BEAM_HEIGHT + 0.05 }));
+        const edgeGlowR = own(buildCurveRibbon(r.curve, 0.22, { offset: -(r.halfWidth - 0.3), lift: r.level - MONORAIL_BEAM_HEIGHT + 0.05 }));
+        return {
+          deck: null, beam, edgeGlowL, edgeGlowR, centre: null,
+          walkL: null, walkR: null, curbL: null, curbR: null, underDeck: null,
+          main: false, service: false, isMonorail: true,
+        };
+      }
       const deck = own(buildRoadGeometry(roadIndex));
-      const infrastructureClip = r.ground ? shibuyaPlazaContains : undefined;
-      const edgeGlowL = own(buildCurveRibbon(r.curve, 0.3, { offset: r.halfWidth - 0.4, lift: r.level + 0.06, clip: infrastructureClip }));
-      const edgeGlowR = own(buildCurveRibbon(r.curve, 0.3, { offset: -(r.halfWidth - 0.4), lift: r.level + 0.06, clip: infrastructureClip }));
+      // Junction-aware clips at the boulevard × cross-street 4-way. The boulevard
+      // is the through-road: its edge + centre lines stay continuous, only its
+      // raised sidewalk/curb are notched out of the cross-street mouth. The cross
+      // street stops all of its infrastructure at the boulevard edge so nothing
+      // overlaps the roadway; the zebra crosswalk bands carry the crossing.
+      const isBoulevard = r.id === 'main-route';
+      const isCrossStreet = r.id === 'cross-street';
+      const combineClip = (
+        extra?: (x: number, z: number) => boolean,
+      ): ((x: number, z: number) => boolean) | undefined => {
+        if (!r.ground) return undefined;
+        if (!extra) return shibuyaPlazaContains;
+        return (x, z) => shibuyaPlazaContains(x, z) || extra(x, z);
+      };
+      const edgeClip = combineClip(
+        isCrossStreet ? crossStreetInfraClipAtBoulevard : undefined,
+      );
+      const walkClip = combineClip(
+        isBoulevard
+          ? boulevardWalkClipAtCrossStreet
+          : isCrossStreet
+            ? crossStreetInfraClipAtBoulevard
+            : undefined,
+      );
+      const edgeGlowL = own(buildCurveRibbon(r.curve, 0.3, { offset: r.halfWidth - 0.4, lift: r.level + 0.06, clip: edgeClip }));
+      const edgeGlowR = own(buildCurveRibbon(r.curve, 0.3, { offset: -(r.halfWidth - 0.4), lift: r.level + 0.06, clip: edgeClip }));
       const centre = service
         ? null
-        : own(buildCurveRibbon(r.curve, 0.14, { lift: r.level + 0.06, clip: infrastructureClip }));
+        : own(buildCurveRibbon(r.curve, 0.14, { lift: r.level + 0.06, clip: edgeClip }));
       // wide raised sidewalks (half-width 4.5 → 9 m) + a raised curb lip at the road edge
-      const walkL = r.ground && !service ? own(buildCurveRibbon(r.curve, 4.5, { offset: r.halfWidth + 4.5, lift: 0.45, clip: infrastructureClip })) : null;
-      const walkR = r.ground && !service ? own(buildCurveRibbon(r.curve, 4.5, { offset: -(r.halfWidth + 4.5), lift: 0.45, clip: infrastructureClip })) : null;
-      const curbL = r.ground && !service ? own(buildCurveRibbon(r.curve, 0.4, { offset: r.halfWidth + 0.4, lift: 0.5, clip: infrastructureClip })) : null;
-      const curbR = r.ground && !service ? own(buildCurveRibbon(r.curve, 0.4, { offset: -(r.halfWidth + 0.4), lift: 0.5, clip: infrastructureClip })) : null;
+      const walkL = r.ground && !service ? own(buildCurveRibbon(r.curve, 4.5, { offset: r.halfWidth + 4.5, lift: 0.45, clip: walkClip })) : null;
+      const walkR = r.ground && !service ? own(buildCurveRibbon(r.curve, 4.5, { offset: -(r.halfWidth + 4.5), lift: 0.45, clip: walkClip })) : null;
+      const curbL = r.ground && !service ? own(buildCurveRibbon(r.curve, 0.4, { offset: r.halfWidth + 0.4, lift: 0.5, clip: walkClip })) : null;
+      const curbR = r.ground && !service ? own(buildCurveRibbon(r.curve, 0.4, { offset: -(r.halfWidth + 0.4), lift: 0.5, clip: walkClip })) : null;
       // elevated decks get a dark under-slab (slightly wider, dropped down) so
       // the highway reads as a solid deck when viewed from underneath
       const underDeck = r.ground ? null : own(buildCurveRibbon(r.curve, r.halfWidth + 0.8, { lift: r.level - 1.4 }));
-      return { deck, edgeGlowL, edgeGlowR, centre, walkL, walkR, curbL, curbR, underDeck, main: r.halfWidth > 10, service };
+      return {
+        deck, beam: null, edgeGlowL, edgeGlowR, centre, walkL, walkR, curbL, curbR, underDeck,
+        main: r.halfWidth > 10, service, isMonorail: false,
+      };
     });
     const unitBox = own(new THREE.BoxGeometry(1, 1, 1));
     const indicatorCylinder = own(new THREE.CylinderGeometry(1, 1, 1, 10));
     const nodeGeometries = nodes.flatMap((node) => [
       node.deck,
+      node.beam,
       node.edgeGlowL,
       node.edgeGlowR,
       node.centre,
@@ -1102,13 +1353,14 @@ export function Roads() {
       magenta,
       amber,
       teal,
+      monorailMat,
+      monorailGlow,
       crossingMat,
       indicatorMat,
       intersection,
       straightRoadCrossings,
+      crossStreetCrossings,
       plazaGeometry,
-      culdesacRoad,
-      culdesacWalk,
       nodes,
       unitBox,
       indicatorCylinder,
@@ -1124,11 +1376,11 @@ export function Roads() {
         magenta,
         amber,
         teal,
+        monorailMat,
+        monorailGlow,
         crossingMat,
         indicatorMat,
         plazaGeometry,
-        culdesacRoad,
-        culdesacWalk,
         unitBox,
         indicatorCylinder,
         ...nodeGeometries,
@@ -1144,13 +1396,14 @@ export function Roads() {
     magenta,
     amber,
     teal,
+    monorailMat,
+    monorailGlow,
     crossingMat,
     indicatorMat,
     intersection,
     straightRoadCrossings,
+    crossStreetCrossings,
     plazaGeometry,
-    culdesacRoad,
-    culdesacWalk,
     nodes,
     unitBox,
     indicatorCylinder,
@@ -1160,21 +1413,29 @@ export function Roads() {
     <group dispose={null}>
       {nodes.map((n, i) => (
         <group key={i}>
-          {n.underDeck && <mesh geometry={n.underDeck} material={underMat} />}
-          <mesh geometry={n.deck} material={n.service ? walkMat : deckMat} />
-          {n.walkL && <mesh geometry={n.walkL} material={walkMat} />}
-          {n.walkR && <mesh geometry={n.walkR} material={walkMat} />}
-          {n.curbL && <mesh geometry={n.curbL} material={curbMat} />}
-          {n.curbR && <mesh geometry={n.curbR} material={curbMat} />}
-          <mesh geometry={n.edgeGlowL} material={n.main ? magenta : teal} />
-          <mesh geometry={n.edgeGlowR} material={n.main ? magenta : teal} />
+          {n.isMonorail ? (
+            <mesh geometry={n.beam!} material={monorailMat} />
+          ) : (
+            <>
+              {n.underDeck && <mesh geometry={n.underDeck} material={underMat} />}
+              <mesh geometry={n.deck!} material={n.service ? walkMat : deckMat} />
+              {n.walkL && <mesh geometry={n.walkL} material={walkMat} />}
+              {n.walkR && <mesh geometry={n.walkR} material={walkMat} />}
+              {n.curbL && <mesh geometry={n.curbL} material={curbMat} />}
+              {n.curbR && <mesh geometry={n.curbR} material={curbMat} />}
+            </>
+          )}
+          <mesh geometry={n.edgeGlowL} material={n.isMonorail ? monorailGlow : n.main ? magenta : teal} />
+          <mesh geometry={n.edgeGlowR} material={n.isMonorail ? monorailGlow : n.main ? magenta : teal} />
           {n.centre && <mesh geometry={n.centre} material={amber} />}
         </group>
       ))}
       <mesh geometry={plazaGeometry} material={deckMat} />
-      <mesh geometry={culdesacRoad} material={deckMat} />
-      <mesh geometry={culdesacWalk} material={walkMat} />
-      {[...intersection.crossings, ...straightRoadCrossings.crossings].flatMap((crossing) =>
+      {[
+        ...intersection.crossings,
+        ...straightRoadCrossings.crossings,
+        ...crossStreetCrossings.crossings,
+      ].flatMap((crossing) =>
         crossing.stripes.map((stripe, index) => (
           <mesh
             key={`${crossing.id}-${index}`}
@@ -1186,7 +1447,11 @@ export function Roads() {
             dispose={null}
           />
         )))}
-      {[...intersection.indicators, ...straightRoadCrossings.indicators].map((indicator) => (
+      {[
+        ...intersection.indicators,
+        ...straightRoadCrossings.indicators,
+        ...crossStreetCrossings.indicators,
+      ].map((indicator) => (
         <group
           key={indicator.id}
           position={indicator.center}
@@ -2377,7 +2642,38 @@ function createMoonGlowTexture(): THREE.CanvasTexture {
   return texture;
 }
 
+/** Current story progress written each frame by ProductionDirector; 1 (full)
+ * when inspecting the raw city with no director running. */
+function sceneContentProgress(scene: THREE.Scene): number {
+  const value = scene.userData.contentProgress;
+  return typeof value === 'number' ? value : 1;
+}
+
+/** Scene-wide moonlight, ramped down through the city so the moon doesn't spill
+ * over everything until the ride lifts toward the finale. */
+function MoonKeyLight() {
+  const { scene } = useThree();
+  const ref = useRef<THREE.DirectionalLight>(null);
+  useFrame(() => {
+    if (!ref.current) return;
+    const presence = moonPresenceAt(sceneContentProgress(scene));
+    ref.current.intensity = MOON_RENDER_CONFIG.keyLight.intensity
+      * THREE.MathUtils.lerp(MOON_KEYLIGHT_FLOOR_FRACTION, 1, presence);
+  });
+  return (
+    <directionalLight
+      ref={ref}
+      position={MOON_POS}
+      intensity={
+        MOON_RENDER_CONFIG.keyLight.intensity * MOON_KEYLIGHT_FLOOR_FRACTION
+      }
+      color={MOON_RENDER_CONFIG.keyLight.color}
+    />
+  );
+}
+
 export function Moon() {
+  const { scene } = useThree();
   const [albedo, height] = useTexture([
     MOON_RENDER_CONFIG.textures.albedo.url,
     MOON_RENDER_CONFIG.textures.bump.url,
@@ -2386,6 +2682,29 @@ export function Moon() {
   height.colorSpace = MOON_RENDER_CONFIG.textures.bump.colorSpace;
   const glowTexture = useMemo(createMoonGlowTexture, []);
   useEffect(() => () => glowTexture.dispose(), [glowTexture]);
+  const glowMat = useRef<THREE.SpriteMaterial>(null);
+  const surfaceMat = useRef<THREE.MeshStandardMaterial>(null);
+  const haloMat = useRef<THREE.MeshBasicMaterial>(null);
+  const rake = useRef<THREE.PointLight>(null);
+  // Ramp all of the moon's own light-emitting parts by story progress so it is
+  // effectively invisible through the city (no glow bleeding past the skyline)
+  // and only becomes a character as the finale approaches.
+  useFrame(() => {
+    const presence = moonPresenceAt(sceneContentProgress(scene));
+    if (glowMat.current) {
+      glowMat.current.opacity = MOON_RENDER_CONFIG.glow.opacity * presence;
+    }
+    if (haloMat.current) {
+      haloMat.current.opacity = MOON_RENDER_CONFIG.halo.opacity * presence;
+    }
+    if (surfaceMat.current) {
+      surfaceMat.current.emissiveIntensity =
+        MOON_RENDER_CONFIG.surface.emissiveIntensity * presence;
+    }
+    if (rake.current) {
+      rake.current.intensity = MOON_RENDER_CONFIG.rakeLight.intensity * presence;
+    }
+  });
   return (
     <group position={MOON_POS}>
       {/* Large soft atmospheric glow behind the moon (camera-facing). */}
@@ -2398,10 +2717,11 @@ export function Moon() {
         ]}
       >
         <spriteMaterial
+          ref={glowMat}
           map={glowTexture}
           color={MOON_RENDER_CONFIG.glow.color}
           transparent
-          opacity={MOON_RENDER_CONFIG.glow.opacity}
+          opacity={0}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
           depthTest={false}
@@ -2411,9 +2731,10 @@ export function Moon() {
       </sprite>
       {/* Grazing light sculpting crater relief on the camera-facing side. */}
       <pointLight
+        ref={rake}
         position={MOON_RENDER_CONFIG.rakeLight.offset}
         color={MOON_RENDER_CONFIG.rakeLight.color}
-        intensity={MOON_RENDER_CONFIG.rakeLight.intensity}
+        intensity={0}
         distance={MOON_RENDER_CONFIG.rakeLight.distance}
         decay={MOON_RENDER_CONFIG.rakeLight.decay}
       />
@@ -2426,6 +2747,7 @@ export function Moon() {
           ]}
         />
         <meshStandardMaterial
+          ref={surfaceMat}
           map={albedo}
           emissiveMap={albedo}
           bumpMap={height}
@@ -2434,7 +2756,7 @@ export function Moon() {
           roughness={MOON_RENDER_CONFIG.surface.roughness}
           metalness={MOON_RENDER_CONFIG.surface.metalness}
           emissive={MOON_RENDER_CONFIG.surface.emissive}
-          emissiveIntensity={MOON_RENDER_CONFIG.surface.emissiveIntensity}
+          emissiveIntensity={0}
           fog={MOON_RENDER_CONFIG.surface.fog}
         />
       </mesh>
@@ -2450,9 +2772,10 @@ export function Moon() {
           ]}
         />
         <meshBasicMaterial
+          ref={haloMat}
           color={MOON_RENDER_CONFIG.halo.color}
           transparent
-          opacity={MOON_RENDER_CONFIG.halo.opacity}
+          opacity={0}
           side={THREE.BackSide}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
@@ -2834,7 +3157,7 @@ export interface CityProps {
   onZoneActive?: (zone: CityZoneId) => void;
 }
 
-export default function City({
+function City({
   production = false,
   progressStore,
   inspect = INSPECT_ENABLED,
@@ -2961,7 +3284,18 @@ export default function City({
   return (
     <>
     <Canvas
-      gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
+      // dpr capped at 1.5: on HiDPI/Retina the uncapped devicePixelRatio (2–3)
+      // meant the whole forward pass AND every Bloom composite ran at 4–9× the
+      // fragment count. 1.5 keeps edges crisp while roughly halving GPU load.
+      // antialias:false because the EffectComposer resolves separately
+      // (multisampling={0}), so an MSAA backbuffer here was pure waste.
+      // high-performance steers multi-GPU laptops off the integrated chip.
+      dpr={[1, 1.5]}
+      gl={{
+        antialias: false,
+        powerPreference: 'high-performance',
+        toneMapping: THREE.ACESFilmicToneMapping,
+      }}
       camera={{ position: [-30, 92, 250], fov: 58, near: 1, far: 8000 }}
     >
       <VisibilityLayoutContext.Provider value={activeLayout}>
@@ -2970,18 +3304,18 @@ export default function City({
       <ExposureSync />
       <DeferredScene>
       <ambientLight intensity={LIGHTING.ambientIntensity} />
-      {/* cool moonlit key from the moon's direction */}
-      <directionalLight
-        position={MOON_POS}
-        intensity={MOON_RENDER_CONFIG.keyLight.intensity}
-        color={MOON_RENDER_CONFIG.keyLight.color}
-      />
+      {/* cool moonlit key from the moon's direction — ramped by progress so it
+          only fully spills over the scene at the finale */}
+      <MoonKeyLight />
       {/* violet sky / dark ground bounce */}
       <hemisphereLight args={[PALETTE.violet, '#050510', 0.18]} />
       {/* subtle neon fills: magenta from one flank, cyan from the other */}
       <directionalLight position={[-320, 90, 120]} intensity={0.28} color={PALETTE.magenta} />
       <directionalLight position={[340, 80, -280]} intensity={0.3} color={PALETTE.cyan} />
-      <ShibuyaWallLighting />
+      {/* 3 point lights shaded per-fragment on every PBR surface city-wide;
+          only meaningful at the Shibuya crossing, so mount them with that zone
+          instead of paying for them across the whole ride. */}
+      {activeZones.includes('shibuya') && <ShibuyaWallLighting />}
       <Suspense fallback={null}><EnvMap /></Suspense>
       {production && progressStore && (
         <>
@@ -3001,6 +3335,7 @@ export default function City({
       {!moonReady && <ProceduralMoonShell />}
       <FinaleBridge />
       <Pillars />
+      <MonorailTrain />
       <StreetFurniture />
       <JunkRamp loadAssets={activeZones.includes('projects')} />
       <Ramp2 />
@@ -3058,15 +3393,23 @@ export default function City({
       </VisibilityLayoutContext.Provider>
     </Canvas>
     {FREECAM && (
-      <div style={{
-        position: 'fixed', bottom: 12, left: 12, zIndex: 10,
-        font: '12px/1.5 ui-monospace, monospace', color: PALETTE.cyan,
-        background: 'rgba(10,11,30,0.8)', border: `1px solid ${PALETTE.panel}`,
-        padding: '8px 12px', borderRadius: 6, pointerEvents: 'none',
-      }}>
-        click to look · <b>WASD</b> move · <b>Q/E</b> down/up · <b>Shift</b> boost · <b>Esc</b> release
-      </div>
+      <>
+        <FreeCamHud />
+        <div style={{
+          position: 'fixed', bottom: 12, left: 12, zIndex: 10,
+          font: '12px/1.5 ui-monospace, monospace', color: PALETTE.cyan,
+          background: 'rgba(10,11,30,0.8)', border: `1px solid ${PALETTE.panel}`,
+          padding: '8px 12px', borderRadius: 6, pointerEvents: 'none',
+        }}>
+          click to look · <b>WASD</b> move · <b>Q/E</b> down/up · <b>Shift</b> boost · <b>Esc</b> release
+        </div>
+      </>
     )}
     </>
   );
 }
+
+// Memoized so a re-render of the parent ScrollExperience never drags this whole
+// scene graph through reconciliation. Props are stable (store + useCallback
+// handlers), so the scene only re-renders when they actually change.
+export default memo(City);

@@ -6,9 +6,16 @@ import {
   STUNT_SCAFFOLD,
 } from './stuntGeometry';
 
+// Kicker profile: height = rise·t², so the surface slope (2·rise/run·t) rises
+// MONOTONICALLY to its steepest at the lip (2·rise/run) instead of easing off.
+// The previous smootherstep (rise·t³(3−2t)) peaked mid-climb then flattened back
+// to the shallow chord slope (rise/run) at the exit, so the bike launched flatter
+// than the trajectory it was actually travelling up the ramp and jumped lower than
+// expected. Steepest-at-the-lip means the airborne parabola (which is launched at
+// exactly this lip slope, see route.ts) continues the climb the eye just followed.
 export function rampProfileHeight(fraction: number, rise: number): number {
   const t = THREE.MathUtils.clamp(fraction, 0, 1);
-  return rise * t * t * t * (3 - 2 * t);
+  return rise * t * t;
 }
 
 export function rampProfileSlope(
@@ -17,7 +24,7 @@ export function rampProfileSlope(
   rise: number,
 ): number {
   const t = THREE.MathUtils.clamp(fraction, 0, 1);
-  return rise / run * t * t * (9 - 8 * t);
+  return rise / run * 2 * t;
 }
 
 export const RAMP_RIDE_PLATE_PROUD_HEIGHT = 0.002;

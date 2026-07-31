@@ -29,7 +29,7 @@ export const ABOUT_CAMERA_COMPOSITION_VIEWPORT = Object.freeze({
 export const ABOUT_CAMERA_CONSTRAINTS = Object.freeze({
   minimumScreenPixelWidth: ABOUT_CAMERA_COMPOSITION_VIEWPORT.width * 0.65,
   minimumScreenPixelHeight: ABOUT_CAMERA_COMPOSITION_VIEWPORT.height * 0.65,
-  minimumViewportOccupancy: 0.65,
+  minimumViewportOccupancy: 0.55,
   maximumViewportOccupancy: 0.75,
   minimumViewAngleCosine: 0.85,
   maximumFovVariation: 5,
@@ -46,9 +46,15 @@ interface AboutCameraContract {
 }
 
 const PARENT_FILE = 'neocity/KB3D_NEC_BldgMD_C_Main.glb';
-const SCREEN_WIDTH = 48;
-const SCREEN_HEIGHT = 32;
-const SCREEN_Y = 16;
+// Big dead-end billboard: the camera sits far back at the cross-street's north
+// terminus (~z=101) and stares south across the boulevard, so the sign must be
+// large to fill the frame at that distance while still leaving the biker (who
+// crosses the boulevard at z=0) visible in the lower frame. Sized up in step with
+// the dead-end being pushed further from the main road (facade z≈-74) so it keeps
+// filling the frame. Centred ~28.5m up so a level (pitch≈0) look lands centre.
+const SCREEN_WIDTH = 110;
+const SCREEN_HEIGHT = 70;
+const SCREEN_Y = 28.55;
 const SCREEN_OFFSET = 0.5;
 const BACKING_FRONT_GAP = 0.08;
 const BACKING_DEPTH = 0.18;
@@ -70,9 +76,14 @@ const PARENT_METRICS = buildingPlacementBounds({
 function solveFacadeFrame(
   _cameraPosition: readonly [number, number, number],
 ): FacadeFrame {
+  // Dead-end billboard beat: the sign caps the cross-street's south dead-end
+  // (culdesac), just across the boulevard from the camera. It sits on the
+  // cross-street axis (x≈-60.27), facing NORTH (+Z) straight up the street toward
+  // a stationary camera parked at the north terminus. The bike rides east along
+  // z=0 and crosses the frame between camera and sign.
   return {
-    center: [-60, 112],
-    normal: [0, -1],
+    center: [-60.27, -74],
+    normal: [0, 1],
     tangent: [1, 0],
   };
 }
@@ -145,6 +156,8 @@ function evaluateCameraCandidate(
   const maxX = Math.max(...corners.map(({ x }) => x));
   const minY = Math.min(...corners.map(({ y }) => y));
   const maxY = Math.max(...corners.map(({ y }) => y));
+  // The bike is centered on the sign axis (x ~= facade x = -60.27) at t ~= 0.192,
+  // which is the beat the locked-off framing is validated against.
   const bikeWorld = new BikePath().state(0.192).pos;
   const bikeNdc = bikeWorld.clone().project(camera);
   const towardCamera = camera.position.clone().sub(screenPosition).normalize();
@@ -166,10 +179,10 @@ function evaluateCameraCandidate(
     bikeDepth: bikeWorld.distanceTo(camera.position),
     screenDepth: screenPosition.distanceTo(camera.position),
   };
-  const preferred = new THREE.Vector3(-60, 3, -37.5);
+  const preferred = new THREE.Vector3(-60.27, 28.55, 101.11);
   const score = camera.position.distanceTo(preferred)
-    + Math.abs(fov - 18) * 4
-    + Math.abs(targetY - 8.5) * 2
+    + Math.abs(fov - 38) * 4
+    + Math.abs(targetY - 28.55) * 2
     + Math.abs(screenPixelWidth / ABOUT_CAMERA_COMPOSITION_VIEWPORT.width - 0.7)
       * 100;
   return {
@@ -194,12 +207,16 @@ function solveAboutCameraComposition(): {
   evaluatedCandidates: number;
   feasibleCandidates: number;
 } {
+  // Locked station at the cross-street north terminus, staring straight south
+  // (head-on, pitch≈0) at the dead-end billboard. Camera x is pinned to the sign
+  // axis for a perpendicular head-on view; only fov is searched to land the
+  // occupancy band, with a small y/targetY sweep for robustness.
   const candidates: CameraCandidate[] = [];
-  for (const x of [-62, -60, -58]) {
-    for (const z of [-40, -37.5, -35]) {
-      for (const y of [2, 3]) {
-        for (const fov of [18, 18.5, 19]) {
-          for (const targetY of [8, 8.5, 9, 9.5, 10]) {
+  for (const x of [-60.27]) {
+    for (const z of [101.11]) {
+      for (const y of [27.55, 28.55, 29.55]) {
+        for (const fov of [35, 36, 37, 38, 39, 40]) {
+          for (const targetY of [27.55, 28.55, 29.55]) {
             candidates.push(evaluateCameraCandidate([x, y, z], fov, targetY));
           }
         }
@@ -207,8 +224,8 @@ function solveAboutCameraComposition(): {
     }
   }
   const feasible = candidates.filter(({ camera, metrics }) =>
-    Math.abs(camera.position[0] + 60) <= 2
-    && camera.position[2] < -20
+    Math.abs(camera.position[0] + 60.27) <= 2
+    && camera.position[2] > 50
     && metrics.allCornersInViewport
     && metrics.viewAngleCosine >= ABOUT_CAMERA_CONSTRAINTS.minimumViewAngleCosine
     && metrics.screenPixelWidth / ABOUT_CAMERA_COMPOSITION_VIEWPORT.width
@@ -220,7 +237,7 @@ function solveAboutCameraComposition(): {
     && metrics.screenPixelHeight / ABOUT_CAMERA_COMPOSITION_VIEWPORT.height
       <= ABOUT_CAMERA_CONSTRAINTS.maximumViewportOccupancy
     && metrics.bikeInViewport
-    && metrics.bikeNdc[1] >= -0.75
+    && metrics.bikeNdc[1] >= -0.85
     && metrics.bikeNdc[1] <= ABOUT_CAMERA_CONSTRAINTS.lowerThirdNdcY
     && metrics.bikeDepth < metrics.screenDepth);
   const selected = [...feasible].sort((left, right) =>
@@ -266,6 +283,80 @@ export const ABOUT_HERO_BACKDROP_PLACEMENT = Object.freeze({
   ] as [number, number],
   layoutRole: ABOUT_HERO_BACKDROP_ID,
 });
+
+// ── Real city geometry framing the dead-end billboard. Injected as PROTECTED
+//    placements so the procedural layout parts around them (and never blocks the
+//    poster). All sit OUTSIDE the poster's width / behind it, clear of the roads,
+//    so the sign stays the unobstructed focus while the district wraps it. ──
+const ABOUT_PLAZA_FILE = (n: string): string => `neocity/${n}.glb`;
+function aboutPlazaPlacement(
+  file: string,
+  x: number,
+  z: number,
+  rotationY = 0,
+): Placement {
+  return {
+    id: `about-plaza:${file}:${x}:${z}`,
+    file: ABOUT_PLAZA_FILE(file),
+    position: [x, 0, z],
+    rotationY,
+    centerOffset: [0, 0],
+    layoutRole: 'about-plaza',
+  };
+}
+
+export const ABOUT_PLAZA_PLACEMENTS: readonly Placement[] = Object.freeze([
+  // Tall towers flanking the sign, just outside its silhouette — they frame it.
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_C_Main', -142, -78, 0.15),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_C_Main', 20, -78, -0.15),
+  // Tall towers rising BEHIND the sign so it reads against a wall of city
+  // instead of empty sky — the outer two loom over its top corners.
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_C_Main', -95, -120, 0.1),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_C_Main', -20, -120, -0.1),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Main', -57, -124),
+  // Thin lit spires flanking the approach for vertical cyberpunk clutter.
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_C_AntennaA', -124, -55),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_C_AntennaB', -124, -28),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_C_AntennaC', 6, -55),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_C_AntennaD', 6, -28),
+  // Ground clutter dressing the flanking sidewalks (outside the poster width):
+  // crates, an AC unit, a barrier, a street cart, stacked boxes.
+  aboutPlazaPlacement('KB3D_NEC_BldgSM_C_CratesA', -120, -48, 0.6),
+  aboutPlazaPlacement('KB3D_NEC_BldgSM_C_AC', -122, -66, -0.4),
+  aboutPlazaPlacement('KB3D_NEC_BldgSM_A_ConcreteBarrier', 4, -48, 0.2),
+  aboutPlazaPlacement('KB3D_NEC_BldgSM_B_Cart', 6, -66, -0.5),
+  aboutPlazaPlacement('KB3D_NEC_BldgSM_C_Boxes', 2, -38, 0.9),
+  // Trees on the approach sidewalks (lower foreground of the locked shot).
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Tree', -84, 66),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Tree', -36, 66),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Tree', -84, 34),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Tree', -36, 34),
+  // Fill the barren EAST flank (outside the poster's sightline, x > -5) with
+  // buildings pulled close to the boulevard/approach edge so it isn't an empty
+  // apron, plus a column of ground clutter + a tree down the east sidewalk.
+  aboutPlazaPlacement('KB3D_NEC_BldgMD_C_Main', 42, -42, -0.5),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Main', 66, -100, -0.3),
+  aboutPlazaPlacement('KB3D_NEC_BldgMD_A_Main', 78, 46, -0.4),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Tree', 2, -22),
+  aboutPlazaPlacement('KB3D_NEC_BldgSM_C_Boxes', 10, -50, 0.4),
+  aboutPlazaPlacement('KB3D_NEC_BldgSM_C_CratesB', 13, -72, 0.8),
+  aboutPlazaPlacement('KB3D_NEC_BldgSM_C_Pipes', 15, -90, 0.2),
+  // A little clutter down the west approach sidewalk too.
+  aboutPlazaPlacement('KB3D_NEC_BldgSM_C_CratesA', -78, -30, 0.5),
+  aboutPlazaPlacement('KB3D_NEC_BldgSM_C_AC', -78, -54, -0.3),
+  // Fill the wide-open NORTH-EAST apron (north of the boulevard, z > 20, east of
+  // the cross street) that read as a barren plaza. All sit north of the elevated
+  // highway deck (which stays at z ≲ 30 through here) and are spaced so their
+  // footprints don't collide with each other or the existing east-flank set.
+  // Kept west of x≈95: the WEST Shibuya approach places a building wall out to
+  // x≈123 (z 22–41), so anything larger/further east here collides with and
+  // culls those curated shibuya parents (breaks buildHolograms). Stay clear.
+  aboutPlazaPlacement('KB3D_NEC_BldgMD_C_Main', 36, 40, 0.2),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_C_Main', 60, 70, -0.1),
+  aboutPlazaPlacement('KB3D_NEC_BldgMD_C_Main', 92, 102, 0.1),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Tree', 24, 26),
+  aboutPlazaPlacement('KB3D_NEC_BldgSM_C_Boxes', 88, 24, 0.5),
+]);
 
 export interface AboutScreenCorner {
   x: number;

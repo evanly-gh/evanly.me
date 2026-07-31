@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildGroundRouteCurve, roadFrame, sampleRoute } from './route';
+import { buildProjectsTrafficCurve, roadFrame, sampleRoute } from './route';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const PLAZA_X = 240;
@@ -8,6 +8,23 @@ const PLAZA_HALF_EXTENT = 28;
 const PLAZA_SURFACE_Y = 0.04;
 const MARKING_Y = 0.08;
 const STRIPE_PITCH = 2.4;
+// Zebra bars: continental stripes that run parallel to traffic (and to the
+// street edge + tactile pads), arrayed across the full street width. Made WIDER
+// (longer bars) but NOT thicker (bar cross-thickness stays slim).
+const STRIPE_LENGTH = 7.5; // travel-direction length of each bar — the "wide" axis
+const STRIPE_WIDTH = 0.72; // across-street thickness of each bar (slim, not thick)
+const DIAGONAL_STRIPE_LENGTH = 10; // the scramble diagonal's bars are wider than the rest
+const CROSSWALK_DEPTH = STRIPE_LENGTH; // band depth == bar length
+const CROSSWALK_EDGE_GAP = 0.5; // clearance between the plaza edge and the band
+// The visible boulevard (main-route road) curves through the plaza's SW corner,
+// so the west/south crossings are aligned to it — not the axis-aligned plaza
+// edges — and pads are held well off its roadway (onto the sidewalk).
+const BOULEVARD_HALF_WIDTH = 11;
+const PAD_ROAD_CLEARANCE = 4; // metres a pad must sit past the boulevard edge (mid-sidewalk)
+// The west/south crossings are set back down their leg (away from the plaza
+// mouth) so both ends land on real, un-clipped sidewalk rather than reading as
+// stranded in the intersection.
+const APPROACH_SETBACK = 7;
 const SIDEWALK_TOP_Y = 0.45;
 const INDICATOR_HEIGHT = 0.08;
 const INDICATOR_LENGTH = 3.2;
@@ -106,10 +123,15 @@ export interface AboutCuldesac {
 }
 
 export function buildAboutCuldesac(): AboutCuldesac {
+  // Dead-end bulb south of the boulevard, capping the widened cross street
+  // (roads.ts: the `cross` curve now ends near (-60, 0, -44)). Pushed well back
+  // from the main road so the street reads as a proper approach; the About
+  // billboard building sits immediately behind it (facade z≈-62), so the bulb
+  // turnaround reads as the culdesac the camera stares into from the terminus.
   return {
-    center: new THREE.Vector3(-60, 0.03, -205),
-    roadRadius: 16,
-    sidewalkOuterRadius: 22,
+    center: new THREE.Vector3(-60, 0.03, -53),
+    roadRadius: 11,
+    sidewalkOuterRadius: 14,
     surfaceY: 0.03,
   };
 }
@@ -150,6 +172,35 @@ export function shibuyaPlazaContains(x: number, z: number): boolean {
   return shibuyaPlazaClearance(x, z) <= 0;
 }
 
+export function buildShibuyaPlaza(): PlazaSurface {
+  const center = new THREE.Vector3(PLAZA_X, PLAZA_SURFACE_Y - 0.06, PLAZA_Z);
+  return {
+    center,
+    halfExtent: h,
+    thickness: 0.12,
+    surfaceY: PLAZA_SURFACE_Y,
+    roadSurfaceY: 0,
+    outline: PLAZA_OUTLINE.map(({ x, z }) =>
+      new THREE.Vector3(x, PLAZA_SURFACE_Y, z)),
+  };
+}
+
+function makeAxisFrame(
+  id: ApproachId,
+  center: THREE.Vector3,
+  tangent: THREE.Vector3,
+  halfWidth: number,
+): ApproachFrame {
+  const streetTangent = tangent.clone().setY(0).normalize();
+  return {
+    id,
+    center: center.clone().setY(MARKING_Y),
+    tangent: streetTangent,
+    binormal: new THREE.Vector3().crossVectors(streetTangent, UP).normalize(),
+    halfWidth,
+  };
+}
+
 function frameFromCurve(
   id: ApproachId,
   curve: THREE.Curve<THREE.Vector3>,
@@ -166,77 +217,103 @@ function frameFromCurve(
   };
 }
 
-function plazaBoundaryParameters(curve: THREE.Curve<THREE.Vector3>): number[] {
-  const out: number[] = [];
+/** Parameters where a curve crosses the plaza outline (enter/leave transitions). */
+function curvePlazaBoundaries(
+  curve: THREE.Curve<THREE.Vector3>,
+): { u: number; point: THREE.Vector3 }[] {
+  const out: { u: number; point: THREE.Vector3 }[] = [];
   const steps = 4096;
-  let previousU = 0;
-  let previousClearance = shibuyaPlazaClearance(
+  let previousInside = shibuyaPlazaContains(
     curve.getPointAt(0).x,
     curve.getPointAt(0).z,
   );
   for (let i = 1; i <= steps; i++) {
     const u = i / steps;
     const point = curve.getPointAt(u);
-    const clearance = shibuyaPlazaClearance(point.x, point.z);
-    if ((previousClearance > 0 && clearance <= 0)
-      || (previousClearance <= 0 && clearance > 0)) {
-      let low = previousU;
+    const inside = shibuyaPlazaContains(point.x, point.z);
+    if (inside !== previousInside) {
+      let low = (i - 1) / steps;
       let high = u;
-      const entering = previousClearance > 0;
       for (let iteration = 0; iteration < 40; iteration++) {
         const middle = (low + high) / 2;
         const middlePoint = curve.getPointAt(middle);
-        const middleInside = shibuyaPlazaContains(middlePoint.x, middlePoint.z);
-        if (middleInside === entering) high = middle;
-        else low = middle;
+        if (shibuyaPlazaContains(middlePoint.x, middlePoint.z) === previousInside) {
+          low = middle;
+        } else {
+          high = middle;
+        }
       }
-      out.push((low + high) / 2);
+      const boundaryU = (low + high) / 2;
+      out.push({ u: boundaryU, point: curve.getPointAt(boundaryU) });
     }
-    previousU = u;
-    previousClearance = clearance;
+    previousInside = inside;
   }
   return out;
 }
 
-export function buildShibuyaPlaza(): PlazaSurface {
-  const center = new THREE.Vector3(PLAZA_X, PLAZA_SURFACE_Y - 0.06, PLAZA_Z);
-  return {
-    center,
-    halfExtent: h,
-    thickness: 0.12,
-    surfaceY: PLAZA_SURFACE_Y,
-    roadSurfaceY: 0,
-    outline: PLAZA_OUTLINE.map(({ x, z }) =>
-      new THREE.Vector3(x, PLAZA_SURFACE_Y, z)),
-  };
-}
-
 export function buildShibuyaApproaches(
-  mainCurve = buildGroundRouteCurve(),
   sideRoads = buildShibuyaSideRoads(),
 ): ApproachFrame[] {
-  const boundaryParameters = plazaBoundaryParameters(mainCurve);
-  if (boundaryParameters.length !== 2) {
-    throw new Error(`Expected two main-route plaza boundaries, got ${boundaryParameters.length}`);
-  }
-  const boundaryFrames = boundaryParameters.map((u) => ({
-    u,
-    point: mainCurve.getPointAt(u),
-  }));
-  const west = boundaryFrames.reduce((best, frame) =>
-    frame.point.x < best.point.x ? frame : best);
-  const south = boundaryFrames.reduce((best, frame) =>
-    frame.point.z < best.point.z ? frame : best);
   const northRoad = sideRoads.find(({ id }) => id === 'north');
   const eastRoad = sideRoads.find(({ id }) => id === 'east');
   if (!northRoad || !eastRoad) throw new Error('Missing Shibuya side-road leg');
-
+  // West + south share the ONE boulevard that curves through the plaza's SW
+  // corner. Deriving those two frames from the real road (its plaza boundary
+  // crossings + local tangent) keeps each band square to the actual roadway, so
+  // the tactile pads land on the boulevard's true sidewalks rather than in the
+  // middle of the turning street. North + east are straight side roads and stay
+  // axis-aligned.
+  const traffic = buildProjectsTrafficCurve();
+  const boundaries = curvePlazaBoundaries(traffic);
+  if (boundaries.length < 2) {
+    throw new Error(`Expected >=2 boulevard plaza boundaries, got ${boundaries.length}`);
+  }
+  const west = boundaries.reduce((best, f) => (f.point.x < best.point.x ? f : best));
+  const south = boundaries.reduce((best, f) => (f.point.z < best.point.z ? f : best));
   return [
-    frameFromCurve('west', mainCurve, west.u, 11),
-    frameFromCurve('north', northRoad.curve, 0, northRoad.halfWidth),
-    frameFromCurve('east', eastRoad.curve, 0, eastRoad.halfWidth),
-    frameFromCurve('south', mainCurve, south.u, 11),
+    frameFromCurve('west', traffic, west.u, BOULEVARD_HALF_WIDTH),
+    makeAxisFrame('north', new THREE.Vector3(PLAZA_X, 0, PLAZA_Z + h), new THREE.Vector3(0, 0, 1), northRoad.halfWidth),
+    makeAxisFrame('east', new THREE.Vector3(PLAZA_X + h, 0, PLAZA_Z), new THREE.Vector3(1, 0, 0), eastRoad.halfWidth),
+    frameFromCurve('south', traffic, south.u, BOULEVARD_HALF_WIDTH),
   ];
+}
+
+/** Distance from (x,z) to the boulevard roadway edge (<0 == on the road). */
+const TRAFFIC_CENTERLINE = (() => {
+  const curve = buildProjectsTrafficCurve();
+  const steps = 400;
+  return Array.from({ length: steps + 1 }, (_, i) => curve.getPointAt(i / steps));
+})();
+function boulevardClearance(x: number, z: number): number {
+  let min = Infinity;
+  for (const p of TRAFFIC_CENTERLINE) {
+    const d = Math.hypot(x - p.x, z - p.z);
+    if (d < min) min = d;
+  }
+  return min - BOULEVARD_HALF_WIDTH;
+}
+
+/** Band centre (nudged just off the plaza, along the road) + outward normal for
+ * an approach — shared by the zebra band and its two tactile pads. */
+function approachBand(approach: ApproachFrame): {
+  outward: THREE.Vector3;
+  bandCenter: THREE.Vector3;
+} {
+  const fwd = approach.tangent.clone().setY(0).normalize();
+  const aheadX = approach.center.x + fwd.x;
+  const aheadZ = approach.center.z + fwd.z;
+  const aheadDist = Math.hypot(aheadX - PLAZA_X, aheadZ - PLAZA_Z);
+  const centerDist = Math.hypot(approach.center.x - PLAZA_X, approach.center.z - PLAZA_Z);
+  const outward = aheadDist >= centerDist ? fwd : fwd.clone().negate();
+  // Boulevard legs (west/south) hug the plaza's SW corner, so set their bands
+  // further back down the leg to reach un-clipped sidewalk on both ends.
+  const setback = approach.id === 'west' || approach.id === 'south'
+    ? APPROACH_SETBACK
+    : 0;
+  const bandCenter = approach.center.clone()
+    .addScaledVector(outward, CROSSWALK_DEPTH / 2 + CROSSWALK_EDGE_GAP + setback)
+    .setY(MARKING_Y);
+  return { outward, bandCenter };
 }
 
 export function buildShibuyaSideRoads(): SideRoadLeg[] {
@@ -249,7 +326,7 @@ export function buildShibuyaSideRoads(): SideRoadLeg[] {
         northStart,
         new THREE.Vector3(PLAZA_X, 0, PLAZA_Z + 110),
       ),
-      halfWidth: 7,
+      halfWidth: 9,
     },
     {
       id: 'east',
@@ -257,7 +334,7 @@ export function buildShibuyaSideRoads(): SideRoadLeg[] {
         eastStart,
         new THREE.Vector3(PLAZA_X + 110, 0, PLAZA_Z),
       ),
-      halfWidth: 7,
+      halfWidth: 9,
     },
   ];
 }
@@ -267,6 +344,8 @@ export function buildCrossingStripes(
   streetTangent: THREE.Vector3,
   spacingAxis: THREE.Vector3,
   span: number,
+  stripeWidth = STRIPE_WIDTH,
+  stripeLength = STRIPE_LENGTH,
 ): CrossingStripe[] {
   const tangent = streetTangent.clone().setY(0).normalize();
   const spacing = spacingAxis.clone().setY(0).normalize();
@@ -277,70 +356,59 @@ export function buildCrossingStripes(
       .setY(MARKING_Y)
       .addScaledVector(spacing, firstOffset + index * STRIPE_PITCH),
     longAxis: tangent.clone(),
-    length: 4.6,
-    width: 0.72,
+    length: stripeLength,
+    width: stripeWidth,
   }));
 }
 
 export function buildSidewalkIndicators(
   approaches: ApproachFrame[],
 ): SidewalkIndicator[] {
-  return approaches.flatMap((approach) =>
-    ([-1, 1] as const).map((side) => {
+  return approaches.flatMap((approach) => {
+    const { bandCenter } = approachBand(approach);
+    return ([-1, 1] as const).map((side) => {
       const sideName = side < 0 ? 'left' : 'right';
-      const forwardProbe = approach.center.clone().addScaledVector(approach.tangent, 0.25);
-      const backwardProbe = approach.center.clone().addScaledVector(approach.tangent, -0.25);
-      const outward = shibuyaPlazaClearance(forwardProbe.x, forwardProbe.z)
-        > shibuyaPlazaClearance(backwardProbe.x, backwardProbe.z)
-        ? approach.tangent
-        : approach.tangent.clone().negate();
-      const lateralOffset = side * (
-        approach.halfWidth
-        + 1
-        + INDICATOR_WIDTH / 2
-        + INDICATOR_MARGIN
+      // Sit each tactile pad squarely at the band's end, just outside the road
+      // edge, long axis parallel to the bars and the street edge.
+      let lateralOffset = side * (
+        approach.halfWidth + 1 + INDICATOR_WIDTH / 2 + INDICATOR_MARGIN
       );
-      let outwardOffset = INDICATOR_LENGTH / 2 + INDICATOR_MARGIN;
-      let center = approach.center.clone();
-      for (let iteration = 0; iteration < 20; iteration++) {
-        center = approach.center.clone()
-          .addScaledVector(outward, outwardOffset)
-          .addScaledVector(approach.binormal, lateralOffset);
-        const minimumCornerClearance = Math.min(
-          ...([-1, 1] as const).flatMap((along) =>
-            ([-1, 1] as const).map((across) => {
-              const corner = center.clone()
-                .addScaledVector(approach.tangent, along * INDICATOR_LENGTH / 2)
-                .addScaledVector(approach.binormal, across * INDICATOR_WIDTH / 2);
-              return shibuyaPlazaClearance(corner.x, corner.z);
-            })),
-        );
-        if (minimumCornerClearance >= INDICATOR_MARGIN) break;
-        outwardOffset += INDICATOR_MARGIN - minimumCornerClearance;
+      const at = (offset: number) => bandCenter.clone()
+        .addScaledVector(approach.binormal, offset);
+      // Safety net for the curving boulevard legs: never leave a pad sitting in
+      // (or right at the lip of) the roadway — push it further out along the
+      // crossing axis until it clears the boulevard well onto the sidewalk.
+      for (let i = 0; i < 48; i++) {
+        const probe = at(lateralOffset);
+        if (boulevardClearance(probe.x, probe.z) >= PAD_ROAD_CLEARANCE) break;
+        lateralOffset += side * 0.3;
       }
+      const center = at(lateralOffset)
+        .setY(SIDEWALK_TOP_Y + INDICATOR_HEIGHT / 2);
       return {
         id: `${approach.id}-${sideName}`,
-        center: center.setY(SIDEWALK_TOP_Y + INDICATOR_HEIGHT / 2),
+        center,
         longAxis: approach.tangent.clone(),
         length: INDICATOR_LENGTH,
         width: INDICATOR_WIDTH,
         height: INDICATOR_HEIGHT,
-        tactile: true,
-        illuminated: true,
+        tactile: true as const,
+        illuminated: true as const,
       };
-    }),
-  );
+    });
+  });
 }
 
 function buildApproachCrossing(approach: ApproachFrame): CrossingPlacement {
+  const { bandCenter } = approachBand(approach);
   return {
     id: `${approach.id}-approach`,
     kind: 'approach',
-    center: approach.center.clone(),
+    center: bandCenter.clone(),
     streetTangent: approach.tangent.clone(),
     spacingAxis: approach.binormal.clone(),
     stripes: buildCrossingStripes(
-      approach.center,
+      bandCenter,
       approach.tangent,
       approach.binormal,
       approach.halfWidth * 2,
@@ -349,62 +417,70 @@ function buildApproachCrossing(approach: ApproachFrame): CrossingPlacement {
   };
 }
 
-function buildDiagonalCrossing(
-  id: string,
-  start: SidewalkIndicator,
-  end: SidewalkIndicator,
-): CrossingPlacement {
-  const spacingAxis = end.center.clone().sub(start.center).setY(0);
-  const span = spacingAxis.length();
-  spacingAxis.normalize();
-  const streetTangent = new THREE.Vector3()
-    .crossVectors(spacingAxis, UP)
-    .normalize();
-  const center = start.center.clone().add(end.center).multiplyScalar(0.5).setY(MARKING_Y);
-  return {
+/** One diagonal scramble crossing from the SE plaza corner to the NW corner,
+ * with wider (longer) bars than the straight approach bands. Both corners sit
+ * clear of the boulevard, which only clips the SW. */
+function buildDiagonalCrossing(): {
+  crossing: CrossingPlacement;
+  indicators: SidewalkIndicator[];
+} {
+  // Chamfer-corner midpoints of the octagon (SE ↔ NW).
+  const start = new THREE.Vector3(PLAZA_X + h - c / 2, 0, PLAZA_Z - h + c / 2);
+  const end = new THREE.Vector3(PLAZA_X - h + c / 2, 0, PLAZA_Z + h - c / 2);
+  const spacingAxis = end.clone().sub(start).setY(0).normalize();
+  const streetTangent = new THREE.Vector3().crossVectors(spacingAxis, UP).normalize();
+  const center = start.clone().add(end).multiplyScalar(0.5).setY(MARKING_Y);
+  const span = start.distanceTo(end);
+  const indicators: SidewalkIndicator[] = ([
+    ['diagonal-se', start],
+    ['diagonal-nw', end],
+  ] as const).map(([id, corner]) => ({
     id,
-    kind: 'diagonal',
-    center: center.clone(),
-    streetTangent,
-    spacingAxis,
-    stripes: buildCrossingStripes(
-      center,
+    center: corner.clone().setY(SIDEWALK_TOP_Y + INDICATOR_HEIGHT / 2),
+    longAxis: streetTangent.clone(),
+    length: INDICATOR_LENGTH,
+    width: INDICATOR_WIDTH,
+    height: INDICATOR_HEIGHT,
+    tactile: true as const,
+    illuminated: true as const,
+  }));
+  return {
+    crossing: {
+      id: 'diagonal-se-nw',
+      kind: 'diagonal',
+      center: center.clone(),
       streetTangent,
       spacingAxis,
-      span,
-    ),
-    endpointIndicatorIds: [start.id, end.id],
+      stripes: buildCrossingStripes(
+        center,
+        streetTangent,
+        spacingAxis,
+        span,
+        STRIPE_WIDTH,
+        DIAGONAL_STRIPE_LENGTH,
+      ),
+      endpointIndicatorIds: ['diagonal-se', 'diagonal-nw'],
+    },
+    indicators,
   };
 }
 
 export function buildShibuyaIntersection(): ShibuyaIntersection {
   const sideRoads = buildShibuyaSideRoads();
-  const approaches = buildShibuyaApproaches(buildGroundRouteCurve(), sideRoads);
-  const indicators = buildSidewalkIndicators(approaches);
-  const indicatorById = new Map(indicators.map((indicator) => [indicator.id, indicator]));
-  const indicator = (id: string): SidewalkIndicator => {
-    const value = indicatorById.get(id);
-    if (!value) throw new Error(`Missing Shibuya indicator ${id}`);
-    return value;
-  };
+  const approaches = buildShibuyaApproaches(sideRoads);
+  const diagonal = buildDiagonalCrossing();
+  const indicators = [
+    ...buildSidewalkIndicators(approaches),
+    ...diagonal.indicators,
+  ];
+  // Four straight approach bands (west/south aligned to the curving boulevard,
+  // north/east to their side roads) plus one bold SW→NE scramble diagonal.
   return {
     plaza: buildShibuyaPlaza(),
     approaches,
     sideRoads,
     bikeRoute: { entry: 'west', exit: 'south' },
-    crossings: [
-      ...approaches.map(buildApproachCrossing),
-      buildDiagonalCrossing(
-        'northwest-southeast',
-        indicator('north-left'),
-        indicator('south-right'),
-      ),
-      buildDiagonalCrossing(
-        'northeast-southwest',
-        indicator('north-right'),
-        indicator('south-left'),
-      ),
-    ],
+    crossings: [...approaches.map(buildApproachCrossing), diagonal.crossing],
     indicators,
   };
 }
@@ -448,7 +524,9 @@ export function buildStraightRoadCrossings(): {
   const crossings: CrossingPlacement[] = [];
   const indicators: SidewalkIndicator[] = [];
 
-  for (const x of [-170, -60, 120]) {
+  // x=-60 is a real 4-way with the cross street; it gets its own builder
+  // (buildCrossStreetCrossings) with crosswalks on all four legs.
+  for (const x of [-170, 120]) {
     const frame = roadFrame(semanticTAtStraightX(x));
     const center = frame.pos.clone().setY(MARKING_Y);
     const tangent = frame.tangent.clone().setY(0).normalize();
@@ -482,6 +560,137 @@ export function buildStraightRoadCrossings(): {
   }
 
   return { crossings, indicators };
+}
+
+// ── The boulevard × cross-street 4-way (at x = -60) ──
+// A proper intersection reads as a zebra crosswalk on each of the four legs,
+// set just outside the conflict box (no diagonal scramble), with a tactile pad
+// at each corner. The main boulevard runs along ±x (halfWidth 11); the cross
+// street runs along ±z (halfWidth 7); they meet at (-60, 0).
+const CROSS_STREET_X = -60;
+const CROSS_STREET_HALF_WIDTH = 11;
+const MAIN_BOULEVARD_HALF_WIDTH = 11;
+const CROSSWALK_STRIPE_DEPTH = 4.6; // stripe length used by buildCrossingStripes
+const CROSSWALK_SETBACK_GAP = 0.6; // clearance between the box edge and the band
+
+export function buildCrossStreetCrossings(): {
+  crossings: CrossingPlacement[];
+  indicators: SidewalkIndicator[];
+} {
+  const mainFrame = roadFrame(semanticTAtStraightX(CROSS_STREET_X));
+  const mainTangent = mainFrame.tangent.clone().setY(0).normalize(); // ≈ +x
+  const mainAcross = mainFrame.binormal.clone().setY(0).normalize(); // ≈ +z
+  // The cross street is (near-)axis-aligned along z; use a clean rectilinear
+  // frame so the 4-way reads as a square rather than a skewed parallelogram.
+  const crossTangent = new THREE.Vector3(0, 0, 1);
+  const crossAcross = new THREE.Vector3(1, 0, 0);
+  const center = new THREE.Vector3(mainFrame.pos.x, MARKING_Y, 0);
+
+  // Each band sits just past the far road's edge, outside the conflict box.
+  const mainBandOffset = CROSS_STREET_HALF_WIDTH
+    + CROSSWALK_SETBACK_GAP + CROSSWALK_STRIPE_DEPTH / 2;
+  const crossBandOffset = MAIN_BOULEVARD_HALF_WIDTH
+    + CROSSWALK_SETBACK_GAP + CROSSWALK_STRIPE_DEPTH / 2;
+
+  const crossings: CrossingPlacement[] = [];
+
+  // West / East legs cross the boulevard (stripes span its full width).
+  for (const side of [-1, 1] as const) {
+    const legName = side < 0 ? 'west' : 'east';
+    const bandCenter = center.clone()
+      .addScaledVector(mainTangent, side * mainBandOffset);
+    crossings.push({
+      id: `xstreet-${legName}`,
+      kind: 'straight',
+      center: bandCenter.clone(),
+      streetTangent: mainTangent.clone(),
+      spacingAxis: mainAcross.clone(),
+      stripes: buildCrossingStripes(
+        bandCenter,
+        mainTangent,
+        mainAcross,
+        MAIN_BOULEVARD_HALF_WIDTH * 2,
+      ),
+      endpointIndicatorIds: [],
+    });
+  }
+
+  // North / South legs cross the side street (stripes span its full width).
+  for (const side of [-1, 1] as const) {
+    const legName = side < 0 ? 'south' : 'north';
+    const bandCenter = center.clone()
+      .addScaledVector(crossTangent, side * crossBandOffset);
+    crossings.push({
+      id: `xstreet-${legName}`,
+      kind: 'straight',
+      center: bandCenter.clone(),
+      streetTangent: crossTangent.clone(),
+      spacingAxis: crossAcross.clone(),
+      stripes: buildCrossingStripes(
+        bandCenter,
+        crossTangent,
+        crossAcross,
+        CROSS_STREET_HALF_WIDTH * 2,
+      ),
+      endpointIndicatorIds: [],
+    });
+  }
+
+  // A tactile pad at each of the four corners, just off both roadways.
+  const cornerInset = 1.6;
+  const indicators: SidewalkIndicator[] = [];
+  for (const sx of [-1, 1] as const) {
+    for (const sz of [-1, 1] as const) {
+      const cornerName = `${sz < 0 ? 's' : 'n'}${sx < 0 ? 'w' : 'e'}`;
+      indicators.push({
+        id: `xstreet-corner-${cornerName}`,
+        center: new THREE.Vector3(
+          center.x + sx * (CROSS_STREET_HALF_WIDTH + cornerInset),
+          SIDEWALK_TOP_Y + INDICATOR_HEIGHT / 2,
+          sz * (MAIN_BOULEVARD_HALF_WIDTH + cornerInset),
+        ),
+        longAxis: mainTangent.clone(),
+        length: 2.4,
+        width: 2,
+        height: INDICATOR_HEIGHT,
+        tactile: true,
+        illuminated: true,
+      });
+    }
+  }
+
+  return { crossings, indicators };
+}
+
+// ── Junction infrastructure clips for the boulevard × cross-street 4-way ──
+// The two roadway decks are allowed to overlap (that IS the paved junction),
+// but each road's sidewalks / curbs / edge-lines must be kept out of the other
+// road's roadway so nothing reads as "sidewalk overlapping the road". The
+// boulevard is the through-road: its edge + centre lines run continuous across
+// the junction; only its raised sidewalk + curb are notched out of the cross
+// street's mouth. The cross street terminates at the boulevard: all of its
+// infrastructure (edge, centre, sidewalk, curb) stops at the boulevard's edge.
+// The pedestrian crossing is carried entirely by the four zebra crosswalk bands.
+const CROSS_JUNCTION_MARGIN = 0.6;
+// Outer reach of a road's raised sidewalk beyond its own edge: the walk ribbon
+// is centred at (halfWidth + 4.5) with half-width 4.5, so it extends 9m past the
+// road edge. Used to size the notch depth along the crossing road.
+const SIDEWALK_OUTER_REACH = 9;
+
+/** True where the boulevard's own sidewalk/curb would sit inside the cross
+ * street's mouth — clipped so the side-street opening stays clear. */
+export function boulevardWalkClipAtCrossStreet(x: number, z: number): boolean {
+  return Math.abs(x - CROSS_STREET_X)
+      <= CROSS_STREET_HALF_WIDTH + CROSS_JUNCTION_MARGIN
+    && Math.abs(z) <= MAIN_BOULEVARD_HALF_WIDTH + SIDEWALK_OUTER_REACH;
+}
+
+/** True where the cross street's markings/sidewalk/curb would overlap the
+ * boulevard roadway — clipped so the main road reads clean and continuous. */
+export function crossStreetInfraClipAtBoulevard(x: number, z: number): boolean {
+  return Math.abs(z) <= MAIN_BOULEVARD_HALF_WIDTH + CROSS_JUNCTION_MARGIN
+    && Math.abs(x - CROSS_STREET_X)
+      <= CROSS_STREET_HALF_WIDTH + SIDEWALK_OUTER_REACH;
 }
 
 export const SHIBUYA_STRIPE_PITCH = STRIPE_PITCH;

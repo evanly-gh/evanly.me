@@ -5,10 +5,7 @@ import {
   shibuyaPlazaContains,
   shibuyaPlazaClearance,
 } from './intersections';
-import {
-  buildGroundRouteSegmentCurve,
-  buildProjectsTrafficCurve,
-} from './route';
+import { buildProjectsTrafficCurve } from './route';
 import {
   orientedFootprintCorners,
   projectedFootprintHalfExtent,
@@ -21,7 +18,6 @@ import {
   PROJECTS_MAIN_ROAD_KEEP_CLEAR,
   STUNT_CAMERA_KEEP_CLEAR,
   STUNT_KEEP_CLEAR,
-  STUNT_SERVICE_ALLEY,
 } from './stuntGeometry';
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -44,36 +40,44 @@ export interface RoadDef {
   surface?: 'traffic-asphalt' | 'service-concrete';
 }
 
-// ── The traffic street stays on x=240 through Projects. The bike's eastward
-//    branch is rendered independently as the narrower service alley. ──
+// ── The traffic street stays on x=240 through Projects. ──
 const mainCurve = buildProjectsTrafficCurve();
-const serviceAlleyCurve = buildGroundRouteSegmentCurve(0.28, 0.7);
 
 // ── One secondary ground cross-street: crosses the main boulevard (which runs
-//    along z≈0) perpendicularly at x=-60, making a clean + intersection. ──
+//    along z≈0) perpendicularly at x=-60, making a clean + intersection. It runs
+//    straight along x=-60 from a north terminus (z=101, where the About camera
+//    parks) south across the boulevard and simply DEAD-ENDS flush against the
+//    About billboard building (facade z≈-74); the flat ribbon end reads as the
+//    street terminating naturally at the sign. Widened so the approach is broad. ──
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 const cross = new THREE.CatmullRomCurve3(
-  [V(-60, 0, 95), V(-60, 0, 0), V(-62, 0, -120), V(-70, 0, -210)], false, 'centripetal', 0.5);
+  [V(-60, 0, 101), V(-60, 0, 40), V(-60, 0, 0), V(-60, 0, -72)], false, 'centripetal', 0.5);
 
-// ── Decorative elevated highway: a modest-height background arc north/east of
-//    the dense district. Endpoints remain beyond the city grid, while the
-//    central sweep stays north of z=150 and away from Shibuya/stunt axes. ──
+// ── Elevated monorail: a suspended straddle-beam guideway (Chiba Urban
+//    Monorail style) that sweeps north of the boulevard, dips south to cross
+//    it once near the western district, swings back south of the boulevard,
+//    then rises north again to cross a second time before the Shibuya turn —
+//    exactly two crossings of the ground route's straight z≈0 segment, both
+//    well clear of the Shibuya/stunt/bridge corridors beyond x=160. ──
 export const ELEVATED_HIGHWAY_ID = 'elevated-highway';
 export const DECK_UNDERSIDE_OFFSET = 1.4;
 export const BUILDING_DECK_VERTICAL_MARGIN = 4;
 export const ELEVATED_DECK_HALF_WIDTH_PADDING = 0.8;
 export const ELEVATED_DECK_SAMPLE_COUNT = 1024;
-// Elevated highway that sweeps across the whole city (west → east) at rooftop
-// height, crossing over the boulevard / stunt corridor rather than skirting the
-// northern boundary. Pillars are auto-skipped over streets/buildings and the
-// deck clearance culls towers under the span, so it threads the skyline cleanly.
+// Pillars are auto-skipped over streets/buildings and the deck clearance culls
+// towers under the span, so the new path threads the skyline cleanly with no
+// further changes needed to the pillar/deck-clearance systems.
 export const ELEVATED_HIGHWAY_CONTROL_POINTS = [
-  V(-600, 88, 70),
-  V(-300, 86, 16),
-  V(-20, 92, -12),
-  V(240, 90, -8),
-  V(520, 92, 70),
-  V(700, 94, 250),
+  V(-680, 92, 160),
+  V(-350, 90, 150),
+  V(-40, 90, 110),
+  V(20, 88, -65),
+  V(90, 86, -55),
+  V(160, 90, 30),
+  V(210, 95, 150),
+  V(320, 98, 190),
+  V(520, 100, 220),
+  V(720, 103, 260),
 ] as const;
 const hwy = new THREE.CatmullRomCurve3(
   ELEVATED_HIGHWAY_CONTROL_POINTS.map((point) => point.clone()),
@@ -95,7 +99,7 @@ export const ROADS: RoadDef[] = [
     id: 'cross-street',
     kind: 'cross-street',
     curve: cross,
-    halfWidth: 7,
+    halfWidth: 11,
     ground: true,
     level: 0,
   },
@@ -103,7 +107,7 @@ export const ROADS: RoadDef[] = [
     id: ELEVATED_HIGHWAY_ID,
     kind: 'elevated-highway',
     curve: hwy,
-    halfWidth: 8,
+    halfWidth: 2.6, // slim straddle-beam guideway, not a road-width deck
     ground: false,
     level: 0,
   },
@@ -115,16 +119,6 @@ export const ROADS: RoadDef[] = [
     ground: true,
     level: 0,
   })),
-  {
-    id: 'stunt-service-alley',
-    kind: 'service-alley',
-    curve: serviceAlleyCurve,
-    halfWidth: STUNT_SERVICE_ALLEY.halfWidth,
-    ground: true,
-    level: 0,
-    source: 'stunt-route-ground-projection',
-    surface: 'service-concrete',
-  },
 ];
 
 // ── Keep-clear zones (rectangles) — the ramp/scaffold stunt corridor; the city
@@ -305,6 +299,73 @@ export function buildCurveRibbon(
     if (triangleIsClear(right[i], left[i + 1], right[i + 1])) {
       idx.push(a + 1, a + 2, a + 3);
     }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeBoundingSphere();
+  return g;
+}
+
+/** Sweep a solid box (4 side faces, no caps) along a curve — used for the
+ * monorail guideway beam, which needs a real box-beam silhouette rather than
+ * a flat ribbon. */
+export interface CurveBoxBeamOptions {
+  lift?: number;
+  steps?: number;
+  vScale?: number;
+}
+
+export function buildCurveBoxBeam(
+  curve: THREE.Curve<THREE.Vector3>,
+  halfWidth: number,
+  height: number,
+  { lift = 0, steps = 400, vScale = 0.06 }: CurveBoxBeamOptions = {},
+): THREE.BufferGeometry {
+  const pos: number[] = [], nor: number[] = [], uv: number[] = [], idx: number[] = [];
+  const topL: THREE.Vector3[] = [], topR: THREE.Vector3[] = [];
+  const botL: THREE.Vector3[] = [], botR: THREE.Vector3[] = [];
+  const bins: THREE.Vector3[] = [];
+  const vs: number[] = [];
+  let dist = 0;
+  let prevTop: THREE.Vector3 | null = null;
+  for (let i = 0; i <= steps; i++) {
+    const u = i / steps;
+    const p = curve.getPointAt(u);
+    const tan = curve.getTangentAt(u).setY(0).normalize();
+    const bin = new THREE.Vector3().crossVectors(tan, UP).normalize();
+    const top = p.clone().addScaledVector(UP, lift);
+    const bottom = top.clone().addScaledVector(UP, -height);
+    if (prevTop) dist += top.distanceTo(prevTop);
+    prevTop = top;
+    vs.push(dist * vScale);
+    bins.push(bin);
+    topL.push(top.clone().addScaledVector(bin, halfWidth));
+    topR.push(top.clone().addScaledVector(bin, -halfWidth));
+    botL.push(bottom.clone().addScaledVector(bin, halfWidth));
+    botR.push(bottom.clone().addScaledVector(bin, -halfWidth));
+  }
+  const pushQuad = (
+    a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3,
+    normal: THREE.Vector3, v: number, vNext: number,
+  ) => {
+    const base = pos.length / 3;
+    pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z);
+    for (let k = 0; k < 4; k++) nor.push(normal.x, normal.y, normal.z);
+    uv.push(0, v, 1, v, 1, vNext, 0, vNext);
+    idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  };
+  const down = UP.clone().negate();
+  for (let i = 0; i < steps; i++) {
+    const v = vs[i], vNext = vs[i + 1];
+    const binL = bins[i];
+    const binR = binL.clone().negate();
+    pushQuad(topL[i], topR[i], topR[i + 1], topL[i + 1], UP, v, vNext);
+    pushQuad(botR[i], botL[i], botL[i + 1], botR[i + 1], down, v, vNext);
+    pushQuad(topL[i], topL[i + 1], botL[i + 1], botL[i], binL, v, vNext);
+    pushQuad(topR[i + 1], topR[i], botR[i], botR[i + 1], binR, v, vNext);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
