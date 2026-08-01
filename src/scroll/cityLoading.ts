@@ -109,14 +109,22 @@ export function createCityZoneLoadController({
       activate(cityZonesForSemanticProgress(semanticT));
     },
     ready: (zone) => {
-      // Eagerly idle-preload ONLY the first zone after `route` (shibuya) so the
-      // opening scroll into it is pop-in free. We intentionally do NOT cascade
-      // further: earlier this preloaded next-after-next-after-... which pulled
-      // and Draco-decoded every zone's GLBs on first load (whole 51 MB set,
-      // ~20 s to full-city-ready) with no scrolling. Beyond shibuya, zones load
-      // scroll-driven via progress() — which already carries a one-zone
-      // lookahead — with procedural shells covering any not-yet-ready zone.
-      if (zone !== 'route') return;
+      // Deferred background preload: when a zone finishes loading, idle-schedule
+      // the NEXT zone. Because `ready` only fires after a zone's GLBs are
+      // decoded, this chains route -> shibuya -> projects -> research -> finale
+      // one zone at a time, each starting only once the previous is done and
+      // only during an idle callback. The cascade therefore begins *after* the
+      // intro is already on screen (route-ready ~7s, well past first paint) and
+      // fills the rest of the city in the background while the viewer reads the
+      // intro — so scrolling onward finds zones already decoded instead of
+      // popping in just-in-time.
+      //
+      // This is NOT the old eager cascade that caused the ~20s first-load stall:
+      // that one raced all zones before first paint. Here the staggering (one
+      // per ready event) + idle gating keeps the intro smooth while still
+      // proactively warming every zone. Scroll-driven progress() still activates
+      // zones on demand (with its one-zone lookahead) if the viewer outruns the
+      // background preload; activate() dedupes so the two never double-load.
       const next = nextCityZone(zone);
       if (!next || active.has(next) || scheduled.has(next)) return;
       const cancel = scheduleIdle(() => {
