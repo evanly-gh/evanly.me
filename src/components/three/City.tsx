@@ -202,13 +202,14 @@ import {
 } from './researchRender';
 import {
   buildInitialVisibilityLayout,
-  buildInitialVisibilityLayoutFull,
   buildVisibilityLayouts,
   estimateVisibilityBudget,
   resolveVisibilityProfile,
+  reviveWorkerVisibilityLayouts,
   type VisibilityLayout,
   type VisibilityLayouts,
 } from '../../world/visibilityProfile';
+import type { LayoutWorkerResponse } from '../../world/layoutWorker';
 import {
   CITY_ZONE_IDS,
   createCityZoneLoadController,
@@ -3193,28 +3194,51 @@ function City({
       window.removeEventListener('resize', update);
     };
   }, []);
-  // Mount with a buildings-only layout (~1s) so the first 3D frame isn't blocked
-  // by the ~1.5s of props/crowd/furniture/dressing/signs generation. That detail
-  // sub-layout is filled in from idle right after first paint (below), and later
-  // superseded by the culled visibilityLayouts once the route zone is ready.
-  const [initialVisibilityLayout, setInitialVisibilityLayout] =
-    useState(buildInitialVisibilityLayout);
-  useEffect(() => scheduleCityIdle(() => {
-    setInitialVisibilityLayout((current) =>
-      current.props.length ? current : buildInitialVisibilityLayoutFull());
-  }), []);
+  // Mount with a buildings-only layout (~1s, synchronous) so the first 3D frame
+  // shows real structure immediately. Everything heavier — the ~1.5s of
+  // props/crowd/furniture/dressing/signs generation AND the frustum-culling pass —
+  // runs in a Web Worker (layoutWorker) off the main thread; the culled result
+  // swaps in as visibilityLayouts when it arrives, with no main-thread freeze.
+  const initialVisibilityLayout = useMemo(buildInitialVisibilityLayout, []);
   const [visibilityLayouts, setVisibilityLayouts] =
     useState<VisibilityLayouts | null>(null);
+  const layoutWorkerRef = useRef<Worker | null>(null);
+  const layoutRequestRef = useRef(0);
+  useEffect(() => {
+    if (typeof Worker === 'undefined') return undefined;
+    const worker = new Worker(
+      new URL('../../world/layoutWorker.ts', import.meta.url),
+      { type: 'module' },
+    );
+    worker.onmessage = (event: MessageEvent<LayoutWorkerResponse>) => {
+      // Ignore results superseded by a later viewport (resize).
+      if (event.data.requestId !== layoutRequestRef.current) return;
+      setVisibilityLayouts(reviveWorkerVisibilityLayouts(event.data.layouts));
+    };
+    layoutWorkerRef.current = worker;
+    return () => {
+      worker.terminate();
+      layoutWorkerRef.current = null;
+    };
+  }, []);
+  useEffect(() => {
+    const worker = layoutWorkerRef.current;
+    // No worker (unsupported / SSR): fall back to a main-thread idle computation.
+    if (!worker) {
+      return scheduleCityIdle(() => {
+        setVisibilityLayouts(buildVisibilityLayouts(visibilityViewport));
+      });
+    }
+    layoutRequestRef.current += 1;
+    worker.postMessage({
+      requestId: layoutRequestRef.current,
+      viewport: visibilityViewport,
+    });
+    return undefined;
+  }, [visibilityViewport]);
   const bikeRef = useRef<BikeRiderHandle>(null);
   const [activeZones, setActiveZones] = useState<CityZoneId[]>(['route']);
   const [readyZones, setReadyZones] = useState<CityZoneId[]>([]);
-  const routeZoneReady = readyZones.includes('route');
-  useEffect(() => {
-    if (!routeZoneReady) return undefined;
-    return scheduleCityIdle(() => {
-      setVisibilityLayouts(buildVisibilityLayouts(visibilityViewport));
-    });
-  }, [routeZoneReady, visibilityViewport]);
   const [moonReady, setMoonReady] = useState(false);
   const onZoneActiveRef = useRef(onZoneActive);
   onZoneActiveRef.current = onZoneActive;

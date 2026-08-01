@@ -32,6 +32,11 @@ function manualChunks(id: string): string | undefined {
 export default defineConfig({
   plugins: [react()],
   assetsInclude: ['**/*.glb'],
+  // The city layout worker (src/world/layoutWorker.ts) is loaded as a module
+  // worker (`type: 'module'`); emit it as ES so the production build matches.
+  worker: {
+    format: 'es',
+  },
   build: {
     rollupOptions: {
       output: {

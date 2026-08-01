@@ -356,6 +356,33 @@ export function buildInitialVisibilityLayout(): VisibilityLayout {
   };
 }
 
+/**
+ * Rehydrate the {@link THREE.Vector3} fields that a structured-clone across a Web
+ * Worker boundary flattens to plain `{x,y,z}` objects. Only `furniture` holds live
+ * Vector3 instances (Lamp/Pole `pos`, Cable `a`/`b`); the renderer calls Vector3
+ * methods on the cables (clone / CatmullRomCurve3), so they must be real vectors.
+ * Every other field in {@link VisibilityLayouts} is already plain data. Mutates and
+ * returns the passed (worker-owned) object.
+ */
+export function reviveWorkerVisibilityLayouts(
+  layouts: VisibilityLayouts,
+): VisibilityLayouts {
+  const reviveVec3 = (v: { x: number; y: number; z: number }) =>
+    new THREE.Vector3(v.x, v.y, v.z);
+  const reviveFurniture = (furniture: StreetFurniture): StreetFurniture => ({
+    lamps: furniture.lamps.map((lamp) => ({ ...lamp, pos: reviveVec3(lamp.pos) })),
+    poles: furniture.poles.map((pole) => ({ ...pole, pos: reviveVec3(pole.pos) })),
+    cables: furniture.cables.map((cable) => ({
+      ...cable,
+      a: reviveVec3(cable.a),
+      b: reviveVec3(cable.b),
+    })),
+  });
+  layouts.full.furniture = reviveFurniture(layouts.full.furniture);
+  layouts.cinematic.furniture = reviveFurniture(layouts.cinematic.furniture);
+  return layouts;
+}
+
 /** Full mount layout (buildings + all detail sub-layouts). Runs the ~1.5s of
  * sub-layout generation; call from idle after first paint, not at mount. */
 export function buildInitialVisibilityLayoutFull(): VisibilityLayout {
