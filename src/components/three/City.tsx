@@ -3157,6 +3157,72 @@ function scheduleCityIdle(callback: () => void): () => void {
   return () => window.clearTimeout(handle);
 }
 
+// Pre-warm the GPU off the scroll path. three compiles a material's shader
+// program and uploads its textures lazily on the first frame the mesh is drawn.
+// During a scroll that stacks every newly-visible material's compile+upload into
+// one long main-thread task — measured ~1.3s (plus a ~0.6s follow-up) the first
+// time the about section (a 3072x2048 poster texture behind a wall of buildings)
+// enters the frustum. gl.compile walks the whole scene graph regardless of
+// frustum, creating every material's program and uploading its textures ahead of
+// time; the program cache is keyed on material features + lights, not camera
+// transform, so warming now yields cache hits when the camera later arrives.
+//
+// Runs on an idle callback whenever a zone finishes loading (its meshes have
+// just mounted) or the moon appears, so newly-streamed geometry is warmed too.
+// Because previously-warmed programs/textures are cache hits, each incremental
+// call only pays for the geometry added since the last one — the cost stays
+// bounded and spread across idle gaps between zone loads instead of landing on a
+// scroll frame. We use the synchronous gl.compile rather than compileAsync: the
+// latter's KHR_parallel_shader_compile polling loop throws and emits GL_INVALID
+// warnings in this three version when re-invoked as zones stream in.
+function GpuPrewarm({
+  readyZones,
+  moonReady,
+}: {
+  readyZones: CityZoneId[];
+  moonReady: boolean;
+}) {
+  const gl = useThree((state) => state.gl);
+  const scene = useThree((state) => state.scene);
+  const camera = useThree((state) => state.camera);
+  useEffect(
+    () => scheduleCityIdle(() => {
+      try {
+        // Compile shader programs for everything in the graph...
+        gl.compile(scene, camera);
+        // ...then force every material texture onto the GPU. gl.compile creates
+        // programs but does not upload all maps (notably the about hero's
+        // 3072x2048 CanvasTexture), so without this the texture upload still
+        // lands on the first-draw scroll frame — measured as the ~0.5-0.7s
+        // freezes at the about poster and the panels just past it. initTexture
+        // is idempotent, so already-resident textures are skipped cheaply.
+        const uploaded = new Set<THREE.Texture>();
+        scene.traverse((object) => {
+          const material = (object as THREE.Mesh).material;
+          if (!material) return;
+          const materials = Array.isArray(material) ? material : [material];
+          for (const entry of materials) {
+            for (const value of Object.values(entry)) {
+              if (
+                value instanceof THREE.Texture
+                && !uploaded.has(value)
+              ) {
+                uploaded.add(value);
+                gl.initTexture(value);
+              }
+            }
+          }
+        });
+      } catch {
+        // Pre-warming is best-effort; a failure just means the affected material
+        // or texture warms lazily on first draw, exactly as it did before.
+      }
+    }),
+    [gl, scene, camera, readyZones, moonReady],
+  );
+  return null;
+}
+
 export interface CityProps {
   production?: boolean;
   progressStore?: ProgressStore;
@@ -3391,6 +3457,7 @@ function City({
         </Suspense>
       ))}
       <Suspense fallback={null}><AboutHero /></Suspense>
+      <GpuPrewarm readyZones={readyZones} moonReady={moonReady} />
       <ShibuyaFacadePanels />
       <Suspense fallback={null}><Scaffold /></Suspense>
       {activeZones.includes('projects') && <ProjectsPanels />}
