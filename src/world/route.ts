@@ -52,19 +52,36 @@ const SHIBUYA_TURN_CONTROL_POINTS = [
   new THREE.Vector3(STUNT_CENTER_X, 0, STUNT_RAMP1.baseZ),
 ] as const;
 
+// De Casteljau needs a mutable working copy of the control points. Cloning the
+// array every call churned ~6 Vector3 per sample — and the Shibuya turn samples
+// the curve several times per frame. Reuse module-level scratch instead. The two
+// buffers are distinct so sampleBezierTangent (which fills DERIV then calls
+// sampleBezier, which fills WORK) never clobbers its own input.
+const BEZIER_WORK: THREE.Vector3[] = Array.from(
+  { length: SHIBUYA_TURN_CONTROL_POINTS.length },
+  () => new THREE.Vector3(),
+);
+const BEZIER_DERIV: THREE.Vector3[] = Array.from(
+  { length: SHIBUYA_TURN_CONTROL_POINTS.length - 1 },
+  () => new THREE.Vector3(),
+);
+
 function sampleBezier(
   controlPoints: readonly THREE.Vector3[],
   t: number,
   optionalTarget: THREE.Vector3,
 ): THREE.Vector3 {
   const clamped = THREE.MathUtils.clamp(t, 0, 1);
-  const points = controlPoints.map((point) => point.clone());
-  for (let level = 1; level < points.length; level += 1) {
-    for (let index = 0; index < points.length - level; index += 1) {
-      points[index].lerp(points[index + 1], clamped);
+  const count = controlPoints.length;
+  for (let index = 0; index < count; index += 1) {
+    BEZIER_WORK[index].copy(controlPoints[index]);
+  }
+  for (let level = 1; level < count; level += 1) {
+    for (let index = 0; index < count - level; index += 1) {
+      BEZIER_WORK[index].lerp(BEZIER_WORK[index + 1], clamped);
     }
   }
-  return optionalTarget.copy(points[0]);
+  return optionalTarget.copy(BEZIER_WORK[0]);
 }
 
 function sampleBezierTangent(
@@ -73,9 +90,15 @@ function sampleBezierTangent(
   optionalTarget: THREE.Vector3,
 ): THREE.Vector3 {
   const degree = controlPoints.length - 1;
-  const derivativeControls = controlPoints.slice(1).map((point, index) =>
-    point.clone().sub(controlPoints[index]).multiplyScalar(degree));
-  return sampleBezier(derivativeControls, t, optionalTarget).normalize();
+  for (let index = 0; index < degree; index += 1) {
+    BEZIER_DERIV[index]
+      .copy(controlPoints[index + 1])
+      .sub(controlPoints[index])
+      .multiplyScalar(degree);
+  }
+  // BEZIER_DERIV is sized to exactly `degree` for the only curve in play, so its
+  // length already matches the derivative control count sampleBezier expects.
+  return sampleBezier(BEZIER_DERIV, t, optionalTarget).normalize();
 }
 
 class DeterministicBezierCurve extends THREE.Curve<THREE.Vector3> {
@@ -698,7 +721,12 @@ export interface RoadFrame {
 // ──────────────────────────────────────────────────────────────────────────────
 // sampleRoute — pure, deterministic.  t ∈ [0,1] is semantic story progress.
 // ──────────────────────────────────────────────────────────────────────────────
-export function sampleRoute(t: number): RouteSample {
+export function sampleRoute(t: number, target?: RouteSample): RouteSample {
+  if (target) {
+    sampleSemanticPoint(t, target.pos);
+    sampleSemanticTangent(t, target.tangent);
+    return target;
+  }
   const pos = sampleSemanticPoint(t);
   const tangent = sampleSemanticTangent(t);
   return { pos, tangent };
@@ -711,21 +739,25 @@ export function sampleRoute(t: number): RouteSample {
 // ──────────────────────────────────────────────────────────────────────────────
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
 
-export function roadFrame(t: number): RoadFrame {
-  const pos = sampleSemanticPoint(t);
-  const tangent = sampleSemanticTangent(t);
+export function roadFrame(t: number, target?: RoadFrame): RoadFrame {
+  const pos = target
+    ? sampleSemanticPoint(t, target.pos)
+    : sampleSemanticPoint(t);
+  const tangent = target
+    ? sampleSemanticTangent(t, target.tangent)
+    : sampleSemanticTangent(t);
+  const binormal = target ? target.binormal : new THREE.Vector3();
+  const normal = target ? target.normal : new THREE.Vector3();
 
   // Guard against degenerate case (tangent ∥ worldUp — never occurs on this path).
-  let binormal: THREE.Vector3;
   if (Math.abs(tangent.dot(WORLD_UP)) > 0.999) {
-    binormal = new THREE.Vector3(0, 0, 1).cross(tangent).normalize();
+    binormal.set(0, 0, 1).cross(tangent).normalize();
   } else {
-    binormal = new THREE.Vector3().crossVectors(tangent, WORLD_UP).normalize();
+    binormal.crossVectors(tangent, WORLD_UP).normalize();
   }
+  normal.crossVectors(binormal, tangent).normalize();
 
-  const normal = new THREE.Vector3().crossVectors(binormal, tangent).normalize();
-
-  return { pos, tangent, normal, binormal };
+  return target ?? { pos, tangent, normal, binormal };
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

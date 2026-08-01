@@ -168,7 +168,6 @@ export const BikeRider = forwardRef<BikeRiderHandle>(function BikeRider(
   const assetRef = useRef<BikeAsset | null>(null);
   const trailsRef = useRef<BikeTrailsHandle>(null);
   const stateRef = useRef<BikeState | undefined>(undefined);
-  const snapshotRef = useRef<MountedBikeSnapshot | undefined>(undefined);
   const asset = useCommittedThreeResource('bike-rider', ({ own }) => {
     const created = buildBike(makeRng(0x4556414e));
     BIKE_FADE_MATERIALS.set(created, captureBikeFadeMaterials(created));
@@ -183,7 +182,6 @@ export const BikeRider = forwardRef<BikeRiderHandle>(function BikeRider(
     if (!current) return undefined;
     const state = applyBikeProgress(current, semanticT);
     stateRef.current = state;
-    snapshotRef.current = snapshotBikeAsset(current, semanticT);
     return state;
   };
 
@@ -196,7 +194,15 @@ export const BikeRider = forwardRef<BikeRiderHandle>(function BikeRider(
         stateRef.current,
       );
     },
-    snapshot: () => snapshotRef.current,
+    // Computed on demand: only the inspect API reads this, so building a fresh
+    // snapshot (with its toArray() allocations) every frame was pure waste in
+    // production.
+    snapshot: () => {
+      const current = assetRef.current;
+      return current
+        ? snapshotBikeAsset(current, desiredProgress.current)
+        : undefined;
+    },
     object: () => assetRef.current?.group ?? null,
   }), []);
 

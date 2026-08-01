@@ -202,6 +202,7 @@ import {
 } from './researchRender';
 import {
   buildInitialVisibilityLayout,
+  buildInitialVisibilityLayoutFull,
   buildVisibilityLayouts,
   estimateVisibilityBudget,
   resolveVisibilityProfile,
@@ -3022,6 +3023,12 @@ function SceneInspectionPresets() {
   return null;
 }
 
+// Self-host the Draco decoder (public/draco) so building GLBs decode without a
+// gstatic.com round-trip on the critical path. setDecoderPath is module-global in
+// drei's useGLTF, so this one call covers every call site (City, KitPiece,
+// InstancedPieces) — it just has to run before the first load below.
+useGLTF.setDecoderPath('/draco/');
+
 // ── Crowd: instanced humans on sidewalks with a sparse robot minority ──
 useGLTF.preload(`/models/${HUMAN_FILE}`);
 ROBOT_FILES.forEach((file) => useGLTF.preload(`/models/${file}`));
@@ -3186,7 +3193,16 @@ function City({
       window.removeEventListener('resize', update);
     };
   }, []);
-  const [initialVisibilityLayout] = useState(buildInitialVisibilityLayout);
+  // Mount with a buildings-only layout (~1s) so the first 3D frame isn't blocked
+  // by the ~1.5s of props/crowd/furniture/dressing/signs generation. That detail
+  // sub-layout is filled in from idle right after first paint (below), and later
+  // superseded by the culled visibilityLayouts once the route zone is ready.
+  const [initialVisibilityLayout, setInitialVisibilityLayout] =
+    useState(buildInitialVisibilityLayout);
+  useEffect(() => scheduleCityIdle(() => {
+    setInitialVisibilityLayout((current) =>
+      current.props.length ? current : buildInitialVisibilityLayoutFull());
+  }), []);
   const [visibilityLayouts, setVisibilityLayouts] =
     useState<VisibilityLayouts | null>(null);
   const bikeRef = useRef<BikeRiderHandle>(null);

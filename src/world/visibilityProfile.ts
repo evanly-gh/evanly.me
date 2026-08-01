@@ -229,6 +229,7 @@ interface StaticVisibilitySource {
 }
 
 let cachedStaticVisibilitySource: StaticVisibilitySource | undefined;
+let cachedBuildingsSource: Placement[] | undefined;
 let cachedAntiVoidMetrics: TypedAntiVoidMetric[] | undefined;
 export const VISIBILITY_LAYOUT_CACHE_LIMIT = 4;
 const VISIBILITY_ASPECT_BUCKETS_PER_UNIT = 64;
@@ -262,9 +263,20 @@ const STATIC_CANYON_FILLERS: CanyonFiller[] = [
   { id: 'cinematic-canyon-filler:12', position: [265.38260397621286, 0, -570.1787374474948], size: [6, 41.686, 4], rotationY: 2.7649797853389, sourceProbeIds: ['production-rig:key:research-22:probe:0', 'production-rig:key:research-21:probe:1'], triangles: 12, safety: STATIC_FILLER_SAFETY },
 ];
 
+/**
+ * Building placements only (~1s of work). Split out from the full source so the
+ * synchronous City mount can render structure (buildings + procedural shells)
+ * without also paying for the ~1.5s of street dressing / crowd / props / signs
+ * generation up front — those are deferred to idle by the caller.
+ */
+function buildingsSource(): Placement[] {
+  if (!cachedBuildingsSource) cachedBuildingsSource = buildCityLayout();
+  return cachedBuildingsSource;
+}
+
 function staticVisibilitySource(): StaticVisibilitySource {
   if (cachedStaticVisibilitySource) return cachedStaticVisibilitySource;
-  const buildings = buildCityLayout();
+  const buildings = buildingsSource();
   cachedStaticVisibilitySource = {
     buildings,
     props: buildProps(),
@@ -317,7 +329,36 @@ export function resolveVisibilityProfile(search: string): VisibilityProfile {
     : 'cinematic';
 }
 
+/**
+ * Fast mount layout: buildings only (~1s), every detail sub-layout empty. Lets
+ * the City render structure + procedural shells immediately; the caller swaps in
+ * {@link buildInitialVisibilityLayoutFull} from idle so the ~1.5s of dressing /
+ * crowd / props / signs generation never blocks the first 3D frame.
+ */
 export function buildInitialVisibilityLayout(): VisibilityLayout {
+  const buildings = buildingsSource();
+  const base = {
+    profile: 'full' as const,
+    buildings,
+    buildingSourceIndices: buildings.map((_, index) => index),
+    canyonFillers: [],
+    props: [],
+    skyline: [],
+    furniture: { lamps: [], poles: [], cables: [] },
+    crowd: { humans: [], robots: [] },
+    streetDressing: { manholes: [], cans: [], cones: [] },
+    signs: [],
+    content: CONTENT,
+  };
+  return {
+    ...base,
+    estimatedDrawObjects: drawEstimate(base),
+  };
+}
+
+/** Full mount layout (buildings + all detail sub-layouts). Runs the ~1.5s of
+ * sub-layout generation; call from idle after first paint, not at mount. */
+export function buildInitialVisibilityLayoutFull(): VisibilityLayout {
   const source = staticVisibilitySource();
   const buildings = source.buildings;
   const base = {

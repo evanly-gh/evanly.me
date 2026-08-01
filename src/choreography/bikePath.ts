@@ -7,6 +7,8 @@ import {
   roadFrame,
   routeDistanceAt,
   sampleRoute,
+  type RoadFrame,
+  type RouteSample,
 } from '../world/route';
 import { STUNT_ROUTE } from '../world/stuntLayout';
 import {
@@ -65,7 +67,7 @@ function signedCurvatureAt(t: number): number {
   return distance <= Number.EPSILON ? 0 : turnAngle / distance;
 }
 
-function computeLean(t: number): number {
+function computeLeanExact(t: number): number {
   let weightedCurvature = 0;
   let totalWeight = 0;
   for (let index = 0; index < LEAN_FILTER_WEIGHTS.length; index += 1) {
@@ -79,6 +81,30 @@ function computeLean(t: number): number {
   return BIKE_LEAN_LIMIT * Math.tanh(
     rawLean / BIKE_LEAN_LIMIT,
   );
+}
+
+// Lean is a pure function of the (static) route geometry, but evaluating it live
+// cost ~10 sampleRoute calls per frame (5-tap curvature filter, two samples per
+// tap) plus a dozen throwaway Vector2s. Bake it once into a table and linearly
+// interpolate at runtime — same trick route.ts uses for SEMANTIC_ROUTE_DISTANCES.
+const LEAN_LUT_SIZE = 4096;
+
+function buildLeanLut(): Float32Array {
+  const table = new Float32Array(LEAN_LUT_SIZE + 1);
+  for (let index = 0; index <= LEAN_LUT_SIZE; index += 1) {
+    table[index] = computeLeanExact(index / LEAN_LUT_SIZE);
+  }
+  return table;
+}
+
+const LEAN_LUT = buildLeanLut();
+
+function computeLean(t: number): number {
+  const scaled = clamp01(t) * LEAN_LUT_SIZE;
+  const lower = Math.floor(scaled);
+  if (lower >= LEAN_LUT_SIZE) return LEAN_LUT[LEAN_LUT_SIZE];
+  const frac = scaled - lower;
+  return LEAN_LUT[lower] * (1 - frac) + LEAN_LUT[lower + 1] * frac;
 }
 
 function flipPitch(t: number, flip: Readonly<StuntFlipTiming>): number {
@@ -122,27 +148,51 @@ function computePose(t: number): BikePose {
   };
 }
 
-function computeRouteQuaternion(t: number): THREE.Quaternion {
-  const frame = roadFrame(t);
-  const tangent = mountedBikeTangent(t, frame.tangent);
-  const binormal = new THREE.Vector3()
-    .crossVectors(tangent, new THREE.Vector3(0, 1, 0))
-    .normalize();
-  const normal = new THREE.Vector3()
-    .crossVectors(binormal, tangent)
-    .normalize();
-  const rotation = new THREE.Matrix4().makeBasis(tangent, normal, binormal);
-  return new THREE.Quaternion().setFromRotationMatrix(rotation).normalize();
-}
+const BIKE_WORLD_UP = new THREE.Vector3(0, 1, 0);
 
 export class BikePath {
+  // Per-instance scratch for the hot path. sampleRoute/roadFrame write into these
+  // instead of allocating; the returned pos/quat/pose stay freshly allocated each
+  // call because callers retain them (BikeRider stores state across frames), so
+  // pooling the *return* would alias. Each BikePath instance has its own scratch,
+  // so separate instances (bike, trail, director) never collide.
+  private readonly sampleScratch: RouteSample = {
+    pos: new THREE.Vector3(),
+    tangent: new THREE.Vector3(),
+  };
+  private readonly frameScratch: RoadFrame = {
+    pos: new THREE.Vector3(),
+    tangent: new THREE.Vector3(),
+    normal: new THREE.Vector3(),
+    binormal: new THREE.Vector3(),
+  };
+  private readonly tangentScratch = new THREE.Vector3();
+  private readonly binormalScratch = new THREE.Vector3();
+  private readonly normalScratch = new THREE.Vector3();
+  private readonly matrixScratch = new THREE.Matrix4();
+
+  private computeRouteQuaternion(t: number, out: THREE.Quaternion): THREE.Quaternion {
+    const frame = roadFrame(t, this.frameScratch);
+    const tangent = this.tangentScratch.copy(mountedBikeTangent(t, frame.tangent));
+    const binormal = this.binormalScratch
+      .crossVectors(tangent, BIKE_WORLD_UP)
+      .normalize();
+    const normal = this.normalScratch
+      .crossVectors(binormal, tangent)
+      .normalize();
+    this.matrixScratch.makeBasis(tangent, normal, binormal);
+    return out.setFromRotationMatrix(this.matrixScratch).normalize();
+  }
+
   state(t: number): BikeState {
     if (!Number.isFinite(t)) {
       throw new Error('BikePath progress must be finite');
     }
     const progress = clamp01(t);
-    const pos = sampleRoute(progress).pos;
-    const quat = computeRouteQuaternion(progress);
+    const pos = new THREE.Vector3().copy(
+      sampleRoute(progress, this.sampleScratch).pos,
+    );
+    const quat = this.computeRouteQuaternion(progress, new THREE.Quaternion());
     const pose = computePose(progress);
     pos.y = solveMountedBikeContact(progress, pos, quat, pose).rootY;
     return {

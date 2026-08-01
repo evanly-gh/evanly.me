@@ -27,13 +27,35 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
 // --compress (a.k.a. --webp): resize + WebP-compress textures via sharp for
 //   web delivery (embedded 4K PNG is ~500MB/piece; WebP@1K is a few MB).
-// --res=<n>: texture resize target (default 1024).
-const flags = { only: null, compress: false, res: 1024, obj: null };
+// --res=<n>: texture resize target (default 1024). Also accepts a per-tier map,
+//   e.g. --res=LG:1024,MD:768,SM:512,prop:512 — texture bytes scale ~with the
+//   square of resolution, so dropping the smaller/background tiers is the bulk
+//   of the byte win while the large hero buildings stay crisp.
+const DEFAULT_TIER_RES = { LG: 1024, MD: 768, SM: 512, prop: 512 };
+const flags = { only: null, compress: false, res: 1024, tierRes: null, obj: null };
 for (const a of argv) {
   if (a.startsWith('--only=')) flags.only = a.slice(7).split(',').map(s => s.trim()).filter(Boolean);
   else if (a === '--compress' || a === '--webp' || a === '--ktx2') flags.compress = true;
-  else if (a.startsWith('--res=')) flags.res = parseInt(a.slice(6), 10) || 1024;
+  else if (a.startsWith('--res=')) {
+    const raw = a.slice(6);
+    if (raw.includes(':')) {
+      flags.tierRes = { ...DEFAULT_TIER_RES };
+      for (const pair of raw.split(',')) {
+        const [tier, val] = pair.split(':');
+        const n = parseInt(val, 10);
+        if (tier && Number.isFinite(n)) flags.tierRes[tier.trim()] = n;
+      }
+    } else {
+      flags.res = parseInt(raw, 10) || 1024;
+    }
+  }
   else if (!a.startsWith('--')) flags.obj = a;
+}
+
+/** Per-piece texture resolution: per-tier map when given, else the flat value. */
+function resForCategory(category) {
+  if (flags.tierRes) return flags.tierRes[category] ?? flags.tierRes.prop ?? 512;
+  return flags.res;
 }
 
 const DEFAULT_OBJ = path.join(
@@ -72,7 +94,10 @@ fs.mkdirSync(outDir, { recursive: true });
 console.log(`Source OBJ : ${srcObj}`);
 console.log(`Textures   : ${texDir}`);
 console.log(`Output dir : ${outDir}`);
-console.log(`Mode       : ${flags.compress ? `WebP @${flags.res}` : 'embedded PNG'}${flags.only ? `  only=[${flags.only.join(',')}]` : ''}`);
+const resLabel = flags.tierRes
+  ? Object.entries(flags.tierRes).map(([t, v]) => `${t}:${v}`).join(' ')
+  : `@${flags.res}`;
+console.log(`Mode       : ${flags.compress ? `WebP ${resLabel}` : 'embedded PNG'}${flags.only ? `  only=[${flags.only.join(',')}]` : ''}`);
 
 // Tasks 7-9 append conversion/split/optimize/write below.
 
@@ -156,7 +181,8 @@ for (let i = 0; i < masterNodes.length; i++) {
   if (flags.compress) {
     const { textureCompress } = await import('@gltf-transform/functions');
     const sharp = (await import('sharp')).default;
-    transforms.push(textureCompress({ encoder: sharp, targetFormat: 'webp', quality: 85, resize: [flags.res, flags.res] }));
+    const res = resForCategory(category);
+    transforms.push(textureCompress({ encoder: sharp, targetFormat: 'webp', quality: 85, resize: [res, res] }));
   }
   transforms.push(draco({ quantizationVolume: 'scene' }));
   await pieceDoc.transform(...transforms);

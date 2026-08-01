@@ -109,6 +109,14 @@ export function createCityZoneLoadController({
       activate(cityZonesForSemanticProgress(semanticT));
     },
     ready: (zone) => {
+      // Eagerly idle-preload ONLY the first zone after `route` (shibuya) so the
+      // opening scroll into it is pop-in free. We intentionally do NOT cascade
+      // further: earlier this preloaded next-after-next-after-... which pulled
+      // and Draco-decoded every zone's GLBs on first load (whole 51 MB set,
+      // ~20 s to full-city-ready) with no scrolling. Beyond shibuya, zones load
+      // scroll-driven via progress() — which already carries a one-zone
+      // lookahead — with procedural shells covering any not-yet-ready zone.
+      if (zone !== 'route') return;
       const next = nextCityZone(zone);
       if (!next || active.has(next) || scheduled.has(next)) return;
       const cancel = scheduleIdle(() => {
