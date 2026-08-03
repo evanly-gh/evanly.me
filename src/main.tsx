@@ -3,10 +3,13 @@ import { createRoot } from 'react-dom/client';
 
 const Viewer = React.lazy(() => import('./viewer/Viewer'));
 const City = React.lazy(() => import('./components/three/City'));
+const BuildingGallery = React.lazy(() => import('./components/three/BuildingGallery'));
 const ScrollExperience = React.lazy(() => import('./scroll/ScrollExperience'));
 
 const params = new URLSearchParams(location.search);
 const isViewer = params.has('viewer');
+// ?gallery lines up every neocity kit piece with labels for pruning.
+const isGallery = params.has('gallery');
 // ?city (optionally with &freecam) renders the Phase 2 world for inspection.
 const isCity = params.has('city') || params.has('freecam');
 
@@ -53,6 +56,7 @@ function PortfolioBootShell() {
 
 function Root() {
   if (isViewer) return <React.Suspense fallback={null}><Viewer /></React.Suspense>;
+  if (isGallery) return <React.Suspense fallback={null}><BuildingGallery /></React.Suspense>;
   if (isCity) return <React.Suspense fallback={null}><City /></React.Suspense>;
   return (
     <React.Suspense fallback={<PortfolioBootShell />}>

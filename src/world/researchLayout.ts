@@ -40,7 +40,7 @@ export interface ResearchWallPlacement {
 
 const FRONT_FILE = 'neocity/KB3D_NEC_BldgLG_A_BuildingA.glb';
 const BACK_HERO_B = 'neocity/KB3D_NEC_BldgLG_B_Main.glb';
-const BACK_HERO_C = 'neocity/KB3D_NEC_BldgLG_C_Main.glb';
+const BACK_HERO_C = 'neocity/KB3D_NEC_BldgLG_B_Main.glb';
 const FRONT_Z = Array.from({ length: 14 }, (_, index) => -378 - index * 16);
 const FRONT_ALLEY = 1;
 const BACK_ALLEY = 2;

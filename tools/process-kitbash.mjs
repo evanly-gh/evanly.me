@@ -122,11 +122,17 @@ const masterScene = masterDoc.getRoot().listScenes()[0];
 const masterNodes = masterScene.listChildren();
 console.log(`  ${masterNodes.length} scene children (expect 47)`);
 
-/** Category + simplify ratio from the KB3D piece-name prefix. */
+/** Category + simplify ratio from the KB3D piece-name prefix.
+ *  Ratios lowered from the original 0.6/0.45/0.3 pass: the KB3D buildings ship
+ *  absurdly dense (one LG piece is ~445K tris), far more than a scroll-past
+ *  background city needs. These aggressive targets roughly halve building
+ *  geometry — smaller GLBs + faster Draco decode = faster route-ready — at a
+ *  modest silhouette-fidelity cost the viewer never gets close enough to notice.
+ *  Props keep their ratio (already simple, and not the complexity concern). */
 function categoryOf(name) {
-  if (name.includes('BldgLG')) return { category: 'LG', ratio: 0.6 };
-  if (name.includes('BldgMD')) return { category: 'MD', ratio: 0.45 };
-  if (name.includes('BldgSM')) return { category: 'SM', ratio: 0.3 };
+  if (name.includes('BldgLG')) return { category: 'LG', ratio: 0.35 };
+  if (name.includes('BldgMD')) return { category: 'MD', ratio: 0.3 };
+  if (name.includes('BldgSM')) return { category: 'SM', ratio: 0.25 };
   return { category: 'prop', ratio: 0.3 };
 }
 
@@ -175,7 +181,9 @@ for (let i = 0; i < masterNodes.length; i++) {
   const transforms = [
     prune(),
     weld({ tolerance: 1e-4 }),
-    simplify({ simplifier: MeshoptSimplifier, ratio, error: 0.01 }),
+    // error cap raised 0.01 -> 0.03 so the aggressive ratios above are actually
+    // reachable (a tight cap makes the simplifier bail early, keeping tris).
+    simplify({ simplifier: MeshoptSimplifier, ratio, error: 0.03 }),
     dedup(),
   ];
   if (flags.compress) {
