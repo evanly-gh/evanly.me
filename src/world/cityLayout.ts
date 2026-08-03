@@ -54,9 +54,12 @@ import {
 const P = 'KB3D_NEC_';
 // Pools grouped by TRIANGLE COST (instancing saves draw calls but not vertex
 // work). Heavy hero towers are used sparingly as landmarks; the bulk is light.
-const HERO = [`${P}BldgLG_C_Main`, `${P}BldgLG_A_BuildingC`, `${P}BldgLG_B_Main`]; // ~120–270k tris
-const TALL = [`${P}BldgLG_A_Main`, `${P}BldgMD_C_Main`];                            // ~90–150k
-const MID = [`${P}BldgMD_A_Main`, `${P}BldgMD_B_Main`, `${P}BldgLG_A_BuildingA`, `${P}BldgLG_A_BuildingB`, `${P}BldgLG_A_BuildingD`, `${P}BldgMD_C_BuildingA`]; // ~15–35k
+// Approved-only palette: the heavy LG_C_Main / MD_C_Main / LG_A_BuildingC /
+// MD_A_Main are removed scene-wide and replaced by height-matched allowed pieces
+// (LG_C_Main→LG_B_Main, MD_C_Main→MD_B_Main, BuildingC/MD_A_Main→LG_A_BuildingD).
+const HERO = [`${P}BldgLG_B_Main`];                                                 // tall landmark
+const TALL = [`${P}BldgLG_A_Main`, `${P}BldgMD_B_Main`];                            // ~57–67m
+const MID = [`${P}BldgMD_B_Main`, `${P}BldgLG_A_BuildingA`, `${P}BldgLG_A_BuildingB`, `${P}BldgLG_A_BuildingD`, `${P}BldgMD_C_BuildingA`]; // ~15–73m
 const SMALL = [`${P}BldgSM_A_Main`, `${P}BldgSM_B_Main`, `${P}BldgSM_C_Main`];      // ~3–25k
 const LOW_BASE = [`${P}BldgLG_C_Base`, `${P}BldgMD_A_Base`, `${P}BldgLG_A_Base`, `${P}BldgMD_C_Base`];
 const EDGE = [
@@ -76,8 +79,8 @@ const SPIRE = [
   `${P}BldgMD_C_AntennaA`,
 ];
 const DECOR = [`${P}BldgLG_A_Tree`, ...SPIRE]; // trees + antenna spires — the banner assets read badly, so drop them
-const SHIBUYA_FRONT = [`${P}BldgMD_C_Main`];
-const SHIBUYA_BACK = [`${P}BldgLG_C_Main`, `${P}BldgLG_B_Main`];
+const SHIBUYA_FRONT = [`${P}BldgMD_B_Main`];
+const SHIBUYA_BACK = [`${P}BldgLG_B_Main`];
 export const SERVICE_FILES = [
   'props/quat_ac.glb',
   'props/quat_ac_stacked.glb',
@@ -181,7 +184,25 @@ const FOOT_B = 28;      // back-row footprint radius (tall towers / heroes)
  * its near face lands exactly on the sidewalk edge (scaling down only oversized
  * pieces). A worst-case clearance test guarantees NOTHING overlaps a road.
  */
+// The layout is a pure function of `seed` (seeded RNG + deterministic placement
+// with an O(n²) footprint-overlap pass). It is called from several main-thread
+// sites during first load (buildInitialVisibilityLayout, Pillars, sign/stunt/
+// research paths), each of which used to recompute the entire ~1s city from
+// scratch. Memoize by seed so every consumer shares one result. Consumers only
+// read placements (or `.map()` them); the returned reference is already shared
+// this way by visibilityProfile's cachedBuildingsSource, so this changes nothing
+// but the redundant recomputation.
+const cityLayoutCache = new Map<number, Placement[]>();
+
 export function buildCityLayout(seed = 20260720): Placement[] {
+  const cached = cityLayoutCache.get(seed);
+  if (cached) return cached;
+  const result = computeCityLayout(seed);
+  cityLayoutCache.set(seed, result);
+  return result;
+}
+
+function computeCityLayout(seed: number): Placement[] {
   const rng = makeRng(seed);
   const out: Placement[] = [
     { ...ABOUT_HERO_BACKDROP_PLACEMENT },
@@ -558,7 +579,7 @@ export function buildCityLayout(seed = 20260720): Placement[] {
   // road centerlines ease through the plaza independently of facade placement.
   placeShibuyaCornerAt(
     new THREE.Vector3(181, 0, -67),
-    `${P}BldgMD_C_Main`,
+    `${P}BldgMD_B_Main`,
     18,
     1,
     'south',
@@ -566,7 +587,7 @@ export function buildCityLayout(seed = 20260720): Placement[] {
   );
   placeShibuyaCornerAt(
     new THREE.Vector3(184.796, 0, -42.114),
-    `${P}BldgMD_C_Main`,
+    `${P}BldgMD_B_Main`,
     18,
     1,
     'south',
