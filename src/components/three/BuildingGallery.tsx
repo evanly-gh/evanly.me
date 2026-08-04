@@ -74,12 +74,30 @@ const CATEGORY_COLOR: Record<string, string> = {
 const GAP = 16; // clear metres between neighbouring footprints in a row
 const ROW_GAP = 60; // clear metres between rows on Z
 
+/**
+ * Per-pack size normalization. Source packs use wildly different units (a
+ * structures "building" is 2785m; Quaternius/monogon pieces are a few metres),
+ * which makes the gallery unbrowseable. Bring each flagged pack into a sane
+ * band while preserving aspect ratio:
+ *   'pack'  — one factor for the whole pack (largest piece → target), keeps
+ *             intra-pack relative sizes.
+ *   'piece' — each piece scaled to the target independently (for structures,
+ *             whose three pieces span a 50× range).
+ * Target = desired longest dimension in metres. Unlisted packs render 1:1.
+ */
+const NORMALIZE: Record<string, { mode: 'pack' | 'piece'; target: number }> = {
+  structures: { mode: 'piece', target: 90 },
+  quaternius: { mode: 'pack', target: 26 },
+  monogon: { mode: 'pack', target: 42 },
+};
+
 interface GalleryItem {
   index: number;
   name: string;
   file: string;
   tris: number;
   category: string;
+  scale: number;
   x: number;
   width: number;
   depth: number;
@@ -106,15 +124,30 @@ function useGalleryRows(): { rows: LaidRow[]; maxRowLength: number; totalDepth: 
       const items = (src.manifest as ManifestEntry[]) ?? [];
       if (items.length === 0) continue;
 
-      const sorted = [...items].sort(
-        (a, b) => b.bbox[0] * b.bbox[1] * b.bbox[2] - a.bbox[0] * a.bbox[1] * a.bbox[2],
-      );
+      // Per-pack normalization factor (see NORMALIZE).
+      const rule = NORMALIZE[src.key];
+      let packFactor = 1;
+      if (rule?.mode === 'pack') {
+        const packMax = Math.max(...items.map((e) => Math.max(...e.bbox)));
+        if (packMax > 0) packFactor = rule.target / packMax;
+      }
+      const scaleOf = (e: ManifestEntry) => {
+        if (rule?.mode === 'piece') { const m = Math.max(...e.bbox); return m > 0 ? rule.target / m : 1; }
+        return rule?.mode === 'pack' ? packFactor : 1;
+      };
+
+      // Scale, then order largest→smallest by normalized footprint volume.
+      const scaled = items.map((e) => {
+        const s = scaleOf(e);
+        return { entry: e, scale: s, bbox: e.bbox.map((v) => v * s) as [number, number, number] };
+      });
+      scaled.sort((a, b) => b.bbox[0] * b.bbox[1] * b.bbox[2] - a.bbox[0] * a.bbox[1] * a.bbox[2]);
 
       const laid: GalleryItem[] = [];
       let cursor = 0;
       let rowDepth = 0;
-      sorted.forEach((entry, index) => {
-        const [bx, by, bz] = entry.bbox;
+      scaled.forEach(({ entry, scale, bbox }, index) => {
+        const [bx, by, bz] = bbox;
         const width = Math.max(bx, bz, 2);
         const halfW = width / 2;
         cursor += halfW;
@@ -124,6 +157,7 @@ function useGalleryRows(): { rows: LaidRow[]; maxRowLength: number; totalDepth: 
           file: entry.file,
           tris: entry.tris,
           category: entry.category ?? src.key,
+          scale,
           x: cursor,
           width,
           depth: bz,
@@ -231,6 +265,15 @@ function GalleryFlyCam({ lookAt }: { lookAt: [number, number, number] }) {
   const keys = useRef<Record<string, boolean>>({});
   useEffect(() => {
     camera.lookAt(...lookAt);
+    // Dev affordance (this whole page is dev scaffolding): jump the camera.
+    //   __GALLERY_CAM__(px,py,pz, tx,ty,tz)
+    (window as unknown as { __GALLERY_CAM__?: unknown }).__GALLERY_CAM__ = (
+      px: number, py: number, pz: number, tx: number, ty: number, tz: number,
+    ) => {
+      camera.position.set(px, py, pz);
+      camera.lookAt(tx, ty, tz);
+      camera.updateProjectionMatrix();
+    };
   }, [camera, lookAt]);
   useEffect(() => {
     const dn = (e: KeyboardEvent) => { keys.current[e.code] = true; };
@@ -283,6 +326,12 @@ export default function BuildingGallery() {
   const groundW = maxRowLength + 400;
   const groundD = totalDepth + 400;
 
+  // Dev: expose row layout (key, z, length) for scripted camera framing.
+  useEffect(() => {
+    (window as unknown as { __GALLERY_ROWS__?: unknown }).__GALLERY_ROWS__ =
+      rows.map((r) => ({ key: r.key, z: r.z, rowLength: r.rowLength }));
+  }, [rows]);
+
   // Open framed on the first row's start (biggest pieces first) rather than the
   // whole stack — some packs (structures) contain huge models that would
   // otherwise swallow the default view.
@@ -327,7 +376,7 @@ export default function BuildingGallery() {
               <group key={item.file}>
                 <Platform x={item.x} radius={Math.max(item.width, item.depth) / 2 + 3} />
                 <Suspense fallback={null}>
-                  <KitPiece file={item.file} position={[item.x, 0, 0]} center />
+                  <KitPiece file={item.file} position={[item.x, 0, 0]} center scale={item.scale} />
                   <ReadySignal onReady={bump} />
                 </Suspense>
                 <Label item={item} color={row.color} />

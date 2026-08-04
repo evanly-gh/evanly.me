@@ -8,7 +8,7 @@
       23.502
     ],
     "tris": 262,
-    "hasEmissive": false,
+    "hasEmissive": true,
     "category": "hovercars"
   },
   {
@@ -32,7 +32,7 @@
       14.268
     ],
     "tris": 262,
-    "hasEmissive": false,
+    "hasEmissive": true,
     "category": "hovercars"
   },
   {
@@ -56,7 +56,7 @@
       15.621
     ],
     "tris": 326,
-    "hasEmissive": false,
+    "hasEmissive": true,
     "category": "hovercars"
   },
   {
@@ -68,7 +68,7 @@
       23.353
     ],
     "tris": 262,
-    "hasEmissive": false,
+    "hasEmissive": true,
     "category": "hovercars"
   },
   {
@@ -80,7 +80,7 @@
       27.096
     ],
     "tris": 183,
-    "hasEmissive": false,
+    "hasEmissive": true,
     "category": "hovercars"
   },
   {
@@ -92,7 +92,7 @@
       23.502
     ],
     "tris": 199,
-    "hasEmissive": false,
+    "hasEmissive": true,
     "category": "hovercars"
   },
   {
@@ -104,7 +104,7 @@
       14.905
     ],
     "tris": 346,
-    "hasEmissive": false,
+    "hasEmissive": true,
     "category": "hovercars"
   },
   {
@@ -116,7 +116,7 @@
       17.875
     ],
     "tris": 356,
-    "hasEmissive": false,
+    "hasEmissive": true,
     "category": "hovercars"
   },
   {
@@ -140,7 +140,7 @@
       22.132
     ],
     "tris": 134,
-    "hasEmissive": false,
+    "hasEmissive": true,
     "category": "hovercars"
   }
 ]

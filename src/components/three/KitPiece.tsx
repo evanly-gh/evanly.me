@@ -14,12 +14,15 @@ export function KitPiece({
   position,
   rotationY = 0,
   center = false,
+  scale = 1,
 }: {
   file: string;
   position: [number, number, number];
   rotationY?: number;
   /** Recentre the footprint in X/Z so `position` is the piece centre. */
   center?: boolean;
+  /** Uniform scale applied before grounding/centering (gallery size normalization). */
+  scale?: number;
 }) {
   const { scene } = useGLTF('/models/' + file);
   const obj = useMemo(() => {
@@ -32,6 +35,7 @@ export function KitPiece({
         mat.emissiveIntensity = 1.6;
       }
     });
+    if (scale !== 1) c.scale.setScalar(scale);
     c.updateMatrixWorld(true); // ensure child world matrices are current before measuring
     const box = new THREE.Box3().setFromObject(c);
     if (Number.isFinite(box.min.y)) c.position.y -= box.min.y; // sit on the ground
@@ -40,7 +44,7 @@ export function KitPiece({
       c.position.z -= (box.min.z + box.max.z) / 2;
     }
     return c;
-  }, [scene, center]);
+  }, [scene, center, scale]);
 
   return (
     <group position={position} rotation={[0, rotationY, 0]}>

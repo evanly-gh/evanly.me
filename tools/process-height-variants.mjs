@@ -1,9 +1,11 @@
 /**
  * process-height-variants.mjs — generate 5 NEW neocity building heights by
- * clipping tall towers at a horizontal plane, filling the largest gaps in the
- * existing height distribution. Real geometry surgery (Sutherland–Hodgman
- * triangle/plane clipping with attribute interpolation) so wall textures/UVs
- * survive, plus a flat roof cap so the cut top doesn't read as hollow.
+ * cutting a plane through the LOWER HALF of a tall tower and KEEPING THE UPPER
+ * portion (the crown / setbacks / roof detail), then grounding it. This yields
+ * silhouettes that read clearly different from the source towers (vs. keeping
+ * the base, which just looks like the original building shortened). Real
+ * Sutherland–Hodgman triangle/plane clipping preserves wall textures/UVs; a flat
+ * floor cap closes the cut underside.
  *
  * Output: public/models/neocity-variants/{*.glb, manifest.json} (category VARIANT).
  * Usage: node tools/process-height-variants.mjs
@@ -21,42 +23,44 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const NEOCITY = path.resolve(__dirname, '..', 'public', 'models', 'neocity');
 const OUT = path.resolve(__dirname, '..', 'public', 'models', 'neocity-variants');
 
-// ---------- height / source selection ----------
+// ---------- source / cut selection ----------
 
 /** Towers = the vertical building masses (not bases/antennas/props). */
 function readTowers() {
   const manifest = JSON.parse(fs.readFileSync(path.join(NEOCITY, 'manifest.json'), 'utf8'));
   return manifest
-    .filter((e) => /Main|Building/.test(e.name) && (e.category === 'LG' || e.category === 'MD') && e.bbox[1] > 15)
+    .filter((e) => /Main|Building/.test(e.name) && (e.category === 'LG' || e.category === 'MD') && e.bbox[1] > 24)
     .map((e) => ({ name: e.name, file: path.join(NEOCITY, path.basename(e.file)), height: e.bbox[1] }))
-    .sort((a, b) => a.height - b.height);
+    .sort((a, b) => b.height - a.height);
 }
 
-/** Pick 5 target heights in the largest gaps of the existing height set. */
-function pickTargets(towers) {
-  const heights = towers.map((t) => t.height);
-  const gaps = [];
-  for (let i = 0; i < heights.length - 1; i++) {
-    gaps.push({ lo: heights[i], hi: heights[i + 1], size: heights[i + 1] - heights[i] });
-  }
-  gaps.sort((a, b) => b.size - a.size);
-  const targets = [];
-  for (const g of gaps) {
-    if (targets.length >= 5) break;
-    let h = Math.round((g.lo + g.hi) / 2);
-    // keep >1m from any existing height and any already-chosen target
-    const clash = (v) => heights.some((x) => Math.abs(x - v) <= 1) || targets.some((t) => Math.abs(t - v) <= 1);
+/**
+ * Choose 5 (source, cut) pairs. Cut lies in the tower's LOWER HALF (fraction
+ * < 0.5 of height); the kept upper portion becomes a building of height
+ * H*(1-fraction). Each resulting height is kept >2m from every existing tower
+ * height and from the other variants.
+ */
+function pickVariants(towers) {
+  const existing = towers.map((t) => t.height);
+  const sources = towers.slice(0, 5); // 5 tallest distinct towers → substantial crowns
+  const fracs = [0.42, 0.38, 0.34, 0.40, 0.36];
+  const chosen = [];
+  const clash = (v) => existing.some((x) => Math.abs(x - v) <= 2) || chosen.some((c) => Math.abs(c.result - v) <= 2);
+
+  sources.forEach((src, i) => {
+    const H = src.height;
+    let f = fracs[i % fracs.length];
+    let result = Math.round(H * (1 - f));
     let guard = 0;
-    while (clash(h) && guard++ < 20) h += 1;
-    if (!clash(h)) targets.push(h);
-  }
-  return targets.sort((a, b) => a - b);
-}
-
-/** Shortest tower still taller than target+3 (most detail retained), else tallest. */
-function pickSource(towers, target) {
-  const taller = towers.filter((t) => t.height > target + 3).sort((a, b) => a.height - b.height);
-  return taller[0] ?? towers[towers.length - 1];
+    while (clash(result) && guard++ < 40) {
+      f += 0.015;
+      if (f > 0.48) f = 0.2;
+      result = Math.round(H * (1 - f));
+    }
+    if (clash(result)) return;
+    chosen.push({ src, cut: +(H * f).toFixed(3), result });
+  });
+  return chosen;
 }
 
 // ---------- geometry clipping ----------
@@ -71,15 +75,15 @@ function lerpVert(a, b, t) {
   };
 }
 
-/** Clip a triangle to the half-space y <= h. Returns 0..2 triangles. */
-function clipTriangle(v, h) {
+/** Clip a triangle to the half-space y >= c (KEEP UPPER). Returns 0..2 tris. */
+function clipTriangle(v, c) {
   const poly = [];
   for (let i = 0; i < 3; i++) {
     const a = v[i], b = v[(i + 1) % 3];
-    const ain = a.p[1] <= h, bin = b.p[1] <= h;
+    const ain = a.p[1] >= c, bin = b.p[1] >= c;
     if (ain) poly.push(a);
     if (ain !== bin) {
-      const t = (h - a.p[1]) / (b.p[1] - a.p[1]);
+      const t = (c - a.p[1]) / (b.p[1] - a.p[1]);
       poly.push(lerpVert(a, b, t));
     }
   }
@@ -89,7 +93,6 @@ function clipTriangle(v, h) {
 }
 
 function triArea2(a, b, c) {
-  // squared area *4 via cross product magnitude — used to drop degenerate tris
   const ux = b.p[0] - a.p[0], uy = b.p[1] - a.p[1], uz = b.p[2] - a.p[2];
   const vx = c.p[0] - a.p[0], vy = c.p[1] - a.p[1], vz = c.p[2] - a.p[2];
   const cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
@@ -111,15 +114,15 @@ function readVerts(prim) {
   return { idx, vert, hasNor: !!nor, hasUv: !!uv };
 }
 
-/** Clip every primitive of the document in place; return XZ bbox of kept verts. */
-function clipDocument(doc, h) {
+/** Clip every primitive to y >= c (keep upper); return XZ bbox of kept verts. */
+function clipDocument(doc, c) {
   const box = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
   for (const mesh of doc.getRoot().listMeshes()) {
     for (const prim of mesh.listPrimitives()) {
       const { idx, vert, hasNor, hasUv } = readVerts(prim);
       const P = [], N = [], U = [];
       for (let t = 0; t + 2 < idx.length; t += 3) {
-        const tris = clipTriangle([vert(idx[t]), vert(idx[t + 1]), vert(idx[t + 2])], h);
+        const tris = clipTriangle([vert(idx[t]), vert(idx[t + 1]), vert(idx[t + 2])], c);
         for (const tri of tris) {
           if (triArea2(tri[0], tri[1], tri[2]) < 1e-12) continue;
           for (const vtx of tri) {
@@ -144,32 +147,32 @@ function clipDocument(doc, h) {
   return box;
 }
 
-/** Add a flat roof cap (2 triangles) covering the XZ box at height h. */
-function addCap(doc, box, h) {
+/** Add a flat floor cap (2 downward triangles) covering the XZ box at height y. */
+function addCap(doc, box, y) {
   const { minX, maxX, minZ, maxZ } = box;
   if (!Number.isFinite(minX)) return;
-  const mat = doc.createMaterial('roof_cap')
-    .setBaseColorFactor([0.05, 0.06, 0.09, 1])
-    .setEmissiveFactor([0.08, 0.12, 0.22])
-    .setMetallicFactor(0).setRoughnessFactor(0.85).setName('roof_cap');
-  // two CCW-from-above triangles
+  const mat = doc.createMaterial('floor_cap')
+    .setBaseColorFactor([0.04, 0.05, 0.08, 1])
+    .setEmissiveFactor([0.05, 0.07, 0.14])
+    .setMetallicFactor(0).setRoughnessFactor(0.9).setName('floor_cap');
+  // two triangles wound to face downward (−Y)
   const P = [
-    minX, h, minZ, maxX, h, minZ, maxX, h, maxZ,
-    minX, h, minZ, maxX, h, maxZ, minX, h, maxZ,
+    minX, y, minZ, maxX, y, maxZ, maxX, y, minZ,
+    minX, y, minZ, minX, y, maxZ, maxX, y, maxZ,
   ];
-  const N = new Array(18).fill(0).map((_, i) => (i % 3 === 1 ? 1 : 0));
-  const U = [0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1];
+  const N = new Array(18).fill(0).map((_, i) => (i % 3 === 1 ? -1 : 0));
+  const U = [0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1];
   const prim = doc.createPrimitive()
     .setMaterial(mat)
     .setAttribute('POSITION', doc.createAccessor().setType('VEC3').setArray(new Float32Array(P)))
     .setAttribute('NORMAL', doc.createAccessor().setType('VEC3').setArray(new Float32Array(N)))
     .setAttribute('TEXCOORD_0', doc.createAccessor().setType('VEC2').setArray(new Float32Array(U)));
-  const mesh = doc.createMesh('roof_cap_mesh').addPrimitive(prim);
-  const node = doc.createNode('roof_cap_node').setMesh(mesh);
+  const mesh = doc.createMesh('floor_cap_mesh').addPrimitive(prim);
+  const node = doc.createNode('floor_cap_node').setMesh(mesh);
   doc.getRoot().listScenes()[0].addChild(node);
 }
 
-/** Shift every POSITION so the scene sits on y=0; returns the applied offset. */
+/** Shift every POSITION so the scene's min Y sits on 0; returns the offset. */
 function ground(doc) {
   let minY = Infinity;
   for (const mesh of doc.getRoot().listMeshes())
@@ -197,35 +200,35 @@ async function main() {
 
   const towers = readTowers();
   if (towers.length < 3) { console.error('Not enough neocity towers found; run assets:kitbash first.'); process.exit(1); }
-  const targets = pickTargets(towers);
+  const variants = pickVariants(towers);
   console.log(`Existing tower heights: ${towers.map((t) => t.height.toFixed(1)).join(', ')}`);
-  console.log(`Target new heights: ${targets.join(', ')}\n`);
+  console.log(`New variant heights: ${variants.map((v) => v.result).join(', ')}\n`);
 
   fs.mkdirSync(OUT, { recursive: true });
   const stage = fs.mkdtempSync(path.resolve(OUT, '..', '.variants-'));
   const manifest = [];
 
   try {
-    for (const h of targets) {
-      const src = pickSource(towers, h);
+    for (const { src, cut } of variants) {
       const doc = await io.read(src.file);
       // bake any node transforms into geometry, then flatten to a clean scene
       await doc.transform(flatten());
       for (const node of doc.getRoot().listNodes()) {
         try { clearNodeTransform(node); } catch { /* mesh shared / already clear */ }
       }
-      ground(doc);
-      const box = clipDocument(doc, h);
-      addCap(doc, box, h);
+      ground(doc);                       // tower now sits 0..H
+      const box = clipDocument(doc, cut); // discard lower part, keep y >= cut
+      ground(doc);                       // drop the kept crown back down to y=0
+      addCap(doc, box, 0);               // close the cut underside
       await doc.transform(prune(), weld({ tolerance: 1e-4 }), dedup(), draco({ quantizationVolume: 'scene' }));
 
       const bbox = documentBbox(doc);
       const tris = countTris(doc);
-      const name = `${src.name}_H${h}`;
+      const name = `${src.name}_H${Math.round(bbox[1])}`;
       const buf = Buffer.from(await io.writeBinary(doc));
       fs.writeFileSync(path.join(stage, `${name}.glb`), buf);
       manifest.push({ name, file: `neocity-variants/${name}.glb`, bbox, tris, hasEmissive: pieceHasEmissive(doc), category: 'VARIANT' });
-      console.log(`  ${name.padEnd(36)} from ${src.name} (${src.height.toFixed(1)}m → ${bbox[1].toFixed(1)}m)  ${(buf.length / 1024).toFixed(0)} KB tris=${tris}`);
+      console.log(`  ${name.padEnd(34)} keep top of ${src.name} (${src.height.toFixed(1)}m, cut@${cut.toFixed(1)}m) → ${bbox[1].toFixed(1)}m  ${(buf.length / 1024).toFixed(0)} KB tris=${tris}`);
     }
 
     manifest.sort((a, b) => a.bbox[1] - b.bbox[1]);

@@ -104,7 +104,7 @@ const PACKS = [
     },
   },
   {
-    key: 'monogon', res: 1024,
+    key: 'monogon', res: 512, // shared 4K diffuse atlas per piece — cap to keep bytes sane
     jobs: () => jobsFrom(walk(path.join(CY, 'Cyber monogon stuff'), '.fbx'), 'fbx', 'monogon'),
   },
 ];

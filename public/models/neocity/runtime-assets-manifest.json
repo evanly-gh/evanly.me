@@ -1,13 +1,8 @@
 {
   "schemaVersion": 1,
-  "fileCount": 47,
-  "totalBytes": 7186620,
+  "fileCount": 33,
+  "totalBytes": 6130852,
   "files": [
-    {
-      "file": "KB3D_NEC_BldgLG_A_Base.glb",
-      "bytes": 16412,
-      "sha256": "88fa1ae664d9e7208bebe45333d843d0eaa0913b1fe5937135158c68a2604a4b"
-    },
     {
       "file": "KB3D_NEC_BldgLG_A_BuildingA.glb",
       "bytes": 143388,
@@ -69,11 +64,6 @@
       "sha256": "8f90f608b3bacb59f74517976fea1048ee2c921d367e67a53991fa7ad0c9e575"
     },
     {
-      "file": "KB3D_NEC_BldgLG_C_Base.glb",
-      "bytes": 90416,
-      "sha256": "792d6356203dfe52f5ce06756fb82c77fd2e1e1378bc7e411a1eb13f7650ffc9"
-    },
-    {
       "file": "KB3D_NEC_BldgLG_C_Main.glb",
       "bytes": 1125492,
       "sha256": "8e307c4acf810cc25ad38f02c4039e023c0a209b945fd90f5cf43eb2a6be0401"
@@ -82,16 +72,6 @@
       "file": "KB3D_NEC_BldgMD_A_AntennaA.glb",
       "bytes": 22040,
       "sha256": "e147f91d66d8d465b05f355eb30e86e6d543c0dea0da637e831a28a59fb2dfd3"
-    },
-    {
-      "file": "KB3D_NEC_BldgMD_A_Banners.glb",
-      "bytes": 30916,
-      "sha256": "e922b251f0eb57e94b2dfba12b0df1d5c4e30adff0181c335a67ee886133e717"
-    },
-    {
-      "file": "KB3D_NEC_BldgMD_A_Base.glb",
-      "bytes": 60680,
-      "sha256": "1f85086a2ebdc14a63748c5646dcee8a663df6251df6da8b681c468bf72598e3"
     },
     {
       "file": "KB3D_NEC_BldgMD_A_Main.glb",
@@ -107,16 +87,6 @@
       "file": "KB3D_NEC_BldgMD_C_AntennaA.glb",
       "bytes": 21808,
       "sha256": "dbe477488091694692949f1fe5db7b842bdb3628cca6f421a99a8c2be212607f"
-    },
-    {
-      "file": "KB3D_NEC_BldgMD_C_Banners.glb",
-      "bytes": 34828,
-      "sha256": "ddc90c0719a13d8fd752f1a3f84da0f701898b7d8fb19885d1c87ad2ef18a340"
-    },
-    {
-      "file": "KB3D_NEC_BldgMD_C_Base.glb",
-      "bytes": 27792,
-      "sha256": "5a39b141f2877611b1d975da0d0be6ad60e246a0d320fae170556e0d363b6574"
     },
     {
       "file": "KB3D_NEC_BldgMD_C_BuildingA.glb",
@@ -139,19 +109,9 @@
       "sha256": "e53e8c11962d231cef9e020fa52101ee76223cee08b4c20dc0c4a9b2458a842d"
     },
     {
-      "file": "KB3D_NEC_BldgSM_B_Bbq.glb",
-      "bytes": 140040,
-      "sha256": "4c75e400a54a5982c1c122ae73ebc62249cd765ee8f1b37728cb889438274561"
-    },
-    {
       "file": "KB3D_NEC_BldgSM_B_Cart.glb",
       "bytes": 125748,
       "sha256": "62865d89a66dadf7507de214d76aef3fe73fe16aee319456c98b745ffae4edf3"
-    },
-    {
-      "file": "KB3D_NEC_BldgSM_B_Computers.glb",
-      "bytes": 34884,
-      "sha256": "e5cea0b25af030b727cbfd79852bf27a6d10d006094618ba201be2bdb6607dc1"
     },
     {
       "file": "KB3D_NEC_BldgSM_B_FridgeA.glb",
@@ -164,19 +124,9 @@
       "sha256": "e29ef842caeceb6e0ba0ad1270f6bd55492068f28015295ef3129998b3a53d82"
     },
     {
-      "file": "KB3D_NEC_BldgSM_B_Main.glb",
-      "bytes": 177452,
-      "sha256": "090c95921bef64b1cc2ac081ef0aec1697b9c9ea9e8661abe1d9a66462271535"
-    },
-    {
       "file": "KB3D_NEC_BldgSM_B_Umbrella.glb",
       "bytes": 68964,
       "sha256": "7fddeee8506637a29958ba3f33bd5707509807dd2c3afaa00e1038bd8ac04b52"
-    },
-    {
-      "file": "KB3D_NEC_BldgSM_C_AC.glb",
-      "bytes": 103976,
-      "sha256": "d71627c2b23f56f346442f1235692082b21a623200f30d7acdf09fb169688392"
     },
     {
       "file": "KB3D_NEC_BldgSM_C_Boxes.glb",
@@ -199,11 +149,6 @@
       "sha256": "230bdff29c9de5810f27770b8ecfb687606e6113eb5e844794593849f36063ff"
     },
     {
-      "file": "KB3D_NEC_BldgSM_C_Fan.glb",
-      "bytes": 30596,
-      "sha256": "769d32ecdfb7ef949cdbfbacb1748c592b374aadfc68a150f81af20246c7e875"
-    },
-    {
       "file": "KB3D_NEC_BldgSM_C_Main.glb",
       "bytes": 233000,
       "sha256": "dd473f01bcde2cf29c602b6130b51f83e336deb6f5458047da1d8f580863e538"
@@ -219,24 +164,9 @@
       "sha256": "e428b0f8b0e48a7f42a514885372a7650616ce4dc199e68f53a79e6f8c54dc8c"
     },
     {
-      "file": "KB3D_NEC_BldgSM_C_NeonSignC.glb",
-      "bytes": 123880,
-      "sha256": "5962298b1ee2d4ff7e5ee484c5da4fd5f70684207e24065c6c4048bc7833ae9a"
-    },
-    {
       "file": "KB3D_NEC_BldgSM_C_Pipes.glb",
       "bytes": 77628,
       "sha256": "978e6edfca2a16d30a71fc067d0e991c3efa2abf8e4903f6e7f4786a73fdf6b2"
-    },
-    {
-      "file": "KB3D_NEC_BldgSM_C_Shelf.glb",
-      "bytes": 113400,
-      "sha256": "4faa0012ade3196a63923609e37462273b83763de9ec2c854f64ce345cef390d"
-    },
-    {
-      "file": "KB3D_NEC_BldgSM_C_Stool.glb",
-      "bytes": 70496,
-      "sha256": "541a5b139b4f1a7fbd317bad6a98eb0557c8b005e9ab19bac162c92278407388"
     }
   ]
 }

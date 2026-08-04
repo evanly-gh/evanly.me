@@ -60,16 +60,16 @@ const P = 'KB3D_NEC_';
 const HERO = [`${P}BldgLG_B_Main`];                                                 // tall landmark
 const TALL = [`${P}BldgLG_A_Main`, `${P}BldgMD_B_Main`];                            // ~57–67m
 const MID = [`${P}BldgMD_B_Main`, `${P}BldgLG_A_BuildingA`, `${P}BldgLG_A_BuildingB`, `${P}BldgLG_A_BuildingD`, `${P}BldgMD_C_BuildingA`]; // ~15–73m
-const SMALL = [`${P}BldgSM_A_Main`, `${P}BldgSM_B_Main`, `${P}BldgSM_C_Main`];      // ~3–25k
-const LOW_BASE = [`${P}BldgLG_C_Base`, `${P}BldgMD_A_Base`, `${P}BldgLG_A_Base`, `${P}BldgMD_C_Base`];
+const SMALL = [`${P}BldgSM_A_Main`, `${P}BldgSM_C_Main`];      // ~3–25k
+// (LOW_BASE podium pool removed — all four base pieces were deleted from the kit.)
 const EDGE = [
-  `${P}BldgSM_C_AC`, `${P}BldgSM_C_Boxes`, `${P}BldgSM_C_CratesA`,
+  `${P}BldgSM_C_Boxes`, `${P}BldgSM_C_CratesA`,
   `${P}BldgSM_C_CratesB`, `${P}BldgSM_C_Pipes`, `${P}BldgSM_A_ConcreteBarrier`,
 ];
 const SHOP = [
-  `${P}BldgSM_B_Cart`, `${P}BldgSM_B_Bbq`, `${P}BldgSM_B_Umbrella`, `${P}BldgSM_B_FridgeA`,
-  `${P}BldgSM_B_FridgeB`, `${P}BldgSM_C_Shelf`, `${P}BldgSM_C_Stool`, `${P}BldgSM_B_Computers`,
-  `${P}BldgSM_C_NeonSignA`, `${P}BldgSM_C_NeonSignB`, `${P}BldgSM_C_NeonSignC`, `${P}BldgSM_C_Fan`,
+  `${P}BldgSM_B_Cart`, `${P}BldgSM_B_Umbrella`, `${P}BldgSM_B_FridgeA`,
+  `${P}BldgSM_B_FridgeB`,
+  `${P}BldgSM_C_NeonSignA`, `${P}BldgSM_C_NeonSignB`,
 ];
 // Tall, narrow (~0.5–6m footprint) lit spires — thin enough to plant like a
 // tree in the back planting strip without ever threatening sidewalk clearance.
@@ -675,17 +675,18 @@ function computeCityLayout(seed: number): Placement[] {
       if (c > 230) continue;                // beyond the district → skyline territory
       if (keepClear(jx, jz)) continue;
       if (rng.chance(0)) continue;          // geometry filters retain alleys / courtyards
+      // The former 12% podium chance now yields ordinary SMALL fill so the RNG
+      // sequence — and thus the rest of the layout — stays unchanged.
       let pool = rng.chance(0.12)
-        ? LOW_BASE
+        ? SMALL
         : rng.chance(0.1) ? HERO : rng.chance(0.4) ? TALL : rng.chance(0.55) ? MID : SMALL;
-      let fillFoot = pool === LOW_BASE ? 11 : FILL_FOOT;
+      let fillFoot = FILL_FOOT;
       let file = g(rng.pick(pool));
       let placement: Placement = {
         file,
         position: [jx, 0, jz],
         rotationY: rng.pick(CARD) + rng.range(-0.05, 0.05),
         foot: fillFoot,
-        ...(pool === LOW_BASE ? { layoutRole: 'low-base' as const } : {}),
       };
       let bounds = buildingPlacementBounds(placement);
       if (!buildingClearsElevatedDeck(bounds)) {
@@ -705,10 +706,9 @@ function computeCityLayout(seed: number): Placement[] {
       if (!clearsOpenWater(bounds)) continue;
       if (keepClearFootprint(bounds.center.x, bounds.center.z, bounds.radius)) continue;
       if (!clearsEveryGroundRoad(bounds.center.x, bounds.center.z, bounds.radius)) continue;
-      const lowBase = pool === LOW_BASE;
-      // A podium must clear all earlier placements; ordinary backfill only
-      // avoids protected placements so the existing dense district remains.
-      if (overlaps(bounds, !lowBase)) continue;
+      // Ordinary backfill only avoids protected placements so the existing
+      // dense district remains.
+      if (overlaps(bounds, true)) continue;
       out.push(placement);
     }
   }

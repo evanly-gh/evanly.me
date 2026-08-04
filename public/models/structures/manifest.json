@@ -8,7 +8,7 @@
       744.532
     ],
     "tris": 1326,
-    "hasEmissive": false,
+    "hasEmissive": true,
     "category": "structures"
   },
   {
@@ -19,7 +19,7 @@
       278.191,
       313.458
     ],
-    "tris": 4210808,
+    "tris": 4211670,
     "hasEmissive": true,
     "category": "structures"
   },
@@ -32,7 +32,7 @@
       65.973
     ],
     "tris": 11078,
-    "hasEmissive": false,
+    "hasEmissive": true,
     "category": "structures"
   }
 ]

@@ -325,7 +325,7 @@ export const ABOUT_PLAZA_PLACEMENTS: readonly Placement[] = Object.freeze([
   // Ground clutter dressing the flanking sidewalks (outside the poster width):
   // crates, an AC unit, a barrier, a street cart, stacked boxes.
   aboutPlazaPlacement('KB3D_NEC_BldgSM_C_CratesA', -120, -48, 0.6),
-  aboutPlazaPlacement('KB3D_NEC_BldgSM_C_AC', -122, -66, -0.4),
+  aboutPlazaPlacement('KB3D_NEC_BldgSM_C_Pipes', -122, -66, -0.4),
   aboutPlazaPlacement('KB3D_NEC_BldgSM_A_ConcreteBarrier', 4, -48, 0.2),
   aboutPlazaPlacement('KB3D_NEC_BldgSM_B_Cart', 6, -66, -0.5),
   aboutPlazaPlacement('KB3D_NEC_BldgSM_C_Boxes', 2, -38, 0.9),
@@ -346,7 +346,7 @@ export const ABOUT_PLAZA_PLACEMENTS: readonly Placement[] = Object.freeze([
   aboutPlazaPlacement('KB3D_NEC_BldgSM_C_Pipes', 15, -90, 0.2),
   // A little clutter down the west approach sidewalk too.
   aboutPlazaPlacement('KB3D_NEC_BldgSM_C_CratesA', -78, -30, 0.5),
-  aboutPlazaPlacement('KB3D_NEC_BldgSM_C_AC', -78, -54, -0.3),
+  aboutPlazaPlacement('KB3D_NEC_BldgSM_C_CratesB', -78, -54, -0.3),
   // Fill the wide-open NORTH-EAST apron (north of the boulevard, z > 20, east of
   // the cross street) that read as a barren plaza. All sit north of the elevated
   // highway deck (which stays at z ≲ 30 through here) and are spaced so their
