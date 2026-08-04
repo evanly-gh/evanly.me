@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { calculateRenderedScale } from '../../world/buildingCatalog';
 import {
   buildModelSpatialBuckets,
@@ -355,6 +356,57 @@ function InstancedSpatialChunk({
   );
 }
 
+/**
+ * Single InstancedMesh for a whole file whose material-parts have been merged
+ * into one grouped geometry (see mergedParts in InstancedFile). The per-instance
+ * matrix buffer is built and filled ONCE here instead of once per material-part
+ * — the ~14x win for a big building — with pixel-identical output because each
+ * part's local transform was baked into the merged geometry.
+ */
+function InstancedMergedChunk({
+  chunk,
+  geometry,
+  materials,
+  footRadius,
+  height,
+  targetHeight,
+}: {
+  chunk: SpatialChunk<Placement>;
+  geometry: THREE.BufferGeometry;
+  materials: THREE.Material[];
+  footRadius: number;
+  height: number;
+  targetHeight?: number;
+}) {
+  const ref = useRef<THREE.InstancedMesh | null>(null);
+  useLayoutEffect(() => () => {
+    ref.current?.dispose();
+  }, []);
+  useLayoutEffect(() => {
+    const mesh = ref.current;
+    if (!mesh) return;
+    applyInstanceMatrices(
+      mesh,
+      chunk.items.map((item) => composeItemInstanceMatrix(
+        item,
+        footRadius,
+        height,
+        targetHeight,
+      )),
+    );
+  }, [chunk, geometry, footRadius, height, targetHeight]);
+  return (
+    <instancedMesh
+      name="lifecycle-merged-chunk"
+      ref={ref}
+      args={[geometry, materials, chunk.items.length]}
+      dispose={null}
+      castShadow={false}
+      receiveShadow={false}
+    />
+  );
+}
+
 function InstancedFile({
   file,
   items,
@@ -440,9 +492,34 @@ function InstancedFile({
         if (geometry !== part.geometry) resources.push(geometry);
         return { ...part, geometry, material };
       });
-      return { value: { parts }, resources };
+      // Collapse the file's material-parts into ONE grouped geometry + material
+      // array so the whole file instances as a single InstancedMesh per chunk
+      // (one matrix buffer instead of one-per-part). Only when per-instance
+      // coloring is off (that needs per-part instanceColor buffers) and every
+      // part shares an attribute layout mergeGeometries can fuse; otherwise fall
+      // back to per-part InstancedSpatialChunk.
+      let merged: { geometry: THREE.BufferGeometry; materials: THREE.Material[] } | null = null;
+      if (!instanceColor && parts.length > 1 && parts.every((p) => !p.drawRange)) {
+        const sig = (g: THREE.BufferGeometry) =>
+          `${Object.keys(g.attributes).sort().join(',')}|${g.index ? 'i' : 'n'}`;
+        const base = sig(parts[0].geometry);
+        if (parts.every((p) => sig(p.geometry) === base)) {
+          const baked = parts.map((p) => p.geometry.clone().applyMatrix4(p.local));
+          try {
+            const geometry = mergeGeometries(baked, true);
+            if (geometry) {
+              resources.push(own(geometry));
+              merged = { geometry, materials: parts.map((p) => p.material) };
+            }
+          } catch {
+            merged = null;
+          }
+          baked.forEach((g) => g.dispose());
+        }
+      }
+      return { value: { parts, merged }, resources };
     },
-    [sourceParts, materialTransform],
+    [sourceParts, materialTransform, instanceColor],
   );
   const parts = owned?.parts ?? [];
   const sourceMaterials = useMemo(
@@ -464,18 +541,31 @@ function InstancedFile({
 
   if (!owned) return null;
 
+  const merged = owned.merged;
   const content = (
     <>
       {chunks.map((chunk) => (
-        <InstancedSpatialChunk
-          key={chunk.id}
-          chunk={chunk}
-          parts={parts}
-          footRadius={footRadius}
-          height={height}
-          targetHeight={targetHeight}
-          instanceColor={instanceColor}
-        />
+        merged ? (
+          <InstancedMergedChunk
+            key={chunk.id}
+            chunk={chunk}
+            geometry={merged.geometry}
+            materials={merged.materials}
+            footRadius={footRadius}
+            height={height}
+            targetHeight={targetHeight}
+          />
+        ) : (
+          <InstancedSpatialChunk
+            key={chunk.id}
+            chunk={chunk}
+            parts={parts}
+            footRadius={footRadius}
+            height={height}
+            targetHeight={targetHeight}
+            instanceColor={instanceColor}
+          />
+        )
       ))}
     </>
   );
