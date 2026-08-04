@@ -43,7 +43,9 @@ function readTowers() {
 function pickVariants(towers) {
   const existing = towers.map((t) => t.height);
   const sources = towers.slice(0, 5); // 5 tallest distinct towers → substantial crowns
-  const fracs = [0.42, 0.38, 0.34, 0.40, 0.36];
+  // The two largest variants (#0,#1 in the gallery) use shallower cuts so they
+  // stand a bit taller; the rest keep more aggressive lower-half cuts.
+  const fracs = [0.35, 0.30, 0.34, 0.40, 0.36];
   const chosen = [];
   const clash = (v) => existing.some((x) => Math.abs(x - v) <= 2) || chosen.some((c) => Math.abs(c.result - v) <= 2);
 

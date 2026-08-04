@@ -253,6 +253,104 @@ export function bindMonogonTextures(doc, fbxPath) {
  * (M_Yellow/M_Red/...) or a deterministic cyberpunk palette, plus a little
  * emissive, so they read as buildings rather than one grey blob.
  */
+// Procedural cyberpunk window facade (base + emissive), built once via sharp.
+let _facadeCache = null;
+async function buildFacadeTextures(sharp) {
+  if (_facadeCache) return _facadeCache;
+  const S = 256, N = 4, cell = S / N, m = 6;
+  const grid = (fillFn) => {
+    let r = '';
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      r += `<rect x="${x * cell + m}" y="${y * cell + m}" width="${cell - 2 * m}" height="${cell - 2 * m}" fill="${fillFn(x, y)}" rx="1.5"/>`;
+    }
+    return r;
+  };
+  const baseSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}"><rect width="${S}" height="${S}" fill="#0a0d16"/>${grid(() => '#1b2338')}</svg>`;
+  const lit = (x, y) => ((x * 5 + y * 3) % 4 === 0 || (x + y) % 3 === 0) ? '#dff2ff' : '#04060b';
+  const emisSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}"><rect width="${S}" height="${S}" fill="#000000"/>${grid(lit)}</svg>`;
+  const [base, emissive] = await Promise.all([
+    sharp(Buffer.from(baseSvg)).png().toBuffer(),
+    sharp(Buffer.from(emisSvg)).png().toBuffer(),
+  ]);
+  _facadeCache = { base, emissive };
+  return _facadeCache;
+}
+
+/** Box/triplanar-project UVs from geometry (the structures ship with no UVs). */
+function boxProjectUVs(doc) {
+  const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+  const prims = [];
+  for (const mesh of doc.getRoot().listMeshes())
+    for (const prim of mesh.listPrimitives()) {
+      const pos = prim.getAttribute('POSITION');
+      if (!pos) continue;
+      prims.push(prim);
+      const P = pos.getArray();
+      for (let i = 0; i < P.length; i += 3) for (let a = 0; a < 3; a++) {
+        if (P[i + a] < mn[a]) mn[a] = P[i + a];
+        if (P[i + a] > mx[a]) mx[a] = P[i + a];
+      }
+    }
+  const maxDim = Math.max(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]) || 1;
+  const R = maxDim / 8; // ~8 texture repeats (×4 windows) across the longest side
+  for (const prim of prims) {
+    const P = prim.getAttribute('POSITION').getArray();
+    const Nn = prim.getAttribute('NORMAL')?.getArray() ?? null;
+    const n = P.length / 3;
+    const uv = new Float32Array(n * 2);
+    for (let i = 0; i < n; i++) {
+      const x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2];
+      const nx = Nn ? Nn[i * 3] : 0, ny = Nn ? Nn[i * 3 + 1] : 1, nz = Nn ? Nn[i * 3 + 2] : 0;
+      const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
+      let u, v;
+      if (ay >= ax && ay >= az) { u = x; v = z; } // roofs/floors
+      else if (ax >= az) { u = z; v = y; }        // x-facing walls
+      else { u = x; v = y; }                       // z-facing walls
+      uv[i * 2] = u / R; uv[i * 2 + 1] = v / R;
+    }
+    prim.setAttribute('TEXCOORD_0', doc.createAccessor().setType('VEC2').setArray(uv));
+  }
+}
+
+const STRUCT_NAMED = {
+  yellow: [0.92, 0.76, 0.22], red: [0.86, 0.26, 0.32], white: [0.85, 0.87, 0.95],
+  blue: [0.35, 0.55, 0.92], green: [0.4, 0.8, 0.52], orange: [0.95, 0.55, 0.2],
+  grey: [0.6, 0.62, 0.7], gray: [0.6, 0.62, 0.7], black: [0.18, 0.2, 0.26],
+};
+const STRUCT_PALETTE = [[0.72, 0.76, 0.85], [0.5, 0.62, 0.82], [0.82, 0.68, 0.5], [0.55, 0.5, 0.68], [0.45, 0.72, 0.75]];
+function structColor(name, i) {
+  const n = (name || '').toLowerCase();
+  for (const k of Object.keys(STRUCT_NAMED)) if (n.includes(k)) return STRUCT_NAMED[k];
+  return STRUCT_PALETTE[i % STRUCT_PALETTE.length];
+}
+
+/**
+ * Texture the structures ourselves: the source texture files aren't in the
+ * download, so box-project UVs and apply a procedural lit-window facade
+ * (base + emissive), tinted per material name. Photogrammetry-heavy pieces
+ * (citygen, >200k tris) get flat colour only — a window grid would smear across
+ * their organic geometry.
+ */
+export async function applyStructureFacade(doc, sharp) {
+  if (doc.getRoot().listMaterials().every((m) => m.getBaseColorTexture())) return;
+  if (countTris(doc) > 200000) { applyStructureColors(doc); return; }
+  boxProjectUVs(doc);
+  const { base, emissive } = await buildFacadeTextures(sharp);
+  const baseTex = doc.createTexture('facade_base').setImage(new Uint8Array(base)).setMimeType('image/png');
+  const emisTex = doc.createTexture('facade_emissive').setImage(new Uint8Array(emissive)).setMimeType('image/png');
+  doc.getRoot().listMaterials().forEach((mat, i) => {
+    if (mat.getBaseColorTexture()) return;
+    const col = structColor(mat.getName(), i);
+    mat.setBaseColorFactor([col[0], col[1], col[2], 1]);
+    mat.setBaseColorTexture(baseTex);
+    mat.setEmissiveFactor([0.5, 0.75, 1.0]);
+    mat.setEmissiveTexture(emisTex);
+    mat.setMetallicFactor(0.1);
+    mat.setRoughnessFactor(0.65);
+    mat.setAlphaMode('OPAQUE');
+  });
+}
+
 export function applyStructureColors(doc) {
   const named = {
     yellow: [0.92, 0.76, 0.22], red: [0.86, 0.26, 0.32], white: [0.9, 0.9, 0.95],
@@ -285,7 +383,7 @@ export async function createGalleryConverter() {
   const load = async (job) => {
     const d = await convertToDocument(io, job);
     if (job.category === 'monogon') bindMonogonTextures(d, job.input);
-    if (job.category === 'structures') applyStructureColors(d);
+    if (job.category === 'structures') await applyStructureFacade(d, sharp);
     return d;
   };
 
