@@ -145,12 +145,16 @@ export function cloneInstancedMaterial(
     : tuneClonedMaterial(cloned);
 }
 
-export function composePlacementMatrix(
+/**
+ * The per-instance world transform, independent of which mesh-part it applies
+ * to. Identical across all of a file's material-parts, so compute it once per
+ * instance and reuse — see composePlacementMatrix / InstancedSpatialChunk.
+ */
+export function composeItemInstanceMatrix(
   item: Placement,
   footRadius: number,
   height: number,
   targetHeight: number | undefined,
-  local: THREE.Matrix4,
 ): THREE.Matrix4 {
   const scale = calculateRenderedScale(
     {
@@ -173,7 +177,7 @@ export function composePlacementMatrix(
     x += item.outDir[0] * radius;
     z += item.outDir[1] * radius;
   }
-  const instance = new THREE.Matrix4().compose(
+  return new THREE.Matrix4().compose(
     new THREE.Vector3(x, item.position[1], z),
     new THREE.Quaternion().setFromEuler(
       new THREE.Euler(0, item.rotationY, 0),
@@ -184,7 +188,17 @@ export function composePlacementMatrix(
       scale * (item.buildScale ?? 1),
     ),
   );
-  return new THREE.Matrix4().multiplyMatrices(instance, local);
+}
+
+export function composePlacementMatrix(
+  item: Placement,
+  footRadius: number,
+  height: number,
+  targetHeight: number | undefined,
+  local: THREE.Matrix4,
+): THREE.Matrix4 {
+  const instance = composeItemInstanceMatrix(item, footRadius, height, targetHeight);
+  return instance.multiply(local);
 }
 
 export function applyInstanceMatrices(
@@ -283,18 +297,23 @@ function InstancedSpatialChunk({
     for (const mesh of meshes) mesh.dispose();
   }, []);
   useLayoutEffect(() => {
+    // The per-instance world transform is identical across every material-part,
+    // so compute it once per instance here rather than re-deriving it (scale
+    // solve + compose) inside the parts loop — that redundant work scaled with
+    // parts (11-14 for a big building) and dominated the first-load setup.
+    const instanceMatrices = chunk.items.map((item) => composeItemInstanceMatrix(
+      item,
+      footRadius,
+      height,
+      targetHeight,
+    ));
     parts.forEach((part, partIndex) => {
       const mesh = refs.current[partIndex];
       if (!mesh) return;
       applyInstanceMatrices(
         mesh,
-        chunk.items.map((item) => composePlacementMatrix(
-          item,
-          footRadius,
-          height,
-          targetHeight,
-          part.local,
-        )),
+        instanceMatrices.map((instance) =>
+          new THREE.Matrix4().multiplyMatrices(instance, part.local)),
       );
       if (instanceColor) {
         applyInstanceColors(

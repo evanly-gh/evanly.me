@@ -18,7 +18,7 @@ import { createRequire } from 'module';
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import draco3d from 'draco3dgltf';
-import { cloneDocument, getBounds, weld, dedup, prune, draco, simplify } from '@gltf-transform/functions';
+import { cloneDocument, getBounds, weld, dedup, prune, draco, simplify, join, flatten } from '@gltf-transform/functions';
 import { MeshoptSimplifier } from 'meshoptimizer';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -34,10 +34,16 @@ const argv = process.argv.slice(2);
 const DEFAULT_TIER_RES = { LG: 1024, MD: 768, SM: 512, prop: 512 };
 // --simplify=<ratio> overrides ALL category ratios with one value (lower = fewer
 //   tris). Also accepts a per-tier map, e.g. --simplify=LG:0.1,MD:0.1,SM:0.15,prop:0.3.
-const flags = { only: null, compress: false, res: 1024, tierRes: null, simplify: null, tierSimplify: null, obj: null };
+// --flat: collapse shader-program variety (the dominant first-load GPU cost) by
+//   stripping PBR detail maps (normal / metallic-roughness / occlusion) and
+//   normalizing metal/rough factors, keeping only base-color + emissive. Then
+//   dedup merges the now-identical materials and join fuses primitives that
+//   share one — cutting draw calls, parse time, and shader compiles together.
+const flags = { only: null, compress: false, res: 1024, tierRes: null, simplify: null, tierSimplify: null, flat: false, obj: null };
 for (const a of argv) {
   if (a.startsWith('--only=')) flags.only = a.slice(7).split(',').map(s => s.trim()).filter(Boolean);
   else if (a === '--compress' || a === '--webp' || a === '--ktx2') flags.compress = true;
+  else if (a === '--flat') flags.flat = true;
   else if (a.startsWith('--res=')) {
     const raw = a.slice(6);
     if (raw.includes(':')) {
@@ -123,7 +129,7 @@ const resLabel = flags.tierRes
 const simplifyLabel = flags.tierSimplify
   ? Object.entries(flags.tierSimplify).map(([t, v]) => `${t}:${v}`).join(' ')
   : (flags.simplify != null ? `all@${flags.simplify}` : 'per-category default');
-console.log(`Mode       : ${flags.compress ? `WebP ${resLabel}` : 'embedded PNG'}${flags.only ? `  only=[${flags.only.join(',')}]` : ''}`);
+console.log(`Mode       : ${flags.compress ? `WebP ${resLabel}` : 'embedded PNG'}${flags.flat ? '  FLAT (base+emissive only)' : ''}${flags.only ? `  only=[${flags.only.join(',')}]` : ''}`);
 console.log(`Simplify   : ${simplifyLabel}`);
 
 // Tasks 7-9 append conversion/split/optimize/write below.
@@ -205,15 +211,36 @@ for (let i = 0; i < masterNodes.length; i++) {
   const { category, ratio: defaultRatio } = categoryOf(name);
   const ratio = ratioForCategory(category, defaultRatio);
 
-  // Optimize geometry ONLY — materials/textures preserved as-is.
+  // Optimize geometry — and, with --flat, materials — for cheap first-load.
   const transforms = [
     prune(),
     weld({ tolerance: 1e-4 }),
     // error cap raised 0.01 -> 0.03 so the aggressive ratios above are actually
     // reachable (a tight cap makes the simplifier bail early, keeping tris).
     simplify({ simplifier: MeshoptSimplifier, ratio, error: 0.03 }),
-    dedup(),
   ];
+  if (flags.flat) {
+    // Strip detail maps + normalize PBR factors so every surface collapses to
+    // one of a tiny handful of shader programs (base±emissive).
+    transforms.push((doc) => {
+      for (const material of doc.getRoot().listMaterials()) {
+        material.setNormalTexture(null);
+        material.setMetallicRoughnessTexture(null);
+        material.setOcclusionTexture(null);
+        material.setMetallicFactor(0);
+        material.setRoughnessFactor(0.85);
+      }
+    });
+    // flatten node transforms so join can fuse across the piece's sub-nodes.
+    transforms.push(flatten());
+  }
+  transforms.push(dedup());
+  if (flags.flat) {
+    // Merge primitives that now share a material: fewer meshes -> less GLTF
+    // parse + fewer InstancedMesh draw calls at runtime.
+    transforms.push(join());
+    transforms.push(prune());
+  }
   if (flags.compress) {
     const { textureCompress } = await import('@gltf-transform/functions');
     const sharp = (await import('sharp')).default;
@@ -224,12 +251,15 @@ for (let i = 0; i < masterNodes.length; i++) {
   await pieceDoc.transform(...transforms);
 
   const tris = countTris(pieceDoc);
+  const matCount = pieceDoc.getRoot().listMaterials().length;
+  const meshPrimCount = pieceDoc.getRoot().listMeshes()
+    .reduce((n, m) => n + m.listPrimitives().length, 0);
   const outFile = path.join(outDir, `${name}.glb`);
   const glb = await io.writeBinary(pieceDoc);
   fs.writeFileSync(outFile, Buffer.from(glb));
 
   manifest.push({ name, file: `neocity/${name}.glb`, bbox, hasEmissive, tris, category });
-  console.log(`  [${String(i+1).padStart(2,'0')}] ${name.padEnd(40)} ${(glb.byteLength/1024).toFixed(0).padStart(7)} KB  tris=${tris}${hasEmissive?' [E]':''}`);
+  console.log(`  [${String(i+1).padStart(2,'0')}] ${name.padEnd(40)} ${(glb.byteLength/1024).toFixed(0).padStart(7)} KB  tris=${tris} mat=${matCount} prim=${meshPrimCount}${hasEmissive?' [E]':''}`);
 }
 
 console.log('\n[4/4] Writing manifest.json ...');
