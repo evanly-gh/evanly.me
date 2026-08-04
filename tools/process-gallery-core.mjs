@@ -329,15 +329,16 @@ function structColor(name, i) {
 // (magenta signs, cyan storefront, pink pipes, lavender body, dusky structure)
 // with strong emissive so the neon reads under bloom. Keyed by material name so
 // it's robust to primitive/material ordering.
-// Non-neon parts carry a strong self-emissive (~base colour) so the shop reads
-// bright/coloured under the dark gallery lighting — matching the neon-lit
-// reference render rather than going grey.
+// Only the truly-glowing panels (signs, storefront) are emissive; the body/
+// structure are NOT self-lit — they're shaded by the gallery's magenta+cyan+
+// white directional lights so they stay dark in shadow and pick up neon only
+// where lit, matching the reference render (self-emissive flattened it grey).
 const RESTAURANT_LOOK = {
-  'Material':     { base: [0.68, 0.64, 0.80], emis: [0.24, 0.22, 0.30] }, // body / base shell (lit lilac)
-  'Material.001': { base: [0.90, 0.30, 0.40], emis: [0.55, 0.13, 0.18] }, // pipes / tubes (pink)
-  'Material.002': { base: [1.00, 0.90, 1.00], emis: [2.20, 0.55, 1.80] }, // neon signs (magenta)
-  'Material.003': { base: [0.82, 0.97, 1.00], emis: [0.45, 1.85, 2.20] }, // storefront windows (cyan)
-  'Material.004': { base: [0.58, 0.48, 0.56], emis: [0.20, 0.14, 0.20] }, // structural detail (lit)
+  'Material':     { base: [0.30, 0.29, 0.36], emis: [0.00, 0.00, 0.00] }, // body / base shell (dark, lit by the neon pointlights)
+  'Material.001': { base: [0.72, 0.26, 0.32], emis: [0.10, 0.02, 0.03] }, // pipes / tubes (pink)
+  'Material.002': { base: [1.00, 0.92, 1.00], emis: [2.20, 0.55, 1.80] }, // neon signs (magenta)
+  'Material.003': { base: [0.80, 0.98, 1.00], emis: [0.40, 1.80, 2.20] }, // storefront windows (cyan)
+  'Material.004': { base: [0.24, 0.22, 0.28], emis: [0.00, 0.00, 0.00] }, // structural detail (dark)
 };
 
 /** Depth-limited recursive search for a file by exact name under `root`. */

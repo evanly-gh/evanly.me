@@ -379,6 +379,23 @@ export default function BuildingGallery() {
                   <KitPiece file={item.file} position={[item.x, 0, 0]} center scale={item.scale} />
                   <ReadySignal onReady={bump} />
                 </Suspense>
+                {/* The restaurant is a dark low-poly model meant to be neon-lit
+                    (see reference): give it dedicated magenta + cyan pools so it
+                    reads dark-with-neon instead of flat under the fill light. */}
+                {item.file === 'structures/Resteraunt.glb' && (
+                  <>
+                    {/* magenta wash from the big signs — the dominant light */}
+                    <pointLight
+                      position={[item.x, item.height * 0.8, item.depth * 0.2]}
+                      color={PALETTE.magenta} intensity={4.0} distance={item.height * 2.6} decay={0}
+                    />
+                    {/* cyan pool localized to the storefront (low, front) */}
+                    <pointLight
+                      position={[item.x, item.height * 0.26, item.depth * 0.55]}
+                      color={PALETTE.cyan} intensity={1.7} distance={item.height * 1.05} decay={0}
+                    />
+                  </>
+                )}
                 <Label item={item} color={row.color} />
               </group>
             ))}
