@@ -32,7 +32,9 @@ const argv = process.argv.slice(2);
 //   square of resolution, so dropping the smaller/background tiers is the bulk
 //   of the byte win while the large hero buildings stay crisp.
 const DEFAULT_TIER_RES = { LG: 1024, MD: 768, SM: 512, prop: 512 };
-const flags = { only: null, compress: false, res: 1024, tierRes: null, obj: null };
+// --simplify=<ratio> overrides ALL category ratios with one value (lower = fewer
+//   tris). Also accepts a per-tier map, e.g. --simplify=LG:0.1,MD:0.1,SM:0.15,prop:0.3.
+const flags = { only: null, compress: false, res: 1024, tierRes: null, simplify: null, tierSimplify: null, obj: null };
 for (const a of argv) {
   if (a.startsWith('--only=')) flags.only = a.slice(7).split(',').map(s => s.trim()).filter(Boolean);
   else if (a === '--compress' || a === '--webp' || a === '--ktx2') flags.compress = true;
@@ -49,6 +51,20 @@ for (const a of argv) {
       flags.res = parseInt(raw, 10) || 1024;
     }
   }
+  else if (a.startsWith('--simplify=')) {
+    const raw = a.slice(11);
+    if (raw.includes(':')) {
+      flags.tierSimplify = {};
+      for (const pair of raw.split(',')) {
+        const [tier, val] = pair.split(':');
+        const n = parseFloat(val);
+        if (tier && Number.isFinite(n)) flags.tierSimplify[tier.trim()] = n;
+      }
+    } else {
+      const n = parseFloat(raw);
+      if (Number.isFinite(n)) flags.simplify = n;
+    }
+  }
   else if (!a.startsWith('--')) flags.obj = a;
 }
 
@@ -56,6 +72,13 @@ for (const a of argv) {
 function resForCategory(category) {
   if (flags.tierRes) return flags.tierRes[category] ?? flags.tierRes.prop ?? 512;
   return flags.res;
+}
+
+/** Simplify ratio: CLI override (per-tier > flat) wins, else the category default. */
+function ratioForCategory(category, defaultRatio) {
+  if (flags.tierSimplify && flags.tierSimplify[category] != null) return flags.tierSimplify[category];
+  if (flags.simplify != null) return flags.simplify;
+  return defaultRatio;
 }
 
 const DEFAULT_OBJ = path.join(
@@ -97,7 +120,11 @@ console.log(`Output dir : ${outDir}`);
 const resLabel = flags.tierRes
   ? Object.entries(flags.tierRes).map(([t, v]) => `${t}:${v}`).join(' ')
   : `@${flags.res}`;
+const simplifyLabel = flags.tierSimplify
+  ? Object.entries(flags.tierSimplify).map(([t, v]) => `${t}:${v}`).join(' ')
+  : (flags.simplify != null ? `all@${flags.simplify}` : 'per-category default');
 console.log(`Mode       : ${flags.compress ? `WebP ${resLabel}` : 'embedded PNG'}${flags.only ? `  only=[${flags.only.join(',')}]` : ''}`);
+console.log(`Simplify   : ${simplifyLabel}`);
 
 // Tasks 7-9 append conversion/split/optimize/write below.
 
@@ -175,7 +202,8 @@ for (let i = 0; i < masterNodes.length; i++) {
   } catch { /* leave zeros */ }
 
   const hasEmissive = pieceHasEmissive(pieceDoc);
-  const { category, ratio } = categoryOf(name);
+  const { category, ratio: defaultRatio } = categoryOf(name);
+  const ratio = ratioForCategory(category, defaultRatio);
 
   // Optimize geometry ONLY — materials/textures preserved as-is.
   const transforms = [

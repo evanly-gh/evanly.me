@@ -1574,6 +1574,10 @@ function ZoneReady({
   return null;
 }
 
+// The five instancing passes BuildingZone renders (ordinary / backdrop / walls
+// / research / props); onReady fires once all five have completed mounting.
+const BUILDING_ZONE_PASS_COUNT = 5;
+
 function BuildingZone({
   layout,
   props,
@@ -1594,27 +1598,60 @@ function BuildingZone({
         && !layoutRole?.startsWith('research-')
         && layoutRole !== 'stunt-backdrop'),
     ], [layout]);
+  // Fire onReady once all five instancing passes have finished scheduling their
+  // progressive mount, rather than the moment the zone commits — otherwise the
+  // procedural shells would drop before the real buildings have streamed in.
+  // Track completions in a Set keyed by pass name so it's independent of the
+  // order React flushes child-vs-parent effects, and idempotent across the
+  // async full-layout swap (empty passes complete immediately on mount).
+  const completedRef = useRef<Set<string>>(new Set());
+  const firedRef = useRef(false);
+  const notify = useCallback((key: string) => {
+    completedRef.current.add(key);
+    if (completedRef.current.size >= BUILDING_ZONE_PASS_COUNT && !firedRef.current) {
+      firedRef.current = true;
+      onReady(id);
+    }
+  }, [id, onReady]);
+  const onOrdinary = useCallback(() => notify('ordinary'), [notify]);
+  const onBackdrop = useCallback(() => notify('backdrop'), [notify]);
+  const onWalls = useCallback(() => notify('walls'), [notify]);
+  const onResearch = useCallback(() => notify('research'), [notify]);
+  const onProps = useCallback(() => notify('props'), [notify]);
   return (
     <>
-      <InstancedPieces placements={ordinary} />
+      <InstancedPieces
+        placements={ordinary}
+        progressive
+        onComplete={onOrdinary}
+      />
       <InstancedPieces
         placements={backdrop}
+        progressive
+        onComplete={onBackdrop}
         inspectionGroupName={
           INSPECT_ENABLED ? STUNT_SCENE_NAMES.backdropReadyFile : undefined
         }
       />
       <InstancedPieces
         placements={walls}
+        progressive
+        onComplete={onWalls}
         materialTransform={styleShibuyaWallMaterial}
       />
       <InstancedPieces
         placements={research}
+        progressive
+        onComplete={onResearch}
         inspectionGroupName={
           INSPECT_ENABLED ? RESEARCH_SCENE_NAMES.wallReadyFile : undefined
         }
       />
-      <InstancedPieces placements={props} />
-      <ZoneReady id={id} onReady={onReady} />
+      <InstancedPieces
+        placements={props}
+        progressive
+        onComplete={onProps}
+      />
     </>
   );
 }
@@ -3303,7 +3340,14 @@ function City({
     return undefined;
   }, [visibilityViewport]);
   const bikeRef = useRef<BikeRiderHandle>(null);
-  const [activeZones, setActiveZones] = useState<CityZoneId[]>(['route']);
+  // Load the whole city at once instead of streaming zones in on scroll: with
+  // the assets shrunk and the mount spread across frames (progressive
+  // InstancedPieces), there's no reason to withhold zones — this removes the
+  // "buildings missing if you scroll early" gap and the per-zone-on-arrival
+  // hitch that made scrolling laggy for the first ~30s.
+  const [activeZones, setActiveZones] = useState<CityZoneId[]>(
+    () => [...CITY_ZONE_IDS],
+  );
   const [readyZones, setReadyZones] = useState<CityZoneId[]>([]);
   const [moonReady, setMoonReady] = useState(false);
   const onZoneActiveRef = useRef(onZoneActive);

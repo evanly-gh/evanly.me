@@ -8,7 +8,7 @@
       59.595
     ],
     "hasEmissive": true,
-    "tris": 63,
+    "tris": 37,
     "category": "LG"
   },
   {
@@ -20,7 +20,7 @@
       17.888
     ],
     "hasEmissive": true,
-    "tris": 17787,
+    "tris": 17067,
     "category": "LG"
   },
   {
@@ -32,7 +32,7 @@
       25.111
     ],
     "hasEmissive": true,
-    "tris": 26618,
+    "tris": 24932,
     "category": "LG"
   },
   {
@@ -44,7 +44,7 @@
       11.388
     ],
     "hasEmissive": true,
-    "tris": 114018,
+    "tris": 113447,
     "category": "LG"
   },
   {
@@ -56,7 +56,7 @@
       13.862
     ],
     "hasEmissive": true,
-    "tris": 15027,
+    "tris": 14822,
     "category": "LG"
   },
   {
@@ -68,7 +68,7 @@
       28.994
     ],
     "hasEmissive": true,
-    "tris": 83962,
+    "tris": 82898,
     "category": "LG"
   },
   {
@@ -80,7 +80,7 @@
       15.962
     ],
     "hasEmissive": true,
-    "tris": 40881,
+    "tris": 18446,
     "category": "LG"
   },
   {
@@ -92,7 +92,7 @@
       7.191
     ],
     "hasEmissive": true,
-    "tris": 878,
+    "tris": 251,
     "category": "LG"
   },
   {
@@ -104,7 +104,7 @@
       45.378
     ],
     "hasEmissive": true,
-    "tris": 109021,
+    "tris": 100377,
     "category": "LG"
   },
   {
@@ -128,7 +128,7 @@
       0.648
     ],
     "hasEmissive": true,
-    "tris": 2430,
+    "tris": 2432,
     "category": "LG"
   },
   {
@@ -152,7 +152,7 @@
       0.976
     ],
     "hasEmissive": true,
-    "tris": 2438,
+    "tris": 2440,
     "category": "LG"
   },
   {
@@ -164,7 +164,7 @@
       38.222
     ],
     "hasEmissive": true,
-    "tris": 15053,
+    "tris": 8339,
     "category": "LG"
   },
   {
@@ -176,7 +176,7 @@
       33.857
     ],
     "hasEmissive": true,
-    "tris": 256546,
+    "tris": 256021,
     "category": "LG"
   },
   {
@@ -212,7 +212,7 @@
       16.45
     ],
     "hasEmissive": true,
-    "tris": 4751,
+    "tris": 3244,
     "category": "MD"
   },
   {
@@ -224,7 +224,7 @@
       14.613
     ],
     "hasEmissive": true,
-    "tris": 80556,
+    "tris": 80438,
     "category": "MD"
   },
   {
@@ -236,7 +236,7 @@
       22.812
     ],
     "hasEmissive": true,
-    "tris": 87168,
+    "tris": 87124,
     "category": "MD"
   },
   {
@@ -272,7 +272,7 @@
       26.648
     ],
     "hasEmissive": true,
-    "tris": 5733,
+    "tris": 3790,
     "category": "MD"
   },
   {
@@ -284,7 +284,7 @@
       3.555
     ],
     "hasEmissive": true,
-    "tris": 1311,
+    "tris": 1227,
     "category": "MD"
   },
   {
@@ -296,7 +296,7 @@
       23.199
     ],
     "hasEmissive": true,
-    "tris": 149809,
+    "tris": 149435,
     "category": "MD"
   },
   {
@@ -308,7 +308,7 @@
       1.964
     ],
     "hasEmissive": true,
-    "tris": 1298,
+    "tris": 938,
     "category": "SM"
   },
   {
@@ -320,7 +320,7 @@
       0.69
     ],
     "hasEmissive": true,
-    "tris": 7846,
+    "tris": 6039,
     "category": "SM"
   },
   {
@@ -332,7 +332,7 @@
       1.254
     ],
     "hasEmissive": true,
-    "tris": 10634,
+    "tris": 8149,
     "category": "SM"
   },
   {
@@ -344,7 +344,7 @@
       2.854
     ],
     "hasEmissive": true,
-    "tris": 12301,
+    "tris": 9257,
     "category": "SM"
   },
   {
@@ -356,7 +356,7 @@
       0.935
     ],
     "hasEmissive": true,
-    "tris": 3223,
+    "tris": 2691,
     "category": "SM"
   },
   {
@@ -368,7 +368,7 @@
       1.032
     ],
     "hasEmissive": true,
-    "tris": 2574,
+    "tris": 2153,
     "category": "SM"
   },
   {
@@ -380,7 +380,7 @@
       1.625
     ],
     "hasEmissive": true,
-    "tris": 3817,
+    "tris": 3048,
     "category": "SM"
   },
   {
@@ -392,7 +392,7 @@
       1.552
     ],
     "hasEmissive": true,
-    "tris": 20663,
+    "tris": 15109,
     "category": "SM"
   },
   {
@@ -404,7 +404,7 @@
       3.347
     ],
     "hasEmissive": true,
-    "tris": 6035,
+    "tris": 5419,
     "category": "SM"
   },
   {
@@ -416,7 +416,7 @@
       0.573
     ],
     "hasEmissive": true,
-    "tris": 2908,
+    "tris": 2396,
     "category": "SM"
   },
   {
@@ -428,7 +428,7 @@
       1.922
     ],
     "hasEmissive": true,
-    "tris": 191,
+    "tris": 148,
     "category": "SM"
   },
   {
@@ -440,7 +440,7 @@
       1.865
     ],
     "hasEmissive": true,
-    "tris": 2014,
+    "tris": 1450,
     "category": "SM"
   },
   {
@@ -452,7 +452,7 @@
       1.468
     ],
     "hasEmissive": true,
-    "tris": 1300,
+    "tris": 1188,
     "category": "SM"
   },
   {
@@ -476,7 +476,7 @@
       0.733
     ],
     "hasEmissive": true,
-    "tris": 1765,
+    "tris": 1269,
     "category": "SM"
   },
   {
@@ -488,7 +488,7 @@
       4.326
     ],
     "hasEmissive": true,
-    "tris": 30009,
+    "tris": 23964,
     "category": "SM"
   },
   {
@@ -500,7 +500,7 @@
       0.855
     ],
     "hasEmissive": true,
-    "tris": 2720,
+    "tris": 2592,
     "category": "SM"
   },
   {
@@ -512,7 +512,7 @@
       0.145
     ],
     "hasEmissive": true,
-    "tris": 299,
+    "tris": 217,
     "category": "SM"
   },
   {
@@ -524,7 +524,7 @@
       1.055
     ],
     "hasEmissive": true,
-    "tris": 1781,
+    "tris": 1373,
     "category": "SM"
   },
   {
@@ -536,7 +536,7 @@
       0.761
     ],
     "hasEmissive": true,
-    "tris": 1866,
+    "tris": 1748,
     "category": "SM"
   },
   {
@@ -548,7 +548,7 @@
       0.939
     ],
     "hasEmissive": true,
-    "tris": 12823,
+    "tris": 9265,
     "category": "SM"
   },
   {
@@ -560,7 +560,7 @@
       0.71
     ],
     "hasEmissive": true,
-    "tris": 464,
+    "tris": 362,
     "category": "SM"
   }
 ]

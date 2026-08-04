@@ -93,7 +93,12 @@ export function createCityZoneLoadController({
   scheduleIdle,
   onActivate,
 }: CityZoneLoadControllerOptions): CityZoneLoadController {
-  const active = new Set<CityZoneId>(['route']);
+  // All zones start active: the city loads upfront rather than streaming in on
+  // scroll (see City.tsx activeZones). progress()/ready() therefore become
+  // no-ops here — every requested zone is already active, so activate() never
+  // adds and the ready-cascade never schedules — but the controller is kept in
+  // place so its call sites and perf marks stay intact.
+  const active = new Set<CityZoneId>(CITY_ZONE_IDS);
   const scheduled = new Map<CityZoneId, () => void>();
 
   const activate = (requested: readonly CityZoneId[]) => {

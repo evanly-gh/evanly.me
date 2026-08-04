@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef } from 'react';
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { calculateRenderedScale } from '../../world/buildingCatalog';
@@ -475,6 +475,16 @@ function InstancedFile({
   ) : content;
 }
 
+// Progressive mount: how many file-groups to add per macrotask tick, and how
+// long to wait between ticks. Each tick's commit runs the per-instance matrix
+// construction (InstancedSpatialChunk's useLayoutEffect) synchronously, so
+// spreading the file groups across setTimeout ticks keeps that ~1.6s of matrix
+// work — which asset shrinking does NOT reduce (it is per-instance, not
+// per-vertex) — from landing as one long frame at first load. setTimeout (not
+// rAF) so it keeps draining even in a backgrounded/throttled tab.
+const PROGRESSIVE_BATCH = 3;
+const PROGRESSIVE_DELAY_MS = 24;
+
 /** Groups placements by file and instances each file. */
 export function InstancedPieces({
   placements,
@@ -482,6 +492,8 @@ export function InstancedPieces({
   materialTransform,
   instanceColor,
   inspectionGroupName,
+  progressive = false,
+  onComplete,
 }: {
   placements: Placement[];
   /** Uniformly normalize each source GLB to this world-space height. */
@@ -492,6 +504,12 @@ export function InstancedPieces({
   instanceColor?: InstancedColorResolver;
   /** Optional dev-only group name emitted after GLB/material resolution. */
   inspectionGroupName?: string;
+  /** Mount file-groups a few at a time (setTimeout-paced) instead of all at
+   *  once, and wrap each in its own Suspense so one uncached GLB never blanks
+   *  its already-committed siblings. */
+  progressive?: boolean;
+  /** Fired once every file-group has been scheduled to mount. */
+  onComplete?: () => void;
 }) {
   const groups = useMemo(() => {
     const g = new Map<string, {
@@ -509,19 +527,50 @@ export function InstancedPieces({
     }
     return [...g].sort(([a], [b]) => a.localeCompare(b));
   }, [placements]);
+
+  const total = groups.length;
+  const [count, setCount] = useState(
+    progressive ? Math.min(PROGRESSIVE_BATCH, total) : total,
+  );
+  // Reset the reveal window whenever the group set changes (e.g. the async
+  // full-visibility layout swaps in over the buildings-only bootstrap).
+  useEffect(() => {
+    setCount(progressive ? Math.min(PROGRESSIVE_BATCH, total) : total);
+  }, [progressive, total]);
+  // Drain the remaining groups one batch per macrotask.
+  useEffect(() => {
+    if (!progressive || count >= total) return undefined;
+    const id = setTimeout(
+      () => setCount((current) => Math.min(current + PROGRESSIVE_BATCH, total)),
+      PROGRESSIVE_DELAY_MS,
+    );
+    return () => clearTimeout(id);
+  }, [progressive, count, total]);
+
+  const done = count >= total;
+  useEffect(() => {
+    if (done) onComplete?.();
+  }, [done, onComplete]);
+
+  const visible = progressive ? groups.slice(0, count) : groups;
   return (
     <>
-      {groups.map(([key, { file, items }]) => (
-        <InstancedFile
-          key={key}
-          file={file}
-          items={items}
-          targetHeight={targetHeight}
-          materialTransform={materialTransform}
-          instanceColor={instanceColor}
-          inspectionGroupName={inspectionGroupName}
-        />
-      ))}
+      {visible.map(([key, { file, items }]) => {
+        const piece = (
+          <InstancedFile
+            key={key}
+            file={file}
+            items={items}
+            targetHeight={targetHeight}
+            materialTransform={materialTransform}
+            instanceColor={instanceColor}
+            inspectionGroupName={inspectionGroupName}
+          />
+        );
+        return progressive
+          ? <Suspense key={key} fallback={null}>{piece}</Suspense>
+          : piece;
+      })}
     </>
   );
 }
