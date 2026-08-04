@@ -6,7 +6,7 @@ import {
   Html,
   PointerLockControls,
 } from '@react-three/drei';
-import { EffectComposer, Bloom } from '@react-three/postprocessing';
+import { EffectComposer, Bloom, N8AO } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { PALETTE, LIGHTING } from '../../theme';
 import { KitPiece } from './KitPiece';
@@ -405,6 +405,9 @@ export default function BuildingGallery() {
         <GalleryFlyCam lookAt={openTarget} />
 
         <EffectComposer multisampling={0}>
+          {/* Ambient occlusion: darkens crevices / bars / contact seams while
+              leaving big flat faces bright — gives the pieces real 3D depth. */}
+          <N8AO aoRadius={6} distanceFalloff={1} intensity={4} halfRes />
           <Bloom
             intensity={LIGHTING.bloomIntensity}
             luminanceThreshold={LIGHTING.bloomThreshold}

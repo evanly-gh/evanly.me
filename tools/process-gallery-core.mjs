@@ -333,12 +333,20 @@ function structColor(name, i) {
 // structure are NOT self-lit — they're shaded by the gallery's magenta+cyan+
 // white directional lights so they stay dark in shadow and pick up neon only
 // where lit, matching the reference render (self-emissive flattened it grey).
+// Material→part map (verified by a debug-colour render):
+//   Material     = the whole structure shell + base + barrel (one big group)
+//   Material.001 = storefront door frame / crate  → cyan glow (lower door)
+//   Material.002 = the big neon sign panels        → magenta glow
+//   Material.003 = the 武器/禁止 storefront band    → soft light sign
+//   Material.004 = 2nd-floor machines / R-side detail → cyan glow
+// The shell is lit by the gallery neon pointlights + N8AO (flat surfaces light,
+// crevices/bars dark); only the glowing parts carry emissive.
 const RESTAURANT_LOOK = {
-  'Material':     { base: [0.30, 0.29, 0.36], emis: [0.00, 0.00, 0.00] }, // body / base shell (dark, lit by the neon pointlights)
-  'Material.001': { base: [0.72, 0.26, 0.32], emis: [0.10, 0.02, 0.03] }, // pipes / tubes (pink)
+  'Material':     { base: [0.56, 0.54, 0.63], emis: [0.00, 0.00, 0.00] }, // structure shell (lit by scene + AO)
+  'Material.001': { base: [0.55, 0.90, 1.00], emis: [0.35, 1.50, 1.85] }, // door frame / crate (cyan glow)
   'Material.002': { base: [1.00, 0.92, 1.00], emis: [2.20, 0.55, 1.80] }, // neon signs (magenta)
-  'Material.003': { base: [0.80, 0.98, 1.00], emis: [0.40, 1.80, 2.20] }, // storefront windows (cyan)
-  'Material.004': { base: [0.24, 0.22, 0.28], emis: [0.00, 0.00, 0.00] }, // structural detail (dark)
+  'Material.003': { base: [1.00, 0.95, 1.00], emis: [1.30, 1.05, 1.50] }, // 武器 band (soft lit)
+  'Material.004': { base: [0.55, 0.90, 1.00], emis: [0.35, 1.50, 1.85] }, // 2nd-floor machines (cyan glow)
 };
 
 /** Depth-limited recursive search for a file by exact name under `root`. */
