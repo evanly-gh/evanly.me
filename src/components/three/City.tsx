@@ -3222,41 +3222,52 @@ function GpuPrewarm({
   const gl = useThree((state) => state.gl);
   const scene = useThree((state) => state.scene);
   const camera = useThree((state) => state.camera);
-  useEffect(
-    () => scheduleCityIdle(() => {
-      try {
-        // Compile shader programs for everything in the graph...
-        gl.compile(scene, camera);
-        // ...then force every material texture onto the GPU. gl.compile creates
-        // programs but does not upload all maps (notably the about hero's
-        // 3072x2048 CanvasTexture), so without this the texture upload still
-        // lands on the first-draw scroll frame — measured as the ~0.5-0.7s
-        // freezes at the about poster and the panels just past it. initTexture
-        // is idempotent, so already-resident textures are skipped cheaply.
-        const uploaded = new Set<THREE.Texture>();
-        scene.traverse((object) => {
-          const material = (object as THREE.Mesh).material;
-          if (!material) return;
-          const materials = Array.isArray(material) ? material : [material];
-          for (const entry of materials) {
-            for (const value of Object.values(entry)) {
-              if (
-                value instanceof THREE.Texture
-                && !uploaded.has(value)
-              ) {
-                uploaded.add(value);
-                gl.initTexture(value);
-              }
+  const warm = useCallback(() => {
+    try {
+      // Compile shader programs for everything in the graph...
+      gl.compile(scene, camera);
+      // ...then force every material texture onto the GPU. gl.compile creates
+      // programs but does not upload all maps (notably the about hero's
+      // 3072x2048 CanvasTexture), so without this the texture upload still
+      // lands on the first-draw scroll frame — measured as the ~0.5-0.7s
+      // freezes at the about poster and the panels just past it. initTexture
+      // is idempotent, so already-resident textures are skipped cheaply.
+      const uploaded = new Set<THREE.Texture>();
+      scene.traverse((object) => {
+        const material = (object as THREE.Mesh).material;
+        if (!material) return;
+        const materials = Array.isArray(material) ? material : [material];
+        for (const entry of materials) {
+          for (const value of Object.values(entry)) {
+            if (
+              value instanceof THREE.Texture
+              && !uploaded.has(value)
+            ) {
+              uploaded.add(value);
+              gl.initTexture(value);
             }
           }
-        });
-      } catch {
-        // Pre-warming is best-effort; a failure just means the affected material
-        // or texture warms lazily on first draw, exactly as it did before.
-      }
-    }),
-    [gl, scene, camera, readyZones, moonReady],
-  );
+        }
+      });
+    } catch {
+      // Pre-warming is best-effort; a failure just means the affected material
+      // or texture warms lazily on first draw, exactly as it did before.
+    }
+  }, [gl, scene, camera]);
+  // Per-zone warm as each becomes ready (idle-gated).
+  useEffect(() => scheduleCityIdle(warm), [warm, readyZones, moonReady]);
+  // Once the whole city is ready, the progressive mount still commits its last
+  // few meshes a tick or two AFTER onReady fires, so an idle warm keyed only to
+  // readiness can miss them — they'd then upload on the first scroll frame (the
+  // "lags a little on first scroll"). Fire guaranteed setTimeout passes (not
+  // idle, which can be starved) that run after those late mounts settle, so
+  // everything is resident before the viewer can scroll into it.
+  const fullyReady = readyZones.length >= CITY_ZONE_IDS.length && moonReady;
+  useEffect(() => {
+    if (!fullyReady) return undefined;
+    const timers = [250, 900, 2000].map((delay) => window.setTimeout(warm, delay));
+    return () => timers.forEach((id) => window.clearTimeout(id));
+  }, [fullyReady, warm]);
   return null;
 }
 
@@ -3538,7 +3549,17 @@ function City({
             maxDistance={4000}
           />)}
       <EffectComposer multisampling={0}>
-        <Bloom intensity={LIGHTING.bloomIntensity} luminanceThreshold={LIGHTING.bloomThreshold} radius={LIGHTING.bloomRadius} mipmapBlur />
+        {/* resolutionScale 0.5 runs the whole bloom chain (luminance pass + mip
+            blur) at quarter the pixels — a full-screen per-frame pass, so this
+            is a direct GPU saving. Bloom is inherently soft, so half-res is
+            visually indistinguishable at this glow radius. */}
+        <Bloom
+          intensity={LIGHTING.bloomIntensity}
+          luminanceThreshold={LIGHTING.bloomThreshold}
+          radius={LIGHTING.bloomRadius}
+          resolutionScale={0.5}
+          mipmapBlur
+        />
       </EffectComposer>
       </DeferredScene>
       </VisibilityLayoutContext.Provider>
