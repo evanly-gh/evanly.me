@@ -329,13 +329,63 @@ function structColor(name, i) {
 // (magenta signs, cyan storefront, pink pipes, lavender body, dusky structure)
 // with strong emissive so the neon reads under bloom. Keyed by material name so
 // it's robust to primitive/material ordering.
+// Non-neon parts carry a strong self-emissive (~base colour) so the shop reads
+// bright/coloured under the dark gallery lighting — matching the neon-lit
+// reference render rather than going grey.
 const RESTAURANT_LOOK = {
-  'Material':     { base: [0.60, 0.58, 0.72], emis: [0.08, 0.06, 0.12] }, // body / base shell
-  'Material.001': { base: [0.86, 0.28, 0.36], emis: [0.75, 0.14, 0.20] }, // pipes / tubes
-  'Material.002': { base: [0.98, 0.88, 0.98], emis: [2.20, 0.50, 1.80] }, // neon signs (magenta)
-  'Material.003': { base: [0.82, 0.97, 1.00], emis: [0.45, 1.90, 2.30] }, // storefront windows (cyan)
-  'Material.004': { base: [0.52, 0.40, 0.46], emis: [0.14, 0.05, 0.08] }, // structural detail
+  'Material':     { base: [0.68, 0.64, 0.80], emis: [0.24, 0.22, 0.30] }, // body / base shell (lit lilac)
+  'Material.001': { base: [0.90, 0.30, 0.40], emis: [0.55, 0.13, 0.18] }, // pipes / tubes (pink)
+  'Material.002': { base: [1.00, 0.90, 1.00], emis: [2.20, 0.55, 1.80] }, // neon signs (magenta)
+  'Material.003': { base: [0.82, 0.97, 1.00], emis: [0.45, 1.85, 2.20] }, // storefront windows (cyan)
+  'Material.004': { base: [0.58, 0.48, 0.56], emis: [0.20, 0.14, 0.20] }, // structural detail (lit)
 };
+
+/** Depth-limited recursive search for a file by exact name under `root`. */
+function findFileRec(root, filename, depth = 5) {
+  const target = filename.toLowerCase();
+  const stack = [[root, 0]];
+  while (stack.length) {
+    const [d, dep] = stack.pop();
+    let ents;
+    try { ents = fs.readdirSync(d); } catch { continue; }
+    for (const e of ents) {
+      const p = path.join(d, e);
+      let st; try { st = fs.statSync(p); } catch { continue; }
+      if (st.isFile() && e.toLowerCase() === target) return p;
+      if (st.isDirectory() && dep < depth) stack.push([p, dep + 1]);
+    }
+  }
+  return null;
+}
+
+/**
+ * Bind the building's authored PBR maps (dropped into Cyber Assets/Textures) to
+ * its material, using the OBJ's own UVs so the "725" decal / light-strips land
+ * correctly. Emissive uses T_Blue_Emission (the MTL's map_Ke name doesn't match
+ * the shipped file). Returns false if the base-colour map can't be found.
+ */
+export function bindBuildingTextures(doc, objPath, variant = 'Yellow') {
+  const searchRoot = path.dirname(path.dirname(objPath)); // .../Cyber Assets
+  const baseFile = findFileRec(searchRoot, `T_BaseColor_${variant}_building_05.png`)
+    ?? findFileRec(searchRoot, 'T_BaseColor_White_building_05.png');
+  if (!baseFile) return false;
+  const emisFile = findFileRec(searchRoot, 'T_Blue_Emission_building_05.png');
+  const normFile = findFileRec(searchRoot, 'T_Normal_building_05.png');
+  const mk = (f) => doc.createTexture(path.basename(f)).setImage(new Uint8Array(fs.readFileSync(f))).setMimeType('image/png');
+  const baseTex = mk(baseFile);
+  const emisTex = emisFile ? mk(emisFile) : null;
+  const normTex = normFile ? mk(normFile) : null;
+  for (const m of doc.getRoot().listMaterials()) {
+    m.setBaseColorFactor([1, 1, 1, 1]);
+    m.setBaseColorTexture(baseTex);
+    if (emisTex) { m.setEmissiveTexture(emisTex); m.setEmissiveFactor([1, 1, 1]); }
+    if (normTex) m.setNormalTexture(normTex);
+    m.setMetallicFactor(0.3);
+    m.setRoughnessFactor(0.7);
+    m.setAlphaMode('OPAQUE');
+  }
+  return true;
+}
 
 /**
  * Texture the structures ourselves — the source texture files aren't in the
@@ -344,10 +394,11 @@ const RESTAURANT_LOOK = {
  * baked-texture reference). citygen (photogrammetry, >200k tris) → flat colour,
  * since a window grid smears across its organic geometry.
  */
-export async function applyStructureLook(doc, sharp, name) {
+export async function applyStructureLook(doc, sharp, job) {
+  const name = job?.name ?? '';
   const mats = doc.getRoot().listMaterials();
 
-  if (/rest/i.test(name || '')) {
+  if (/rest/i.test(name)) {
     mats.forEach((m, i) => {
       const look = RESTAURANT_LOOK[m.getName()] ?? { base: structColor(m.getName(), i), emis: [0.1, 0.1, 0.15] };
       m.setBaseColorTexture(null); m.setEmissiveTexture(null);
@@ -357,6 +408,10 @@ export async function applyStructureLook(doc, sharp, name) {
     });
     return;
   }
+
+  // Building: use the real authored PBR maps if present (correct UVs + decals);
+  // otherwise fall through to a synthesized blue-window facade.
+  if (/building/i.test(name) && job?.input && bindBuildingTextures(doc, job.input)) return;
 
   if (countTris(doc) > 200000) { applyStructureColors(doc); return; } // citygen
 
@@ -411,7 +466,7 @@ export async function createGalleryConverter() {
   const load = async (job) => {
     const d = await convertToDocument(io, job);
     if (job.category === 'monogon') bindMonogonTextures(d, job.input);
-    if (job.category === 'structures') await applyStructureLook(d, sharp, job.name);
+    if (job.category === 'structures') await applyStructureLook(d, sharp, job);
     return d;
   };
 
