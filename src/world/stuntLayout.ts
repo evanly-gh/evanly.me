@@ -69,12 +69,12 @@ const backdrop = (
  */
 export const STUNT_BACKDROP: readonly StuntBackdropPlacement[] = Object.freeze([
   backdrop('stunt-backdrop-1', 'KB3D_NEC_BldgLG_B_Main', 27.2865, -80.689),
-  backdrop('stunt-backdrop-2', 'KB3D_NEC_BldgLG_B_Main', 17.6135, -124.3065),
+  backdrop('stunt-backdrop-2', 'KB3D_NEC_BldgLG_C_Main', 17.6135, -124.3065),
   backdrop('stunt-backdrop-3', 'KB3D_NEC_BldgLG_A_Main', 14.932, -159.732),
-  backdrop('stunt-backdrop-4', 'KB3D_NEC_BldgMD_B_Main', 24.5545, -189.8285),
+  backdrop('stunt-backdrop-4', 'KB3D_NEC_BldgMD_C_Main', 24.5545, -189.8285),
   backdrop('stunt-backdrop-5', 'KB3D_NEC_BldgMD_B_Main', 13.3905, -216.834),
   backdrop('stunt-backdrop-6', 'KB3D_NEC_BldgLG_B_Main', 27.2865, -254.929),
-  backdrop('stunt-backdrop-7', 'KB3D_NEC_BldgLG_B_Main', 17.6135, -298.5465),
+  backdrop('stunt-backdrop-7', 'KB3D_NEC_BldgLG_C_Main', 17.6135, -298.5465),
   backdrop('stunt-backdrop-8', 'KB3D_NEC_BldgLG_A_Main', 14.932, -333.972),
 ]);
 

@@ -45,9 +45,10 @@ interface AboutCameraContract {
   fov: number;
 }
 
-// Was BldgMD_C_Main; swapped to MD_B_Main (near-identical H57/depth23) as part
-// of the approved-only palette. The billboard is re-checked against this backing.
-const PARENT_FILE = 'neocity/KB3D_NEC_BldgMD_B_Main.glb';
+// The about-hero billboard's backing tower. Distinctive MD_C silhouette,
+// restored after the palette prune — it instances once, so its extra tris cost
+// a one-time GPU upload, not per-placement.
+const PARENT_FILE = 'neocity/KB3D_NEC_BldgMD_C_Main.glb';
 // Big dead-end billboard: the camera sits far back at the cross-street's north
 // terminus (~z=101) and stares south across the boulevard, so the sign must be
 // large to fill the frame at that distance while still leaving the biker (who
@@ -309,12 +310,12 @@ function aboutPlazaPlacement(
 
 export const ABOUT_PLAZA_PLACEMENTS: readonly Placement[] = Object.freeze([
   // Tall towers flanking the sign, just outside its silhouette — they frame it.
-  aboutPlazaPlacement('KB3D_NEC_BldgLG_B_Main', -142, -78, 0.15),
-  aboutPlazaPlacement('KB3D_NEC_BldgLG_B_Main', 20, -78, -0.15),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_C_Main', -142, -78, 0.15),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_C_Main', 20, -78, -0.15),
   // Tall towers rising BEHIND the sign so it reads against a wall of city
   // instead of empty sky — the outer two loom over its top corners.
-  aboutPlazaPlacement('KB3D_NEC_BldgLG_B_Main', -95, -120, 0.1),
-  aboutPlazaPlacement('KB3D_NEC_BldgLG_B_Main', -20, -120, -0.1),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_C_Main', -95, -120, 0.1),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_C_Main', -20, -120, -0.1),
   aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Main', -57, -124),
   // Thin lit spires flanking the approach for vertical cyberpunk clutter.
   aboutPlazaPlacement('KB3D_NEC_BldgLG_C_AntennaA', -124, -55),
@@ -336,7 +337,7 @@ export const ABOUT_PLAZA_PLACEMENTS: readonly Placement[] = Object.freeze([
   // Fill the barren EAST flank (outside the poster's sightline, x > -5) with
   // buildings pulled close to the boulevard/approach edge so it isn't an empty
   // apron, plus a column of ground clutter + a tree down the east sidewalk.
-  aboutPlazaPlacement('KB3D_NEC_BldgMD_B_Main', 42, -42, -0.5),
+  aboutPlazaPlacement('KB3D_NEC_BldgMD_C_Main', 42, -42, -0.5),
   aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Main', 66, -100, -0.3),
   aboutPlazaPlacement('KB3D_NEC_BldgLG_A_BuildingD', 78, 46, -0.4),
   aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Tree', 2, -22),
@@ -353,9 +354,9 @@ export const ABOUT_PLAZA_PLACEMENTS: readonly Placement[] = Object.freeze([
   // Kept west of x≈95: the WEST Shibuya approach places a building wall out to
   // x≈123 (z 22–41), so anything larger/further east here collides with and
   // culls those curated shibuya parents (breaks buildHolograms). Stay clear.
-  aboutPlazaPlacement('KB3D_NEC_BldgMD_B_Main', 36, 40, 0.2),
-  aboutPlazaPlacement('KB3D_NEC_BldgLG_B_Main', 60, 70, -0.1),
-  aboutPlazaPlacement('KB3D_NEC_BldgMD_B_Main', 92, 102, 0.1),
+  aboutPlazaPlacement('KB3D_NEC_BldgMD_C_Main', 36, 40, 0.2),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_C_Main', 60, 70, -0.1),
+  aboutPlazaPlacement('KB3D_NEC_BldgMD_C_Main', 92, 102, 0.1),
   aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Tree', 24, 26),
   aboutPlazaPlacement('KB3D_NEC_BldgSM_C_Boxes', 88, 24, 0.5),
 ]);

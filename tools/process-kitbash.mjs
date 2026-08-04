@@ -39,9 +39,13 @@ const DEFAULT_TIER_RES = { LG: 1024, MD: 768, SM: 512, prop: 512 };
 //   normalizing metal/rough factors, keeping only base-color + emissive. Then
 //   dedup merges the now-identical materials and join fuses primitives that
 //   share one — cutting draw calls, parse time, and shader compiles together.
-const flags = { only: null, compress: false, res: 1024, tierRes: null, simplify: null, tierSimplify: null, flat: false, obj: null };
+// --error=<n>: meshopt simplify error tolerance (default 0.03). Higher lets the
+//   simplifier actually reach the target ratio on dense pieces that otherwise
+//   bail early keeping most of their tris.
+const flags = { only: null, compress: false, res: 1024, tierRes: null, simplify: null, tierSimplify: null, flat: false, error: 0.03, obj: null };
 for (const a of argv) {
   if (a.startsWith('--only=')) flags.only = a.slice(7).split(',').map(s => s.trim()).filter(Boolean);
+  else if (a.startsWith('--error=')) { const n = parseFloat(a.slice(8)); if (Number.isFinite(n)) flags.error = n; }
   else if (a === '--compress' || a === '--webp' || a === '--ktx2') flags.compress = true;
   else if (a === '--flat') flags.flat = true;
   else if (a.startsWith('--res=')) {
@@ -215,9 +219,10 @@ for (let i = 0; i < masterNodes.length; i++) {
   const transforms = [
     prune(),
     weld({ tolerance: 1e-4 }),
-    // error cap raised 0.01 -> 0.03 so the aggressive ratios above are actually
-    // reachable (a tight cap makes the simplifier bail early, keeping tris).
-    simplify({ simplifier: MeshoptSimplifier, ratio, error: 0.03 }),
+    // error cap (default 0.03, --error to raise): a tight cap makes the
+    // simplifier bail early and keep tris, so dense pieces need a looser cap to
+    // actually reach the target ratio.
+    simplify({ simplifier: MeshoptSimplifier, ratio, error: flags.error }),
   ];
   if (flags.flat) {
     // Strip detail maps + normalize PBR factors so every surface collapses to
