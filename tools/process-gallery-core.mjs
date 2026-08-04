@@ -342,11 +342,11 @@ function structColor(name, i) {
 // The shell is lit by the gallery neon pointlights + N8AO (flat surfaces light,
 // crevices/bars dark); only the glowing parts carry emissive.
 const RESTAURANT_LOOK = {
-  'Material':     { base: [0.56, 0.54, 0.63], emis: [0.00, 0.00, 0.00] }, // structure shell (lit by scene + AO)
-  'Material.001': { base: [0.55, 0.90, 1.00], emis: [0.35, 1.50, 1.85] }, // door frame / crate (cyan glow)
-  'Material.002': { base: [1.00, 0.92, 1.00], emis: [2.20, 0.55, 1.80] }, // neon signs (magenta)
-  'Material.003': { base: [1.00, 0.95, 1.00], emis: [1.30, 1.05, 1.50] }, // 武器 band (soft lit)
-  'Material.004': { base: [0.55, 0.90, 1.00], emis: [0.35, 1.50, 1.85] }, // 2nd-floor machines (cyan glow)
+  'Material':     { base: [0.28, 0.27, 0.31], emis: [0.00, 0.00, 0.00] }, // structure shell (dark grimy concrete, lit by scene + AO)
+  'Material.001': { base: [0.42, 0.80, 0.92], emis: [0.26, 1.05, 1.35] }, // door frame / crate (cyan glow)
+  'Material.002': { base: [0.95, 0.70, 0.90], emis: [1.55, 0.14, 1.10] }, // neon signs (saturated magenta — glows without clipping to white)
+  'Material.003': { base: [0.85, 0.90, 0.95], emis: [0.45, 0.70, 0.85] }, // 武器 band (soft cyan-white)
+  'Material.004': { base: [0.42, 0.80, 0.92], emis: [0.26, 1.05, 1.35] }, // 2nd-floor machines (cyan glow)
 };
 
 /** Depth-limited recursive search for a file by exact name under `root`. */
