@@ -194,6 +194,31 @@ const FOOT_B = 28;      // back-row footprint radius (tall towers / heroes)
 // but the redundant recomputation.
 const cityLayoutCache = new Map<number, Placement[]>();
 
+// Buildings set farther than this (metres) from every ground-road edge are the
+// procedural back-fill district (generated at 84-230m clearance): they sit
+// behind the roadside canyon walls, are occluded by them under the low scroll
+// camera, and are the bulk of the whole-city (freecam) draw + first-load
+// construction cost. Culling them shrinks the source array for every consumer.
+// Curated scenes (shibuya / stunt / research / about) are always kept; note
+// 'low-base' is deliberately NOT kept here — it is background fill, not curated.
+const BACKGROUND_FILL_MAX_CLEARANCE = 80;
+// Bridge/finale holograms pick a parent building with center z in [-760,-540]
+// (buildHolograms, signLayout.ts); keep that whole band so culling never
+// re-seats a hologram beam. Matches the predicate's upper z bound.
+const BRIDGE_HOLOGRAM_PARENT_MAX_Z = -540;
+
+/** Curated hand-authored scene buildings that must survive background culling. */
+function isCuratedScenePlacement(placement: Placement): boolean {
+  return placement.layoutRole === 'shibuya-front'
+    || placement.layoutRole === 'shibuya-back'
+    || placement.layoutRole === 'shibuya-corner'
+    || placement.layoutRole === 'stunt-backdrop'
+    || placement.layoutRole === 'research-front'
+    || placement.layoutRole === 'research-back'
+    || placement.layoutRole === 'about-plaza'
+    || placement.layoutRole === ABOUT_HERO_BACKDROP_ID;
+}
+
 export function buildCityLayout(seed = 20260720): Placement[] {
   const cached = cityLayoutCache.get(seed);
   if (cached) return cached;
@@ -772,7 +797,18 @@ function computeCityLayout(seed: number): Placement[] {
     }
   }
 
-  return out;
+  // Drop the far background-fill district (see BACKGROUND_FILL_MAX_CLEARANCE):
+  // occluded during the ride, dominant in the whole-city draw + load cost.
+  return out.filter((placement) => {
+    if (isCuratedScenePlacement(placement)) return true;
+    const { x, z } = placementCenter(placement);
+    // Keep the far-south band: the bridge/finale holograms (buildHolograms in
+    // signLayout) anchor to a parent building in z[-760,-540], and removing
+    // their candidates re-seats a beam into the research sightline. Preserving
+    // this band keeps their parent choice identical to the un-culled layout.
+    if (z <= BRIDGE_HOLOGRAM_PARENT_MAX_Z) return true;
+    return groundRoadClearance(x, z) <= BACKGROUND_FILL_MAX_CLEARANCE;
+  });
 }
 
 /** Street props + shop stalls + trees beyond the complete sidewalk footprint. */
