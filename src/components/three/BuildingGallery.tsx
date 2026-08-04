@@ -8,21 +8,62 @@ import {
 } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
-import manifest from '../../../public/models/neocity/manifest.json';
 import { PALETTE, LIGHTING } from '../../theme';
 import { KitPiece } from './KitPiece';
 
+// Every pack's manifest. Each was written by tools/process-gallery.mjs (or
+// assets:kitbash / assets:variants); a pack that was skipped still ships an
+// empty [] manifest so these static imports always resolve.
+import neocityManifest from '../../../public/models/neocity/manifest.json';
+import variantsManifest from '../../../public/models/neocity-variants/manifest.json';
+import structuresManifest from '../../../public/models/structures/manifest.json';
+import monogonManifest from '../../../public/models/monogon/manifest.json';
+import bikesManifest from '../../../public/models/bikes/manifest.json';
+import hovercarsManifest from '../../../public/models/hovercars/manifest.json';
+import robotsManifest from '../../../public/models/robots/manifest.json';
+import quaterniusManifest from '../../../public/models/quaternius/manifest.json';
+
 /**
- * Standalone building-type gallery (`?gallery`). Lines up EVERY neocity kit
- * piece in one flyable row so the route-zone variety can be pruned by eye:
- * each piece sits on a lit platform under a floating label (index, name, tris,
- * category). Tell the agent which indices to delete and the route pool shrinks
- * to match — the route zone currently decodes 39 of these on first load, and
- * route-ready waits for the slowest decode, so fewer distinct pieces = faster.
+ * Standalone asset gallery (`?gallery`). Lays out EVERY converted asset pack as
+ * its own flyable row — neocity, procedural height variants, structures, monogon,
+ * bikes, hovercars, robots, Quaternius — stacked along Z. Within each row pieces
+ * are ordered largest→smallest by footprint volume and spaced by their real
+ * footprint, each on a lit platform under a floating label (name, tris, height).
  *
- * This is dev scaffolding, isolated from the shipping <City> scene (its own
- * Canvas, no zones/postprocessing budget), routed in main.tsx via `?gallery`.
+ * Dev scaffolding, isolated from the shipping <City> scene (own Canvas, no
+ * zones/postprocessing budget), routed in main.tsx via `?gallery`.
  */
+
+interface ManifestEntry {
+  name: string;
+  file: string;
+  bbox: [number, number, number];
+  tris: number;
+  hasEmissive?: boolean;
+  category?: string;
+}
+
+interface RowDef {
+  key: string;
+  label: string;
+  color: string;
+  items: ManifestEntry[];
+}
+
+/** Display order: neocity first, its derived variants next, then the rest. */
+const ROW_SOURCES: { key: string; label: string; color: string; manifest: unknown }[] = [
+  { key: 'neocity', label: 'NeoCity kit', color: '#5dd8ff', manifest: neocityManifest },
+  { key: 'variants', label: 'Height variants (chopped)', color: '#b98bff', manifest: variantsManifest },
+  { key: 'structures', label: 'Structures', color: '#ffcf6b', manifest: structuresManifest },
+  { key: 'monogon', label: 'Monogon voxel streets', color: '#7dffb2', manifest: monogonManifest },
+  { key: 'bikes', label: 'Bikes', color: '#ff7db0', manifest: bikesManifest },
+  { key: 'hovercars', label: 'Hovercars', color: '#67e8ff', manifest: hovercarsManifest },
+  { key: 'robots', label: 'Robots', color: '#ff5d7a', manifest: robotsManifest },
+  { key: 'quaternius', label: 'Quaternius game kit', color: '#ffd27d', manifest: quaterniusManifest },
+];
+
+/** Excluded source folders (no web-loadable mesh format) — surfaced in the HUD. */
+const EXCLUDED = 'excluded: Cyber Signs (.c4d), Cyber dude (.blend)';
 
 const CATEGORY_COLOR: Record<string, string> = {
   LG: '#5dd8ff',
@@ -30,7 +71,8 @@ const CATEGORY_COLOR: Record<string, string> = {
   SM: '#ff7db0',
 };
 
-const GAP = 16; // clear metres between neighbouring footprints
+const GAP = 16; // clear metres between neighbouring footprints in a row
+const ROW_GAP = 60; // clear metres between rows on Z
 
 interface GalleryItem {
   index: number;
@@ -44,32 +86,61 @@ interface GalleryItem {
   height: number;
 }
 
-/** Lay the pieces out left-to-right, grouped by family (name order), spacing
- *  each by its real footprint so nothing overlaps regardless of native size. */
-function useGalleryLayout(): { items: GalleryItem[]; rowLength: number } {
+interface LaidRow extends RowDef {
+  items: ManifestEntry[];
+  laid: GalleryItem[];
+  rowLength: number;
+  rowDepth: number;
+  z: number;
+}
+
+/** Lay every row out: pieces ordered largest→smallest by bbox volume, packed
+ *  left→right by real footprint; rows stacked on Z spaced by their depth. */
+function useGalleryRows(): { rows: LaidRow[]; maxRowLength: number; totalDepth: number } {
   return useMemo(() => {
-    const sorted = [...manifest].sort((a, b) => a.name.localeCompare(b.name));
-    const items: GalleryItem[] = [];
-    let cursor = 0;
-    sorted.forEach((entry, index) => {
-      const [bx, by, bz] = entry.bbox;
-      const width = Math.max(bx, bz, 2);
-      const halfW = width / 2;
-      cursor += halfW;
-      items.push({
-        index,
-        name: entry.name.replace(/^KB3D_NEC_/, ''),
-        file: entry.file,
-        tris: entry.tris,
-        category: entry.category ?? '?',
-        x: cursor,
-        width,
-        depth: bz,
-        height: by,
+    let zCursor = 0;
+    let maxRowLength = 0;
+    const rows: LaidRow[] = [];
+
+    for (const src of ROW_SOURCES) {
+      const items = (src.manifest as ManifestEntry[]) ?? [];
+      if (items.length === 0) continue;
+
+      const sorted = [...items].sort(
+        (a, b) => b.bbox[0] * b.bbox[1] * b.bbox[2] - a.bbox[0] * a.bbox[1] * a.bbox[2],
+      );
+
+      const laid: GalleryItem[] = [];
+      let cursor = 0;
+      let rowDepth = 0;
+      sorted.forEach((entry, index) => {
+        const [bx, by, bz] = entry.bbox;
+        const width = Math.max(bx, bz, 2);
+        const halfW = width / 2;
+        cursor += halfW;
+        laid.push({
+          index,
+          name: entry.name.replace(/^KB3D_NEC_/, ''),
+          file: entry.file,
+          tris: entry.tris,
+          category: entry.category ?? src.key,
+          x: cursor,
+          width,
+          depth: bz,
+          height: by,
+        });
+        cursor += halfW + GAP;
+        rowDepth = Math.max(rowDepth, bz, 8);
       });
-      cursor += halfW + GAP;
-    });
-    return { items, rowLength: cursor };
+
+      const rowLength = cursor;
+      maxRowLength = Math.max(maxRowLength, rowLength);
+      const z = zCursor + rowDepth / 2;
+      rows.push({ ...src, items, laid, rowLength, rowDepth, z });
+      zCursor += rowDepth + ROW_GAP;
+    }
+
+    return { rows, maxRowLength, totalDepth: zCursor };
   }, []);
 }
 
@@ -88,11 +159,12 @@ function Platform({ x, radius }: { x: number; radius: number }) {
   );
 }
 
-function Label({ item }: { item: GalleryItem }) {
-  const color = CATEGORY_COLOR[item.category] ?? '#c9d4ff';
+function Label({ item, color }: { item: GalleryItem; color: string }) {
+  const c = CATEGORY_COLOR[item.category] ?? color;
+  const y = Math.min(Math.max(item.height + 4, 8), 220);
   return (
     <Html
-      position={[item.x, 13, item.depth / 2 + 6]}
+      position={[item.x, y, item.depth / 2 + 6]}
       center
       distanceFactor={90}
       zIndexRange={[100, 0]}
@@ -103,19 +175,50 @@ function Label({ item }: { item: GalleryItem }) {
           font: '600 13px/1.35 ui-monospace, monospace',
           color: '#eaf2ff',
           background: 'rgba(8,10,24,0.86)',
-          border: `1px solid ${color}`,
+          border: `1px solid ${c}`,
           borderRadius: 6,
           padding: '5px 9px',
           whiteSpace: 'nowrap',
           textAlign: 'center',
-          boxShadow: `0 0 12px ${color}55`,
+          boxShadow: `0 0 12px ${c}55`,
         }}
       >
-        <div style={{ color, fontSize: 15 }}>#{item.index} · {item.category}</div>
+        <div style={{ color: c, fontSize: 15 }}>#{item.index} · {item.category}</div>
         <div>{item.name}</div>
         <div style={{ opacity: 0.7, fontSize: 11 }}>
           {item.tris.toLocaleString()} tris · {Math.round(item.height)}m
         </div>
+      </div>
+    </Html>
+  );
+}
+
+/** Big label parked at the −X end of a row naming the pack. */
+function RowHeader({ row }: { row: LaidRow }) {
+  return (
+    <Html
+      position={[-30, 24, 0]}
+      center
+      distanceFactor={140}
+      zIndexRange={[100, 0]}
+      style={{ pointerEvents: 'none' }}
+    >
+      <div
+        style={{
+          font: '800 22px/1.2 ui-monospace, monospace',
+          color: row.color,
+          background: 'rgba(6,7,18,0.9)',
+          border: `2px solid ${row.color}`,
+          borderRadius: 10,
+          padding: '10px 16px',
+          whiteSpace: 'nowrap',
+          textAlign: 'right',
+          textShadow: `0 0 18px ${row.color}`,
+          boxShadow: `0 0 26px ${row.color}55`,
+        }}
+      >
+        {row.label}
+        <div style={{ fontSize: 13, opacity: 0.8, fontWeight: 600 }}>{row.laid.length} pieces</div>
       </div>
     </Html>
   );
@@ -170,12 +273,23 @@ function GalleryFlyCam({ lookAt }: { lookAt: [number, number, number] }) {
 }
 
 export default function BuildingGallery() {
-  const { items, rowLength } = useGalleryLayout();
-  const center = rowLength / 2;
+  const { rows, maxRowLength, totalDepth } = useGalleryRows();
+  const totalPieces = rows.reduce((n, r) => n + r.laid.length, 0);
+  const center = maxRowLength / 2;
   const [ready, setReady] = useState(0);
-  // Stable identity so each ReadySignal effect runs exactly once on mount
-  // (an inline closure here would change every render and loop the counter).
+  // Stable identity so each ReadySignal effect runs exactly once on mount.
   const bump = useCallback(() => setReady((n) => n + 1), []);
+
+  const groundW = maxRowLength + 400;
+  const groundD = totalDepth + 400;
+
+  // Open framed on the first row's start (biggest pieces first) rather than the
+  // whole stack — some packs (structures) contain huge models that would
+  // otherwise swallow the default view.
+  const firstRow = rows[0];
+  const openX = firstRow ? Math.min(320, firstRow.rowLength * 0.2) : center;
+  const openZ = firstRow ? firstRow.z : 0;
+  const openTarget: [number, number, number] = [openX, 70, openZ];
 
   return (
     <>
@@ -186,42 +300,43 @@ export default function BuildingGallery() {
           powerPreference: 'high-performance',
           toneMapping: THREE.ACESFilmicToneMapping,
         }}
-        camera={{ position: [center, 70, 200], fov: 60, near: 1, far: 12000 }}
+        camera={{ position: [openX, 220, openZ + 480], fov: 60, near: 1, far: 20000 }}
       >
         <color attach="background" args={['#05060f']} />
-        <fog attach="fog" args={['#0a0a1c', 600, 4000]} />
+        <fog attach="fog" args={['#0a0a1c', 900, 6000]} />
         <ambientLight intensity={LIGHTING.ambientIntensity * 1.6} />
         <hemisphereLight args={[PALETTE.violet, '#050510', 0.4]} />
-        <directionalLight position={[center - 300, 200, 300]} intensity={0.5} color={PALETTE.magenta} />
-        <directionalLight position={[center + 300, 220, -200]} intensity={0.55} color={PALETTE.cyan} />
-        <directionalLight position={[center, 400, 60]} intensity={0.6} color="#ffffff" />
+        <directionalLight position={[center - 300, 400, 300]} intensity={0.5} color={PALETTE.magenta} />
+        <directionalLight position={[center + 300, 420, -200]} intensity={0.55} color={PALETTE.cyan} />
+        <directionalLight position={[center, 700, totalDepth / 2]} intensity={0.6} color="#ffffff" />
 
-        {/* ground + gridline so the lineup reads as a row on a floor */}
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[center, 0, 0]}>
-          <planeGeometry args={[rowLength + 400, 800]} />
+        {/* ground + gridline so the lineup reads as rows on a floor */}
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[center, 0, totalDepth / 2]}>
+          <planeGeometry args={[groundW, groundD]} />
           <meshStandardMaterial color="#080a14" roughness={0.9} />
         </mesh>
         <gridHelper
-          args={[Math.max(rowLength + 400, 800), Math.round((rowLength + 400) / 20), '#1b2340', '#11162a']}
-          position={[center, 0.02, 0]}
+          args={[Math.max(groundW, groundD), Math.round(Math.max(groundW, groundD) / 20), '#1b2340', '#11162a']}
+          position={[center, 0.02, totalDepth / 2]}
         />
 
-        {items.map((item) => (
-          <group key={item.file}>
-            <Platform x={item.x} radius={Math.max(item.width, item.depth) / 2 + 3} />
-            <Suspense fallback={null}>
-              <KitPiece
-                file={item.file}
-                position={[item.x, 0, 0]}
-                center
-              />
-              <ReadySignal onReady={bump} />
-            </Suspense>
-            <Label item={item} />
+        {rows.map((row) => (
+          <group key={row.key} position={[0, 0, row.z]}>
+            <RowHeader row={row} />
+            {row.laid.map((item) => (
+              <group key={item.file}>
+                <Platform x={item.x} radius={Math.max(item.width, item.depth) / 2 + 3} />
+                <Suspense fallback={null}>
+                  <KitPiece file={item.file} position={[item.x, 0, 0]} center />
+                  <ReadySignal onReady={bump} />
+                </Suspense>
+                <Label item={item} color={row.color} />
+              </group>
+            ))}
           </group>
         ))}
 
-        <GalleryFlyCam lookAt={[center, 20, 0]} />
+        <GalleryFlyCam lookAt={openTarget} />
 
         <EffectComposer multisampling={0}>
           <Bloom
@@ -238,19 +353,19 @@ export default function BuildingGallery() {
           position: 'fixed', top: 12, left: 12, zIndex: 10,
           font: '12px/1.6 ui-monospace, monospace', color: PALETTE.cyan,
           background: 'rgba(10,11,30,0.85)', border: `1px solid ${PALETTE.panel}`,
-          padding: '10px 14px', borderRadius: 6, pointerEvents: 'none', maxWidth: 360,
+          padding: '10px 14px', borderRadius: 6, pointerEvents: 'none', maxWidth: 420,
         }}
       >
         <div style={{ color: '#eaf2ff', fontWeight: 700, marginBottom: 4 }}>
-          Building gallery — {items.length} kit pieces ({Math.min(ready, items.length)} loaded)
+          Asset gallery — {rows.length} rows, {totalPieces} pieces ({Math.min(ready, totalPieces)} loaded)
         </div>
         <div>click to look · <b>WASD</b> move · <b>Q/E</b> down/up · <b>Shift</b> boost · <b>Esc</b> release</div>
-        <div style={{ marginTop: 4, opacity: 0.85 }}>
-          <span style={{ color: CATEGORY_COLOR.LG }}>■ LG</span>{'  '}
-          <span style={{ color: CATEGORY_COLOR.MD }}>■ MD</span>{'  '}
-          <span style={{ color: CATEGORY_COLOR.SM }}>■ SM</span>
-          {'  '}— tell me the <b>#</b>s to delete
+        <div style={{ marginTop: 4, opacity: 0.9, display: 'flex', flexWrap: 'wrap', gap: '4px 10px' }}>
+          {rows.map((r) => (
+            <span key={r.key} style={{ color: r.color }}>■ {r.label}</span>
+          ))}
         </div>
+        <div style={{ marginTop: 4, opacity: 0.6, fontStyle: 'italic' }}>{EXCLUDED}</div>
       </div>
     </>
   );
