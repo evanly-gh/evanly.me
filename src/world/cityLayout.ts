@@ -202,10 +202,6 @@ const cityLayoutCache = new Map<number, Placement[]>();
 // Curated scenes (shibuya / stunt / research / about) are always kept; note
 // 'low-base' is deliberately NOT kept here — it is background fill, not curated.
 const BACKGROUND_FILL_MAX_CLEARANCE = 80;
-// Bridge/finale holograms pick a parent building with center z in [-760,-540]
-// (buildHolograms, signLayout.ts); keep that whole band so culling never
-// re-seats a hologram beam. Matches the predicate's upper z bound.
-const BRIDGE_HOLOGRAM_PARENT_MAX_Z = -540;
 
 /** Curated hand-authored scene buildings that must survive background culling. */
 function isCuratedScenePlacement(placement: Placement): boolean {
@@ -799,14 +795,14 @@ function computeCityLayout(seed: number): Placement[] {
 
   // Drop the far background-fill district (see BACKGROUND_FILL_MAX_CLEARANCE):
   // occluded during the ride, dominant in the whole-city draw + load cost.
+  // Curated scenes are always kept; everything else must hug a road. This also
+  // removes the shoreline-refill row at the waterline — it read as an isolated
+  // line of buildings floating on the water once the rest of the fill was gone.
+  // (The bridge/finale holograms used to anchor to that row; buildHolograms now
+  // skips gracefully when it has no safe shoulder parent.)
   return out.filter((placement) => {
     if (isCuratedScenePlacement(placement)) return true;
     const { x, z } = placementCenter(placement);
-    // Keep the far-south band: the bridge/finale holograms (buildHolograms in
-    // signLayout) anchor to a parent building in z[-760,-540], and removing
-    // their candidates re-seats a beam into the research sightline. Preserving
-    // this band keeps their parent choice identical to the un-culled layout.
-    if (z <= BRIDGE_HOLOGRAM_PARENT_MAX_Z) return true;
     return groundRoadClearance(x, z) <= BACKGROUND_FILL_MAX_CLEARANCE;
   });
 }

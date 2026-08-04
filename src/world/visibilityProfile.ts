@@ -248,9 +248,9 @@ const STATIC_FILLER_SAFETY = Object.freeze({
 });
 
 const STATIC_CANYON_FILLERS: CanyonFiller[] = [
-  { id: 'cinematic-canyon-filler:0', position: [-100.89986210727133, 0, -198.03961388191254], size: [18, 51.66473842404104, 10], rotationY: -3.016800064462624, sourceProbeIds: ['production-rig:key:about-constant-reveal:probe:0'], triangles: 12, safety: STATIC_FILLER_SAFETY },
-  { id: 'cinematic-canyon-filler:1', position: [-72.00571660516196, 0, -254.89618662953006], size: [70, 57.336, 14], rotationY: -3.1102479055311836, sourceProbeIds: ['production-rig:key:about-constant-reveal:probe:1', 'production-rig:key:about-constant-reveal:probe:0'], triangles: 12, safety: STATIC_FILLER_SAFETY },
-  { id: 'cinematic-canyon-filler:2', position: [-37.49621842241419, 0, -111.23636920033832], size: [6, 34.08989646003663, 4], rotationY: 3.047803574188131, sourceProbeIds: ['production-rig:key:about-constant-reveal:probe:3'], triangles: 12, safety: STATIC_FILLER_SAFETY },
+  // Fillers :0/:1/:2 (west of the about/descend corridor) removed: after the
+  // background-fill cull the buildings that backed them were gone, leaving them
+  // as isolated slabs floating in cleared ground (visible top-down / freecam).
   { id: 'cinematic-canyon-filler:3', position: [316.719673094181, 0, -192.26870604704786], size: [18, 57.86, 10], rotationY: 2.0565813902033483, sourceProbeIds: ['production-rig:key:projects-1:probe:0'], triangles: 12, safety: STATIC_FILLER_SAFETY },
   { id: 'cinematic-canyon-filler:4', position: [318.5074895466804, 0, -163.6814419385351], size: [24, 67.202, 12], rotationY: 1.8638178692800127, sourceProbeIds: ['production-rig:key:projects-1:probe:1', 'production-rig:key:projects-3:probe:3'], triangles: 12, safety: STATIC_FILLER_SAFETY },
   { id: 'cinematic-canyon-filler:5', position: [319.0128234877855, 0, -94.66094669141263], size: [18, 84, 10], rotationY: 1.3482641026434279, sourceProbeIds: ['production-rig:key:projects-1:probe:3'], triangles: 12, safety: STATIC_FILLER_SAFETY },

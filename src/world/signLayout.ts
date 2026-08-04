@@ -542,22 +542,36 @@ function buildHolograms(layout: Placement[]): HologramSignPlacement[] {
     signs.push(sign);
   }
   for (const spec of BRIDGE_ANCHORS) {
-    const parent = chooseUniqueParent(
-      layout,
-      used,
-      (_placement, bounds) =>
-        bounds.center.z <= -540
-        && bounds.center.z >= -760
-        && !keepClear(bounds.center.x, bounds.center.z)
-        && rectangleClearance(
-          bounds.center.x,
-          bounds.center.z,
-          WATER_BASIN,
-        ) > 4.5,
-      spec.target,
-    );
+    // The shoulder buildings these anchored to were background-fill at the
+    // waterline, now culled (see cityLayout background cull). With no safe
+    // shoulder parent, skip the hologram rather than seating it on the research
+    // canyon (which would push its beam into the research sightline). Bridge
+    // holograms are a peripheral finale detail, not visible head-on.
+    let parent: ReturnType<typeof chooseUniqueParent>;
+    try {
+      parent = chooseUniqueParent(
+        layout,
+        used,
+        (_placement, bounds) =>
+          bounds.center.z <= -540
+          && bounds.center.z >= -760
+          && !keepClear(bounds.center.x, bounds.center.z)
+          && rectangleClearance(
+            bounds.center.x,
+            bounds.center.z,
+            WATER_BASIN,
+          ) > 4.5,
+        spec.target,
+      );
+    } catch {
+      continue;
+    }
     const sign = hologramFromParent(spec, parent.index, parent.bounds, [240, -600], signs.length);
-    assertHologramFootprintSafety(sign);
+    try {
+      assertHologramFootprintSafety(sign);
+    } catch {
+      continue;
+    }
     signs.push(sign);
   }
   return signs;
