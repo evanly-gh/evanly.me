@@ -1,0 +1,62 @@
+[
+  {
+    "name": "KB3D_NEC_BldgLG_A_BuildingA_H33",
+    "file": "neocity-variants/KB3D_NEC_BldgLG_A_BuildingA_H33.glb",
+    "bbox": [
+      13.061,
+      33,
+      17.887
+    ],
+    "tris": 14753,
+    "hasEmissive": true,
+    "category": "VARIANT"
+  },
+  {
+    "name": "KB3D_NEC_BldgMD_B_Main_H50",
+    "file": "neocity-variants/KB3D_NEC_BldgMD_B_Main_H50.glb",
+    "bbox": [
+      26.78,
+      50,
+      22.811
+    ],
+    "tris": 61566,
+    "hasEmissive": true,
+    "category": "VARIANT"
+  },
+  {
+    "name": "KB3D_NEC_BldgLG_A_Main_H63",
+    "file": "neocity-variants/KB3D_NEC_BldgLG_A_Main_H63.glb",
+    "bbox": [
+      29.862,
+      63,
+      28.993
+    ],
+    "tris": 82723,
+    "hasEmissive": true,
+    "category": "VARIANT"
+  },
+  {
+    "name": "KB3D_NEC_BldgLG_C_Main_H108",
+    "file": "neocity-variants/KB3D_NEC_BldgLG_C_Main_H108.glb",
+    "bbox": [
+      35.225,
+      108,
+      33.858
+    ],
+    "tris": 182731,
+    "hasEmissive": true,
+    "category": "VARIANT"
+  },
+  {
+    "name": "KB3D_NEC_BldgLG_B_Main_H172",
+    "file": "neocity-variants/KB3D_NEC_BldgLG_B_Main_H172.glb",
+    "bbox": [
+      54.563,
+      172,
+      45.383
+    ],
+    "tris": 97996,
+    "hasEmissive": true,
+    "category": "VARIANT"
+  }
+]

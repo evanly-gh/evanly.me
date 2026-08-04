@@ -1,0 +1,146 @@
+[
+  {
+    "name": "ambulance",
+    "file": "hovercars/ambulance.glb",
+    "bbox": [
+      56.462,
+      27.266,
+      23.502
+    ],
+    "tris": 262,
+    "hasEmissive": false,
+    "category": "hovercars"
+  },
+  {
+    "name": "boxTruck",
+    "file": "hovercars/boxTruck.glb",
+    "bbox": [
+      57.219,
+      29.466,
+      27.096
+    ],
+    "tris": 119,
+    "hasEmissive": false,
+    "category": "hovercars"
+  },
+  {
+    "name": "coupe",
+    "file": "hovercars/coupe.glb",
+    "bbox": [
+      62.371,
+      28.94,
+      14.268
+    ],
+    "tris": 262,
+    "hasEmissive": false,
+    "category": "hovercars"
+  },
+  {
+    "name": "firetruck",
+    "file": "hovercars/firetruck.glb",
+    "bbox": [
+      89.679,
+      31.696,
+      26.774
+    ],
+    "tris": 329,
+    "hasEmissive": false,
+    "category": "hovercars"
+  },
+  {
+    "name": "police_car",
+    "file": "hovercars/police_car.glb",
+    "bbox": [
+      62.371,
+      28.94,
+      15.621
+    ],
+    "tris": 326,
+    "hasEmissive": false,
+    "category": "hovercars"
+  },
+  {
+    "name": "police_van",
+    "file": "hovercars/police_van.glb",
+    "bbox": [
+      56.462,
+      27.266,
+      23.353
+    ],
+    "tris": 262,
+    "hasEmissive": false,
+    "category": "hovercars"
+  },
+  {
+    "name": "publicWorks_boxTruck",
+    "file": "hovercars/publicWorks_boxTruck.glb",
+    "bbox": [
+      57.502,
+      29.466,
+      27.096
+    ],
+    "tris": 183,
+    "hasEmissive": false,
+    "category": "hovercars"
+  },
+  {
+    "name": "publicWorks_truck",
+    "file": "hovercars/publicWorks_truck.glb",
+    "bbox": [
+      56.569,
+      27.266,
+      23.502
+    ],
+    "tris": 199,
+    "hasEmissive": false,
+    "category": "hovercars"
+  },
+  {
+    "name": "sedan",
+    "file": "hovercars/sedan.glb",
+    "bbox": [
+      61.291,
+      29.089,
+      14.905
+    ],
+    "tris": 346,
+    "hasEmissive": false,
+    "category": "hovercars"
+  },
+  {
+    "name": "taxi",
+    "file": "hovercars/taxi.glb",
+    "bbox": [
+      61.291,
+      29.089,
+      17.875
+    ],
+    "tris": 356,
+    "hasEmissive": false,
+    "category": "hovercars"
+  },
+  {
+    "name": "truck",
+    "file": "hovercars/truck.glb",
+    "bbox": [
+      56.709,
+      27.277,
+      22.132
+    ],
+    "tris": 135,
+    "hasEmissive": false,
+    "category": "hovercars"
+  },
+  {
+    "name": "van",
+    "file": "hovercars/van.glb",
+    "bbox": [
+      56.462,
+      27.266,
+      22.132
+    ],
+    "tris": 134,
+    "hasEmissive": false,
+    "category": "hovercars"
+  }
+]

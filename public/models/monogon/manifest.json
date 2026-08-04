@@ -1,0 +1,206 @@
+[
+  {
+    "name": "Advertising_5",
+    "file": "monogon/Advertising_5.glb",
+    "bbox": [
+      0.7,
+      1.6,
+      0.1
+    ],
+    "tris": 12,
+    "hasEmissive": false,
+    "category": "monogon"
+  },
+  {
+    "name": "Advertising_6",
+    "file": "monogon/Advertising_6.glb",
+    "bbox": [
+      1.2,
+      1.8,
+      0.3
+    ],
+    "tris": 164,
+    "hasEmissive": false,
+    "category": "monogon"
+  },
+  {
+    "name": "Advertising_7",
+    "file": "monogon/Advertising_7.glb",
+    "bbox": [
+      1.8,
+      0.9,
+      0.5
+    ],
+    "tris": 288,
+    "hasEmissive": false,
+    "category": "monogon"
+  },
+  {
+    "name": "Building_06",
+    "file": "monogon/Building_06.glb",
+    "bbox": [
+      5.5,
+      12.8,
+      11.2
+    ],
+    "tris": 39996,
+    "hasEmissive": true,
+    "category": "monogon"
+  },
+  {
+    "name": "Building_3",
+    "file": "monogon/Building_3.glb",
+    "bbox": [
+      4,
+      16.2,
+      2
+    ],
+    "tris": 1772,
+    "hasEmissive": false,
+    "category": "monogon"
+  },
+  {
+    "name": "BuildingBlock_1",
+    "file": "monogon/BuildingBlock_1.glb",
+    "bbox": [
+      6,
+      2.5,
+      2.4
+    ],
+    "tris": 210,
+    "hasEmissive": false,
+    "category": "monogon"
+  },
+  {
+    "name": "BuildingBlock_18",
+    "file": "monogon/BuildingBlock_18.glb",
+    "bbox": [
+      4,
+      2.5,
+      2.2
+    ],
+    "tris": 236,
+    "hasEmissive": false,
+    "category": "monogon"
+  },
+  {
+    "name": "BuildingBlock_19",
+    "file": "monogon/BuildingBlock_19.glb",
+    "bbox": [
+      4,
+      2.5,
+      2.2
+    ],
+    "tris": 468,
+    "hasEmissive": false,
+    "category": "monogon"
+  },
+  {
+    "name": "BuildingBlock_2",
+    "file": "monogon/BuildingBlock_2.glb",
+    "bbox": [
+      6,
+      2.5,
+      2
+    ],
+    "tris": 160,
+    "hasEmissive": false,
+    "category": "monogon"
+  },
+  {
+    "name": "BuildingBlock_24",
+    "file": "monogon/BuildingBlock_24.glb",
+    "bbox": [
+      4,
+      1.6,
+      2.1
+    ],
+    "tris": 140,
+    "hasEmissive": false,
+    "category": "monogon"
+  },
+  {
+    "name": "Car1",
+    "file": "monogon/Car1.glb",
+    "bbox": [
+      1.6,
+      1.15,
+      2.65
+    ],
+    "tris": 4452,
+    "hasEmissive": true,
+    "category": "monogon"
+  },
+  {
+    "name": "CyberpunkChar_0",
+    "file": "monogon/CyberpunkChar_0.glb",
+    "bbox": [
+      1.6,
+      1.65,
+      0.4
+    ],
+    "tris": 926,
+    "hasEmissive": false,
+    "category": "monogon"
+  },
+  {
+    "name": "Road_Chunk_5",
+    "file": "monogon/Road_Chunk_5.glb",
+    "bbox": [
+      2,
+      0.1,
+      2
+    ],
+    "tris": 12,
+    "hasEmissive": false,
+    "category": "monogon"
+  },
+  {
+    "name": "SateliteDish",
+    "file": "monogon/SateliteDish.glb",
+    "bbox": [
+      0.9,
+      0.9,
+      0.3
+    ],
+    "tris": 266,
+    "hasEmissive": false,
+    "category": "monogon"
+  },
+  {
+    "name": "Sidewalk_Chunk_2",
+    "file": "monogon/Sidewalk_Chunk_2.glb",
+    "bbox": [
+      2,
+      0.2,
+      2
+    ],
+    "tris": 28,
+    "hasEmissive": false,
+    "category": "monogon"
+  },
+  {
+    "name": "Sidewalk_Tile_1",
+    "file": "monogon/Sidewalk_Tile_1.glb",
+    "bbox": [
+      4,
+      0.2,
+      4
+    ],
+    "tris": 12,
+    "hasEmissive": false,
+    "category": "monogon"
+  },
+  {
+    "name": "Voxel_Cyberpunk_Streets_Free_Sample",
+    "file": "monogon/Voxel_Cyberpunk_Streets_Free_Sample.glb",
+    "bbox": [
+      2.5,
+      5,
+      2.25
+    ],
+    "tris": 1924,
+    "hasEmissive": true,
+    "category": "monogon"
+  }
+]

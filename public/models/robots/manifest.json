@@ -1,0 +1,110 @@
+[
+  {
+    "name": "Arachnoid",
+    "file": "robots/Arachnoid.glb",
+    "bbox": [
+      2.8,
+      3.9,
+      3.6
+    ],
+    "tris": 3908,
+    "hasEmissive": false,
+    "category": "robots"
+  },
+  {
+    "name": "Companion_bot",
+    "file": "robots/Companion_bot.glb",
+    "bbox": [
+      2.3,
+      5.7,
+      1.8
+    ],
+    "tris": 2844,
+    "hasEmissive": false,
+    "category": "robots"
+  },
+  {
+    "name": "FieldFighter",
+    "file": "robots/FieldFighter.glb",
+    "bbox": [
+      3.8,
+      5.9,
+      1.6
+    ],
+    "tris": 6240,
+    "hasEmissive": false,
+    "category": "robots"
+  },
+  {
+    "name": "Mecha01",
+    "file": "robots/Mecha01.glb",
+    "bbox": [
+      3.8,
+      4.4,
+      4
+    ],
+    "tris": 6302,
+    "hasEmissive": false,
+    "category": "robots"
+  },
+  {
+    "name": "MechaGolem",
+    "file": "robots/MechaGolem.glb",
+    "bbox": [
+      5.2,
+      5.4,
+      4
+    ],
+    "tris": 7954,
+    "hasEmissive": false,
+    "category": "robots"
+  },
+  {
+    "name": "MechaTrooper",
+    "file": "robots/MechaTrooper.glb",
+    "bbox": [
+      5.2,
+      6,
+      3.2
+    ],
+    "tris": 5850,
+    "hasEmissive": false,
+    "category": "robots"
+  },
+  {
+    "name": "MobileStorageBot",
+    "file": "robots/MobileStorageBot.glb",
+    "bbox": [
+      5,
+      4.6,
+      3.4
+    ],
+    "tris": 5224,
+    "hasEmissive": false,
+    "category": "robots"
+  },
+  {
+    "name": "QuadrupedTank",
+    "file": "robots/QuadrupedTank.glb",
+    "bbox": [
+      3.8,
+      5.6,
+      5
+    ],
+    "tris": 8268,
+    "hasEmissive": false,
+    "category": "robots"
+  },
+  {
+    "name": "ReconBot",
+    "file": "robots/ReconBot.glb",
+    "bbox": [
+      2.7,
+      5.9,
+      2.8
+    ],
+    "tris": 4118,
+    "hasEmissive": false,
+    "category": "robots"
+  }
+]

@@ -1,0 +1,38 @@
+[
+  {
+    "name": "building",
+    "file": "structures/building.glb",
+    "bbox": [
+      839.55,
+      2785.466,
+      744.532
+    ],
+    "tris": 1326,
+    "hasEmissive": false,
+    "category": "structures"
+  },
+  {
+    "name": "citygen",
+    "file": "structures/citygen.glb",
+    "bbox": [
+      677.997,
+      278.191,
+      313.458
+    ],
+    "tris": 4210808,
+    "hasEmissive": true,
+    "category": "structures"
+  },
+  {
+    "name": "Resteraunt",
+    "file": "structures/Resteraunt.glb",
+    "bbox": [
+      60.017,
+      49.802,
+      65.973
+    ],
+    "tris": 11078,
+    "hasEmissive": false,
+    "category": "structures"
+  }
+]
