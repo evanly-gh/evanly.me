@@ -324,29 +324,57 @@ function structColor(name, i) {
   return STRUCT_PALETTE[i % STRUCT_PALETTE.length];
 }
 
+// Restaurant: the .mtl exports no colours (Blender node materials), but the mesh
+// keeps 5 material groups = 5 parts. Map each to the reference render's palette
+// (magenta signs, cyan storefront, pink pipes, lavender body, dusky structure)
+// with strong emissive so the neon reads under bloom. Keyed by material name so
+// it's robust to primitive/material ordering.
+const RESTAURANT_LOOK = {
+  'Material':     { base: [0.60, 0.58, 0.72], emis: [0.08, 0.06, 0.12] }, // body / base shell
+  'Material.001': { base: [0.86, 0.28, 0.36], emis: [0.75, 0.14, 0.20] }, // pipes / tubes
+  'Material.002': { base: [0.98, 0.88, 0.98], emis: [2.20, 0.50, 1.80] }, // neon signs (magenta)
+  'Material.003': { base: [0.82, 0.97, 1.00], emis: [0.45, 1.90, 2.30] }, // storefront windows (cyan)
+  'Material.004': { base: [0.52, 0.40, 0.46], emis: [0.14, 0.05, 0.08] }, // structural detail
+};
+
 /**
- * Texture the structures ourselves: the source texture files aren't in the
- * download, so box-project UVs and apply a procedural lit-window facade
- * (base + emissive), tinted per material name. Photogrammetry-heavy pieces
- * (citygen, >200k tris) get flat colour only — a window grid would smear across
- * their organic geometry.
+ * Texture the structures ourselves — the source texture files aren't in the
+ * download. Restaurant → flat per-part neon palette (matches its low-poly
+ * reference). Building → dark body + blue-lit window facade (approximates its
+ * baked-texture reference). citygen (photogrammetry, >200k tris) → flat colour,
+ * since a window grid smears across its organic geometry.
  */
-export async function applyStructureFacade(doc, sharp) {
-  if (doc.getRoot().listMaterials().every((m) => m.getBaseColorTexture())) return;
-  if (countTris(doc) > 200000) { applyStructureColors(doc); return; }
+export async function applyStructureLook(doc, sharp, name) {
+  const mats = doc.getRoot().listMaterials();
+
+  if (/rest/i.test(name || '')) {
+    mats.forEach((m, i) => {
+      const look = RESTAURANT_LOOK[m.getName()] ?? { base: structColor(m.getName(), i), emis: [0.1, 0.1, 0.15] };
+      m.setBaseColorTexture(null); m.setEmissiveTexture(null);
+      m.setBaseColorFactor([look.base[0], look.base[1], look.base[2], 1]);
+      m.setEmissiveFactor(look.emis);
+      m.setMetallicFactor(0.0); m.setRoughnessFactor(0.55); m.setAlphaMode('OPAQUE');
+    });
+    return;
+  }
+
+  if (countTris(doc) > 200000) { applyStructureColors(doc); return; } // citygen
+
+  // Boxy building(s): box-project UVs + procedural window facade, dark body with
+  // blue neon windows to echo the reference tower.
+  if (mats.every((m) => m.getBaseColorTexture())) return;
   boxProjectUVs(doc);
   const { base, emissive } = await buildFacadeTextures(sharp);
   const baseTex = doc.createTexture('facade_base').setImage(new Uint8Array(base)).setMimeType('image/png');
   const emisTex = doc.createTexture('facade_emissive').setImage(new Uint8Array(emissive)).setMimeType('image/png');
-  doc.getRoot().listMaterials().forEach((mat, i) => {
+  mats.forEach((mat) => {
     if (mat.getBaseColorTexture()) return;
-    const col = structColor(mat.getName(), i);
-    mat.setBaseColorFactor([col[0], col[1], col[2], 1]);
+    mat.setBaseColorFactor([0.30, 0.31, 0.37, 1]);
     mat.setBaseColorTexture(baseTex);
-    mat.setEmissiveFactor([0.5, 0.75, 1.0]);
+    mat.setEmissiveFactor([0.25, 0.55, 1.35]); // blue neon windows
     mat.setEmissiveTexture(emisTex);
-    mat.setMetallicFactor(0.1);
-    mat.setRoughnessFactor(0.65);
+    mat.setMetallicFactor(0.2);
+    mat.setRoughnessFactor(0.6);
     mat.setAlphaMode('OPAQUE');
   });
 }
@@ -383,7 +411,7 @@ export async function createGalleryConverter() {
   const load = async (job) => {
     const d = await convertToDocument(io, job);
     if (job.category === 'monogon') bindMonogonTextures(d, job.input);
-    if (job.category === 'structures') await applyStructureFacade(d, sharp);
+    if (job.category === 'structures') await applyStructureLook(d, sharp, job.name);
     return d;
   };
 
