@@ -414,6 +414,9 @@ export async function applyStructureLook(doc, sharp, job) {
       m.setBaseColorFactor([look.base[0], look.base[1], look.base[2], 1]);
       m.setEmissiveFactor(look.emis);
       m.setMetallicFactor(0.0); m.setRoughnessFactor(0.55); m.setAlphaMode('OPAQUE');
+      // Low-poly OBJ parts (AC units, boxes, garland) have single-sided/flipped
+      // faces that vanish under backface culling — render both sides so they fill.
+      m.setDoubleSided(true);
     });
     return;
   }
