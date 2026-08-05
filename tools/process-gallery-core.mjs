@@ -342,7 +342,7 @@ function structColor(name, i) {
 // The shell is lit by the gallery neon pointlights + N8AO (flat surfaces light,
 // crevices/bars dark); only the glowing parts carry emissive.
 const RESTAURANT_LOOK = {
-  'Material':     { base: [0.28, 0.27, 0.31], emis: [0.00, 0.00, 0.00] }, // structure shell (dark grimy concrete, lit by scene + AO)
+  'Material':     { base: [0.54, 0.48, 0.60], emis: [0.00, 0.00, 0.00] }, // structure shell + pipes + barrel (pink-lavender, lit by neon + AO)
   'Material.001': { base: [0.42, 0.80, 0.92], emis: [0.26, 1.05, 1.35] }, // door frame / crate (cyan glow)
   'Material.002': { base: [0.95, 0.70, 0.90], emis: [1.55, 0.14, 1.10] }, // neon signs (saturated magenta — glows without clipping to white)
   'Material.003': { base: [0.85, 0.90, 0.95], emis: [0.45, 0.70, 0.85] }, // 武器 band (soft cyan-white)

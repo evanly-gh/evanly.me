@@ -387,7 +387,7 @@ export default function BuildingGallery() {
                     {/* magenta wash from the big signs — the dominant light */}
                     <pointLight
                       position={[item.x, item.height * 0.8, item.depth * 0.2]}
-                      color={PALETTE.magenta} intensity={2.6} distance={item.height * 2.6} decay={0}
+                      color={PALETTE.magenta} intensity={3.6} distance={item.height * 3.0} decay={0}
                     />
                     {/* cyan pool localized to the storefront (low, front) */}
                     <pointLight
