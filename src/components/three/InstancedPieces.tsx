@@ -122,18 +122,11 @@ export function pedestrianInstanceColor(
   return palette.jacket;
 }
 
-// Reference cyberpunk streets read blue/teal dominant with magenta only as a neon
-// accent. The building window/emissive glow is cooled toward this blue so the city
-// as a whole reads blue; the actual neon SIGNS (facade signs, project panels,
-// holograms, restaurant, shibuya walls) use separate materials and are untouched.
-const BUILDING_EMISSIVE_COOL = new THREE.Color('#2f6cd8');
-
 function tuneClonedMaterial(c: THREE.Material): THREE.Material {
   const standard = c as THREE.MeshStandardMaterial;
   if (standard.emissive
     && (standard.emissiveMap || EMISSIVE_HINT.test(standard.name || ''))) {
     standard.emissiveIntensity = 1.6;
-    standard.emissive.lerp(BUILDING_EMISSIVE_COOL, 0.5);
   }
   return c;
 }
