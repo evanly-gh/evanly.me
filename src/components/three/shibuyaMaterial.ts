@@ -165,3 +165,49 @@ export function styleShibuyaWallMaterial(material: THREE.Material): THREE.Materi
   material.needsUpdate = true;
   return material;
 }
+
+/**
+ * The restaurant (structures/Resteraunt.glb) ships as a pale low-poly model that
+ * reads flat/grey under the city lights. Darken its plain shell so it sits in the
+ * moody palette, and let its neon signage / lit storefront glow — turning it into
+ * the dark-with-neon izakaya the reference intends.
+ */
+function hashString(value: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 0xffffffff;
+}
+
+export function styleRestaurantMaterial(material: THREE.Material): THREE.Material {
+  if (!(material instanceof THREE.MeshStandardMaterial)) return material;
+  const e = material.emissive;
+  const mx = e ? Math.max(e.r, e.g, e.b) : 0;
+  const mn = e ? Math.min(e.r, e.g, e.b) : 0;
+  // Colored neon (magenta sign / cyan storefront glass) has a strong, saturated
+  // emissive — keep it GLOWING (the glow the user liked). A near-white / weak
+  // emissive is the shell wash, dropped so the shell can read dark.
+  const isColoredNeon = material.emissiveMap != null || (mx > 0.3 && mx - mn > 0.22);
+  if (isColoredNeon) {
+    material.emissiveIntensity = Math.max(material.emissiveIntensity ?? 1, 2.4);
+    material.roughness = Math.min(1, (material.roughness ?? 0.8) + 0.05);
+    material.metalness = 0.1;
+  } else {
+    if (e) e.setHex(0x000000);
+    material.emissiveIntensity = 0;
+    // Darken, but give each component its own tint (keyed on the material name)
+    // so walls / supports / boxes / pipes don't all read as one flat gray.
+    material.color.multiplyScalar(0.5);
+    const t = hashString(material.name || 'shell');
+    material.color.offsetHSL((t - 0.5) * 0.16, 0.12, (t - 0.5) * 0.05);
+    // Glossy so it catches specular neon highlights (no env map, so keep some
+    // diffuse rather than going full-metal black).
+    material.roughness = 0.3;
+    material.metalness = 0.35;
+  }
+  material.userData.role = 'restaurant-neon-shell';
+  material.needsUpdate = true;
+  return material;
+}

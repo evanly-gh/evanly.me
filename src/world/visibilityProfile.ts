@@ -23,19 +23,15 @@ import {
 } from './buildingCatalog';
 import {
   buildCityLayout,
-  buildProps,
-  buildSkyline,
-  buildStreetFurniture,
   type Placement,
   type SkyBox,
   type StreetFurniture,
 } from './cityLayout';
-import { buildCrowdLayout, type CrowdLayout, type CrowdSpot } from './crowdLayout';
+import { type CrowdLayout, type CrowdSpot } from './crowdLayout';
 import { buildModelSpatialBuckets } from './instanceBuckets';
 import { groundRoadClearance } from './roads';
 import { buildSignLayout, type SignPlacement } from './signLayout';
 import {
-  buildStreetDressingLayout,
   type StreetDressingLayout,
   type StreetDressingSpot,
 } from './streetDressing';
@@ -236,32 +232,10 @@ const VISIBILITY_ASPECT_BUCKETS_PER_UNIT = 64;
 const visibilityLayoutsCache = new Map<string, VisibilityLayouts>();
 let visibilityLayoutCacheEvictions = 0;
 
-const STATIC_FILLER_SAFETY = Object.freeze({
-  minimumGroundRoadMargin: 1,
-  protectedFootprintMargin: 1,
-  shibuyaSightlineMargin: 1,
-  researchSightlineMargin: 1,
-  aboutSightlineMargin: 1,
-  shorelineMargin: 1,
-  minimumNeighborGap: 1,
-  attachedParentCount: 1,
-});
-
-const STATIC_CANYON_FILLERS: CanyonFiller[] = [
-  // Fillers :0/:1/:2 (west of the about/descend corridor) removed: after the
-  // background-fill cull the buildings that backed them were gone, leaving them
-  // as isolated slabs floating in cleared ground (visible top-down / freecam).
-  { id: 'cinematic-canyon-filler:3', position: [316.719673094181, 0, -192.26870604704786], size: [18, 57.86, 10], rotationY: 2.0565813902033483, sourceProbeIds: ['production-rig:key:projects-1:probe:0'], triangles: 12, safety: STATIC_FILLER_SAFETY },
-  { id: 'cinematic-canyon-filler:4', position: [318.5074895466804, 0, -163.6814419385351], size: [24, 67.202, 12], rotationY: 1.8638178692800127, sourceProbeIds: ['production-rig:key:projects-1:probe:1', 'production-rig:key:projects-3:probe:3'], triangles: 12, safety: STATIC_FILLER_SAFETY },
-  { id: 'cinematic-canyon-filler:5', position: [319.0128234877855, 0, -94.66094669141263], size: [18, 84, 10], rotationY: 1.3482641026434279, sourceProbeIds: ['production-rig:key:projects-1:probe:3'], triangles: 12, safety: STATIC_FILLER_SAFETY },
-  { id: 'cinematic-canyon-filler:6', position: [318.58931318484844, 0, -59.84249860199193], size: [14, 84, 8], rotationY: 1.0847806865040497, sourceProbeIds: ['production-rig:key:projects-1:probe:4'], triangles: 12, safety: STATIC_FILLER_SAFETY },
-  { id: 'cinematic-canyon-filler:7', position: [316.38146982095395, 0, -265.39709783737436], size: [24, 84, 12], rotationY: 2.078335536780666, sourceProbeIds: ['production-rig:key:projects-3:probe:0'], triangles: 12, safety: STATIC_FILLER_SAFETY },
-  { id: 'cinematic-canyon-filler:8', position: [317.6843415034587, 0, -245.5154764447119], size: [10, 84, 6], rotationY: 1.948918924482724, sourceProbeIds: ['production-rig:key:projects-3:probe:1', 'production-rig:key:projects-5:probe:3'], triangles: 12, safety: STATIC_FILLER_SAFETY },
-  { id: 'cinematic-canyon-filler:9', position: [316.38146982095395, 0, -122.60290216262563], size: [30, 84, 14], rotationY: 1.063257116809127, sourceProbeIds: ['production-rig:key:projects-3:probe:4'], triangles: 12, safety: STATIC_FILLER_SAFETY },
-  { id: 'cinematic-canyon-filler:10', position: [317.9483710020386, 0, -337.03518720494134], size: [30, 67.202, 14], rotationY: 1.931620082552508, sourceProbeIds: ['production-rig:key:projects-5:probe:0', 'production-rig:key:projects-5:probe:1'], triangles: 12, safety: STATIC_FILLER_SAFETY },
-  { id: 'cinematic-canyon-filler:11', position: [318.6516241144906, 0, -218.9406516269093], size: [18, 57.336, 10], rotationY: 1.0845499081676044, sourceProbeIds: ['production-rig:key:projects-5:probe:4'], triangles: 12, safety: STATIC_FILLER_SAFETY },
-  { id: 'cinematic-canyon-filler:12', position: [265.38260397621286, 0, -570.1787374474948], size: [6, 41.686, 4], rotationY: 2.7649797853389, sourceProbeIds: ['production-rig:key:research-22:probe:0', 'production-rig:key:research-21:probe:1'], triangles: 12, safety: STATIC_FILLER_SAFETY },
-];
+// The procedural gray/blue canyon-filler boxes are removed from the scene — they
+// read as non-asset placeholder slabs. Real buildings now fill these areas (the
+// stunt backdrop's second row behind the scaffold, and the varied research walls).
+const STATIC_CANYON_FILLERS: CanyonFiller[] = [];
 
 /**
  * Building placements only (~1s of work). Split out from the full source so the
@@ -277,13 +251,18 @@ function buildingsSource(): Placement[] {
 function staticVisibilitySource(): StaticVisibilitySource {
   if (cachedStaticVisibilitySource) return cachedStaticVisibilitySource;
   const buildings = buildingsSource();
+  // Non-building clutter is removed from the map: street props, the far-field
+  // skyline ring, street furniture (lamps/poles/cables), pedestrians + robots,
+  // and street dressing. Only buildings and facade signage remain. Empty sources
+  // keep the visibility/anti-void/triangle math consistent instead of leaving the
+  // generators' output rendered.
   cachedStaticVisibilitySource = {
     buildings,
-    props: buildProps(),
-    skyline: buildSkyline(),
-    furniture: buildStreetFurniture(),
-    crowd: buildCrowdLayout(),
-    streetDressing: buildStreetDressingLayout(),
+    props: [],
+    skyline: [],
+    furniture: { lamps: [], poles: [], cables: [] },
+    crowd: { humans: [], robots: [] },
+    streetDressing: { manholes: [], cans: [], cones: [] },
     signs: buildSignLayout(buildings),
   };
   return cachedStaticVisibilitySource;

@@ -3,17 +3,14 @@ import { makeRng } from '../assets/rng';
 import {
   buildingClearsElevatedDeck,
   elevatedDeckBuildingClearance,
-  type GroundRoadEdgePoint,
   groundRoadClearance,
   groundRoadEdgePoints,
   groundRoadMemberships,
   keepClear,
-  keepClearFootprint,
   protectedOrientedFootprintClearance,
   ROADS,
 } from './roads';
 import {
-  buildShibuyaApproaches,
   buildShibuyaSightCorridors,
   shibuyaPlazaClearance,
   type ApproachId,
@@ -38,7 +35,7 @@ import {
   aboutSightlineFootprintMargin,
   aboutSightlinePointMargin,
 } from './aboutReveal';
-import { STUNT_BACKDROP } from './stuntLayout';
+import { STUNT_BACKDROP, STUNT_BACKDROP_ROW2 } from './stuntLayout';
 import { RESEARCH_WALLS } from './researchLayout';
 import {
   researchCorridorPointClearance,
@@ -52,16 +49,9 @@ import {
  * Buildings are GPU-instanced (see InstancedPieces) so density is cheap.
  */
 const P = 'KB3D_NEC_';
-// Pools grouped by TRIANGLE COST (instancing saves draw calls but not vertex
-// work). Heavy hero towers are used sparingly as landmarks; the bulk is light.
-// Approved-only palette: the heavy LG_C_Main / MD_C_Main / LG_A_BuildingC /
-// MD_A_Main are removed scene-wide and replaced by height-matched allowed pieces
-// (LG_C_Main→LG_B_Main, MD_C_Main→MD_B_Main, BuildingC/MD_A_Main→LG_A_BuildingD).
-const HERO = [`${P}BldgLG_B_Main`];                                                 // tall landmark
-const TALL = [`${P}BldgLG_A_Main`, `${P}BldgMD_B_Main`];                            // ~57–67m
-const MID = [`${P}BldgMD_B_Main`, `${P}BldgLG_A_BuildingA`, `${P}BldgLG_A_BuildingB`, `${P}BldgLG_A_BuildingD`, `${P}BldgMD_C_BuildingA`]; // ~15–73m
-const SMALL = [`${P}BldgSM_A_Main`, `${P}BldgSM_C_Main`];      // ~3–25k
-// (LOW_BASE podium pool removed — all four base pieces were deleted from the kit.)
+// The roadside building pools (FRONT_POOL / BACK_POOL) are defined below, once
+// the `g()` path helper exists. The prop pools (EDGE / SHOP / SPIRE / DECOR)
+// remain here for buildProps().
 const EDGE = [
   `${P}BldgSM_C_Boxes`, `${P}BldgSM_C_CratesA`,
   `${P}BldgSM_C_CratesB`, `${P}BldgSM_C_Pipes`, `${P}BldgSM_A_ConcreteBarrier`,
@@ -79,8 +69,6 @@ const SPIRE = [
   `${P}BldgMD_C_AntennaA`,
 ];
 const DECOR = [`${P}BldgLG_A_Tree`, ...SPIRE]; // trees + antenna spires — the banner assets read badly, so drop them
-const SHIBUYA_FRONT = [`${P}BldgMD_B_Main`];
-const SHIBUYA_BACK = [`${P}BldgLG_B_Main`];
 export const SERVICE_FILES = [
   'props/quat_ac.glb',
   'props/quat_ac_stacked.glb',
@@ -110,6 +98,7 @@ export interface Placement {
     | 'research-front'
     | 'research-back'
     | 'about-plaza'
+    | 'restaurant'
     | typeof ABOUT_HERO_BACKDROP_ID;
   shibuyaApproach?: ApproachId;
   shibuyaSide?: -1 | 1;
@@ -168,21 +157,119 @@ export function clearsOpenWater(bounds: OrientedBuildingBounds): boolean {
   return !orientedFootprintsOverlap(bounds, WATER_BOUNDS, 1e-6);
 }
 
-// Road cross-section (from City.tsx / roads.ts): the driving deck is ±hw, then a
-// wide sidewalk (half-width 4.5, offset hw+4.5) → outer sidewalk edge at hw+9.
-const SIDEWALK = 9;     // sidewalk outer edge, measured from the road centre-line
-const GAP = 1;          // buildings hug the sidewalk (small clear gap)
-const ALLEY = 3;        // narrow alley between the front wall and the back towers
-const FOOT_A = 16;      // front-row footprint radius (medium/tall rises)
-const FOOT_B = 28;      // back-row footprint radius (tall towers / heroes)
+// Legacy sidewalk width retained only for buildProps() clearance math.
+const SIDEWALK = 9;
+
+const UP = new THREE.Vector3(0, 1, 0);
+
+// ── Two-row roadside packer geometry ──
+// The visible sidewalk mesh (City.tsx Roads) is narrowed to a 2.5m half-width →
+// 5m outer reach. Buildings hug that new edge: the FRONT near-face sits at
+// hw + SIDEWALK_WIDTH + FRONT_GAP; the BACK row is anchored just behind whatever
+// front building sits ahead of it (adaptive), so the two rows stay tight.
+const SIDEWALK_WIDTH = 5;   // narrowed sidewalk outer reach past the road edge
+const FRONT_GAP = 1;        // planting gap between sidewalk edge and front facade
+const FRONT_ANCHOR = SIDEWALK_WIDTH + FRONT_GAP;      // front near-face, from road edge
+const ROW_ALLEY = 2;        // gap between a front far-face and the back near-face
+const BACK_FALLBACK_ANCHOR = FRONT_ANCHOR + 16;       // back near-face where no front piece sits ahead
+const BACK_PHASE = 10;      // arc-length offset so back seams miss front seams
+const SEAM = 0.6;           // clear gap between neighbouring facades in a row
+const MIN_STEP = 4;         // slide distance when a spot rejects every candidate
+const ROAD_CLEARANCE_MIN = SIDEWALK_WIDTH; // keep every facade off the sidewalk/road
+const PLAZA_MARGIN = 3;     // keep facades this far off the plaza / keep-clear shapes
+const OVERLAP_MARGIN = 0.5; // min gap enforced between any two building footprints
+const ROW_ATTEMPTS = 8;     // candidate picks tried per cursor position
+const RECENT_FAMILY_WINDOW = 2; // no repeat of a building family within N neighbours
+
+// ── Approved building pools for the two-row roadside packer ──
+// Both rows mix short/medium/tall (heights noted); FRONT biases shorter, BACK
+// biases taller so line 2 rises above line 1 while still varying. Chopped height
+// variants (neocity-variants) add mid heights the base kit lacks. Anti-repetition
+// keys on `familyOf(file)` (base model, ignoring the _H height suffix) so neither
+// the same piece nor a re-heighted sibling ever lands within RECENT_FAMILY_WINDOW.
+interface PoolPiece { file: string; scale?: number; weight: number }
+const MONOGON_SCALE = 2.6;
+const mono = (n: string): string => `monogon/${n}.glb`;
+const vnt = (n: string): string => `neocity-variants/${n}.glb`;
+
+/** Base model identity, ignoring pack folder and the chopped `_H<height>` suffix. */
+const familyOf = (file: string): string =>
+  file.replace(/^.*\//, '').replace(/\.glb$/, '')
+    .replace(/^KB3D_NEC_Bldg/, '').replace(/_H\d+$/, '');
+
+const FRONT_POOL: PoolPiece[] = [
+  { file: g(`${P}BldgMD_A_Main`), weight: 3 },                       // 13m
+  { file: g(`${P}BldgLG_A_BuildingD`), weight: 3 },                  // 20m
+  { file: g(`${P}BldgLG_A_BuildingC`), weight: 2 },                  // 24m
+  { file: mono('Building_06'), scale: MONOGON_SCALE, weight: 3 },    // ~33m
+  { file: vnt(`${P}BldgLG_A_Main_H34`), weight: 3 },                 // 34m variant
+  { file: vnt(`${P}BldgMD_C_Main_H36`), weight: 3 },                 // 36m variant
+  { file: g(`${P}BldgLG_A_BuildingA`), weight: 3 },                  // 42m
+  { file: g(`${P}BldgMD_B_Main`), weight: 2 },                       // 57m
+  { file: g(`${P}BldgMD_C_Main`), weight: 2 },                       // 58m
+  { file: g(`${P}BldgLG_A_Main`), weight: 2 },                       // 67m
+  { file: vnt(`${P}BldgLG_C_Main_H100`), weight: 1 },                // 100m (occasional)
+  { file: mono('Building_3'), scale: MONOGON_SCALE, weight: 1 },     // ~42m spire
+  // NOTE: BuildingB (#4) and its _H47 variant are deliberately kept OUT of the
+  // front row — their footprint rotates so the faces don't align to the street.
+];
+const BACK_POOL: PoolPiece[] = [
+  { file: g(`${P}BldgLG_A_BuildingD`), weight: 1 },                  // 20m (some short)
+  { file: mono('Building_06'), scale: MONOGON_SCALE, weight: 1 },    // ~33m
+  { file: vnt(`${P}BldgLG_A_Main_H34`), weight: 1 },                 // 34m variant
+  { file: vnt(`${P}BldgMD_C_Main_H36`), weight: 2 },                 // 36m variant
+  { file: g(`${P}BldgLG_A_BuildingA`), weight: 2 },                  // 42m
+  { file: vnt(`${P}BldgLG_A_BuildingB_H47`), weight: 2 },            // 47m variant
+  { file: g(`${P}BldgMD_B_Main`), weight: 3 },                       // 57m
+  { file: g(`${P}BldgMD_C_Main`), weight: 3 },                       // 58m
+  { file: g(`${P}BldgLG_A_Main`), weight: 3 },                       // 67m
+  { file: g(`${P}BldgLG_A_BuildingB`), weight: 3 },                  // 73m
+  { file: vnt(`${P}BldgLG_C_Main_H100`), weight: 3 },                // 100m variant
+  { file: vnt(`${P}BldgLG_B_Main_H124`), weight: 3 },                // 124m variant
+  { file: g(`${P}BldgLG_C_Main`), weight: 2 },                       // 143m hero
+  { file: g(`${P}BldgLG_B_Main`), weight: 2 },                       // 201m hero
+  { file: mono('Building_3'), scale: MONOGON_SCALE, weight: 1 },     // ~42m spire (accent)
+];
+
+// Restaurant (structures pack) that fills the NE corner of the Shibuya crossing.
+// Its plaza-facing frontage is kept building-free (see restaurantFrontageBlocks)
+// so it reads as the corner building rather than being hidden behind a row.
+const RESTAURANT_FILE = 'structures/Resteraunt.glb';
+// Smaller than city-scale so it tucks snugly into the crossing corner (raw
+// 60×50×66 → ~42×35×46). Axis-aligned so its base sides run parallel to the two
+// streets; 180° so the detailed storefront (corner glass window + neon signage)
+// faces the plaza/intersection rather than the plain back wall.
+const RESTAURANT_SCALE = 0.7;
+const RESTAURANT_ROT = Math.PI;
+// Placed so its plaza-facing (SW) corner sits right on the NE corner of the
+// crossing, just clear of both sidewalks (PLAZA_MARGIN). center = corner + halves.
+const RESTAURANT_POS = new THREE.Vector3(292, 0, 54);
+const RESTAURANT_FRONTAGE_OFFSET = 22; // disc centre, toward the plaza
+const RESTAURANT_FRONTAGE_RADIUS = 26; // packer buildings inside this disc are skipped
+
+// ── Stunt visibility corridor ──
+// The hero "projects" camera sits west of the main road (x≈209) and looks east at
+// the ramp/scaffold on the x≈285 service alley. Buildings the packer places in the
+// open slot between the main road's east edge and the stunt keep-clear (x≈255-276)
+// would stand directly in that sightline, so cap their height well under the ~13m
+// scaffold deck. Outside this box there is no height cap.
+const STUNT_LOW_ZONE = { x0: 251, x1: 285, z0: -320, z1: -50 };
+const STUNT_LOW_MAX_HEIGHT = 12;
+const stuntHeightCap = (x: number, z: number): number =>
+  x >= STUNT_LOW_ZONE.x0 && x <= STUNT_LOW_ZONE.x1
+    && z >= STUNT_LOW_ZONE.z0 && z <= STUNT_LOW_ZONE.z1
+    ? STUNT_LOW_MAX_HEIGHT
+    : Infinity;
 
 /**
- * Buildings line every road in TWO tight rows per side, forming a continuous
- * canyon WALL that towers over the street (so billboards can be projected on
- * the faces). Each placement stores an ANCHOR at the sidewalk edge + an outward
- * direction; InstancedPieces pushes the building out by its real footprint so
- * its near face lands exactly on the sidewalk edge (scaling down only oversized
- * pieces). A worst-case clearance test guarantees NOTHING overlaps a road.
+ * Buildings line every ground road in TWO edge-to-edge rows per side, forming a
+ * continuous canyon WALL. An arc-length packer walks each road, placing each
+ * building flush against the (narrowed) sidewalk with its wider face parallel to
+ * the street, advancing the cursor by the piece's real footprint so nothing
+ * overlaps and no gaps open. The FRONT row is small/medium; the BACK row is
+ * medium/tall, phase-shifted to cover the seams in the front row. Every
+ * candidate is validated against roads, the plaza, keep-clear zones, the
+ * elevated monorail, water, curated sightlines, and already-placed buildings.
  */
 // The layout is a pure function of `seed` (seeded RNG + deterministic placement
 // with an O(n²) footprint-overlap pass). It is called from several main-thread
@@ -193,27 +280,6 @@ const FOOT_B = 28;      // back-row footprint radius (tall towers / heroes)
 // this way by visibilityProfile's cachedBuildingsSource, so this changes nothing
 // but the redundant recomputation.
 const cityLayoutCache = new Map<number, Placement[]>();
-
-// Buildings set farther than this (metres) from every ground-road edge are the
-// procedural back-fill district (generated at 84-230m clearance): they sit
-// behind the roadside canyon walls, are occluded by them under the low scroll
-// camera, and are the bulk of the whole-city (freecam) draw + first-load
-// construction cost. Culling them shrinks the source array for every consumer.
-// Curated scenes (shibuya / stunt / research / about) are always kept; note
-// 'low-base' is deliberately NOT kept here — it is background fill, not curated.
-const BACKGROUND_FILL_MAX_CLEARANCE = 80;
-
-/** Curated hand-authored scene buildings that must survive background culling. */
-function isCuratedScenePlacement(placement: Placement): boolean {
-  return placement.layoutRole === 'shibuya-front'
-    || placement.layoutRole === 'shibuya-back'
-    || placement.layoutRole === 'shibuya-corner'
-    || placement.layoutRole === 'stunt-backdrop'
-    || placement.layoutRole === 'research-front'
-    || placement.layoutRole === 'research-back'
-    || placement.layoutRole === 'about-plaza'
-    || placement.layoutRole === ABOUT_HERO_BACKDROP_ID;
-}
 
 export function buildCityLayout(seed = 20260720): Placement[] {
   const cached = cityLayoutCache.get(seed);
@@ -229,582 +295,218 @@ function computeCityLayout(seed: number): Placement[] {
     { ...ABOUT_HERO_BACKDROP_PLACEMENT },
     ...ABOUT_PLAZA_PLACEMENTS.map((placement) => ({ ...placement })),
     ...STUNT_BACKDROP.map((placement) => ({ ...placement })),
+    ...STUNT_BACKDROP_ROW2.map((placement) => ({ ...placement })),
     ...RESEARCH_WALLS.map((placement) => ({ ...placement })),
   ];
 
-  const anchorA = SIDEWALK + GAP;                  // front wall hugs the sidewalk (hw+10)
-  const anchorB = anchorA + 2 * FOOT_A + ALLEY;    // back towers behind a narrow alley
   const shibuyaSightCorridors = buildShibuyaSightCorridors();
 
-  const isProtectedPlacement = (placement: Placement): boolean =>
-    placement.layoutRole === 'shibuya-front'
-    || placement.layoutRole === 'shibuya-back'
-    || placement.layoutRole === 'shibuya-corner'
-    || placement.layoutRole === 'low-base'
-    || placement.layoutRole === 'stunt-backdrop'
-    || placement.layoutRole === 'research-front'
-    || placement.layoutRole === 'research-back'
-    || placement.layoutRole === 'about-plaza'
-    || placement.layoutRole === ABOUT_HERO_BACKDROP_ID;
+  // ── Shared candidate validation ──
+  const overlapsAny = (candidate: OrientedBuildingBounds): boolean =>
+    out.some((existing) =>
+      BUILDING_CATALOG.has(existing.file)
+      && orientedFootprintsOverlap(
+        candidate,
+        buildingPlacementBounds(existing),
+        OVERLAP_MARGIN,
+      ));
 
-  const clearsEveryGroundRoad = (x: number, z: number, radius: number): boolean =>
-    shibuyaPlazaClearance(x, z) >= radius + 1
-    && groundRoadMemberships(x, z)
-      .every((membership) => membership.clearance >= radius + SIDEWALK + 1);
+  // Every footprint corner must clear every ground road (and its sidewalk) so no
+  // building lands on a street/sidewalk — including crossing roads at corners.
+  const clearsGroundRoads = (bounds: OrientedBuildingBounds): boolean =>
+    orientedFootprintPerimeterPoints(bounds, 2).every((point) =>
+      groundRoadMemberships(point.x, point.z).every(({ clearance }) =>
+        clearance >= ROAD_CLEARANCE_MIN - 1e-6));
 
-  const overlaps = (
-    candidate: OrientedBuildingBounds,
-    protectedOnly = false,
-  ): boolean => out.some((existing) => {
-    if (protectedOnly && !isProtectedPlacement(existing)) return false;
-    const bounds = buildingPlacementBounds(existing);
-    return orientedFootprintsOverlap(candidate, bounds, 2);
-  });
+  // protectedOrientedFootprintClearance is the exact OBB clearance to the plaza
+  // and every keep-clear rectangle. Requiring a PLAZA_MARGIN keeps facades from
+  // creeping into the open crossing while still lining the approach roads.
+  const candidateValid = (bounds: OrientedBuildingBounds): boolean =>
+    clearsOpenWater(bounds)
+    && protectedOrientedFootprintClearance(bounds) >= PLAZA_MARGIN
+    && buildingClearsElevatedDeck(bounds)
+    && aboutSightlineFootprintMargin(bounds) > 0
+    && researchCorridorPointClearance(bounds.center, bounds.radius) > 0
+    && shibuyaSightCorridors.every((corridor) =>
+      segmentFootprintClearance(corridor.start, corridor.end, bounds)
+        > corridor.halfWidth)
+    && clearsGroundRoads(bounds)
+    && !overlapsAny(bounds);
 
-  const place = (
-    base: THREE.Vector3, bin: THREE.Vector3, tan: THREE.Vector3,
-    side: number, hw: number, anchor: number, pool: string[], foot: number,
-  ): boolean => {
-    const jit = rng.range(-2, 2);
-    const ax = base.x + bin.x * side * (hw + anchor) + tan.x * jit;
-    const az = base.z + bin.z * side * (hw + anchor) + tan.z * jit;
-    const ox = bin.x * side, oz = bin.z * side; // outward (away from road)
-    let effPool = pool, effFoot = foot;
-    let name = rng.pick(effPool);
-    const rotationY = Math.atan2(-ox, -oz) + rng.range(-0.02, 0.02);
-    const makePlacement = (): Placement => ({
-      file: g(name),
-      position: [ax, 0, az],
-      rotationY,
-      foot: effFoot,
-      outDir: [ox, oz],
-    });
-    const makeCandidate = (): { placement: Placement; bounds: OrientedBuildingBounds } => {
-      const placement = makePlacement();
-      return { placement, bounds: buildingPlacementBounds(placement) };
-    };
-    const resolved = resolveDeckSafePlacement(
-      makeCandidate(),
-      () => {
-        effPool = SMALL;
-        effFoot = Math.min(foot, 11);
-        name = rng.pick(effPool);
-        return makeCandidate();
-      },
-      ({ bounds }) => buildingClearsElevatedDeck(bounds),
-    );
-    if (resolved.outcome === 'rejected') return false;
-    const { placement, bounds } = resolved.placement;
-    if (!clearsOpenWater(bounds)) return false;
-    if (aboutSightlineFootprintMargin(bounds) <= 0) return false;
-    // Safety uses each exact projected road membership. The sampled nearest-road
-    // approximation remains useful for district selection only.
-    if (keepClearFootprint(bounds.center.x, bounds.center.z, bounds.radius)) return false;
-    if (!clearsEveryGroundRoad(bounds.center.x, bounds.center.z, bounds.radius)) return false;
-    if (overlaps(bounds, true)) return false;
-    out.push(placement);
-    return true;
-  };
-
-  const isShibuyaWallSample = (
-    roadId: string,
-    point: THREE.Vector3,
-  ): boolean => ['main-route', 'shibuya-north', 'shibuya-east'].includes(roadId)
-    && shibuyaPlazaClearance(point.x, point.z) <= 160;
-
-  // front wall — dense (≈every 18 m → buildings touch into a continuous wall)
-  for (const e of groundRoadEdgePoints(18)) {
-    const far = e.pos.z < -560;
-    if (isShibuyaWallSample(e.roadId, e.pos)) continue;
-    for (const side of [1, -1] as const) {
-      if (rng.chance(far ? 0.4 : 0.02)) continue;
-      place(e.pos, e.bin, e.tan, side, e.hw, anchorA, rng.chance(0.35) ? TALL : MID, FOOT_A);
+  // Weighted pick that avoids any building family placed within the recent window
+  // (so neither a repeat nor a re-heighted sibling lands next to its own kind).
+  const pickPiece = (pool: PoolPiece[], recentFamilies: string[]): PoolPiece => {
+    const choices = pool.filter((piece) => !recentFamilies.includes(familyOf(piece.file)));
+    const list = choices.length > 0 ? choices : pool;
+    const total = list.reduce((sum, piece) => sum + piece.weight, 0);
+    let roll = rng.range(0, total);
+    for (const piece of list) {
+      roll -= piece.weight;
+      if (roll <= 0) return piece;
     }
-  }
+    return list[list.length - 1];
+  };
 
-  // Shibuya walls use arc-length samples from the four production approach
-  // roads. Their facade anchors stay fixed at the outer sidewalk edge while
-  // full-size footprint caps create regular-scale front and back canyon rows.
-  const approachRoadId: Record<ApproachId, string> = {
-    west: 'main-route',
-    north: 'shibuya-north',
-    east: 'shibuya-east',
-    south: 'main-route',
-  };
-  const nearestCurveU = (
-    curve: THREE.Curve<THREE.Vector3>,
-    target: THREE.Vector3,
-  ): number => {
-    let bestU = 0;
-    let bestDistanceSq = Infinity;
-    for (let i = 0; i <= 4096; i++) {
-      const u = i / 4096;
-      const point = curve.getPointAt(u);
-      const distanceSq = (point.x - target.x) ** 2 + (point.z - target.z) ** 2;
-      if (distanceSq < bestDistanceSq) {
-        bestDistanceSq = distanceSq;
-        bestU = u;
-      }
-    }
-    return bestU;
-  };
-  const approachById = new Map(buildShibuyaApproaches().map((approach) => [
-    approach.id,
-    approach,
-  ]));
-  interface ShibuyaCandidate {
-    placement: Placement;
-    bounds: OrientedBuildingBounds;
-    base: THREE.Vector3;
-    bin: THREE.Vector3;
-    tan: THREE.Vector3;
-    side: -1 | 1;
-    halfWidth: number;
-  }
-  const placeShibuya = (
+  // Anchor a piece flush to the sidewalk edge, wider face parallel to the road.
+  const buildRowPlacement = (
     base: THREE.Vector3,
-    bin: THREE.Vector3,
     tan: THREE.Vector3,
-    side: -1 | 1,
+    bin: THREE.Vector3,
+    side: number,
     halfWidth: number,
     anchor: number,
-    model: string,
-    foot: number,
-    role: 'shibuya-front' | 'shibuya-back',
-    approach: ApproachId,
-    roadId: string,
     roadIndex: number,
-    distance: number,
-    alleyApplicable: boolean,
-  ): ShibuyaCandidate | undefined => {
-    const outward = { x: bin.x * side, z: bin.z * side };
+    piece: PoolPiece,
+  ): {
+    placement: Placement;
+    bounds: OrientedBuildingBounds;
+    tangentialHalf: number;
+    radialHalf: number;
+  } | null => {
+    const metrics = BUILDING_CATALOG.get(piece.file);
+    if (!metrics) return null;
+    const ox = bin.x * side;
+    const oz = bin.z * side;
+    // Face the road; rotate 90° when the depth axis is the wider one so the broad
+    // face (not the narrow end) lines the street.
+    const swap = metrics.size.z > metrics.size.x;
+    const rotationY = Math.atan2(-ox, -oz) + (swap ? Math.PI / 2 : 0);
     const position: [number, number, number] = [
-      base.x + outward.x * (halfWidth + anchor),
+      base.x + ox * (halfWidth + anchor),
       0,
-      base.z + outward.z * (halfWidth + anchor),
+      base.z + oz * (halfWidth + anchor),
     ];
-    const rotationY = Math.atan2(-outward.x, -outward.z);
-    const anchored: Placement = {
-      file: g(model),
+    const probe: Placement = {
+      file: piece.file,
       position,
       rotationY,
-      foot,
-      outDir: [outward.x, outward.z],
+      scale: piece.scale,
+      outDir: [ox, oz],
       centerOffset: [0, 0],
-      layoutRole: role,
-      shibuyaApproach: approach,
-      shibuyaSide: side,
-      shibuyaDistance: distance,
-      shibuyaAlleyApplicable: alleyApplicable,
-      roadId,
+    };
+    // Push the centre out by the real half-depth so the near face lands exactly on
+    // the anchor line (flush, parallel facades).
+    const radialHalf = projectedFootprintHalfExtent(
+      buildingPlacementBounds(probe),
+      { x: ox, z: oz },
+    );
+    const placement: Placement = {
+      ...probe,
+      centerOffset: [ox * radialHalf, oz * radialHalf],
       roadIndex,
     };
-    const anchorBounds = buildingPlacementBounds(anchored);
-    const radialExtent = projectedFootprintHalfExtent(anchorBounds, outward);
-    const placement: Placement = {
-      ...anchored,
-      centerOffset: [
-        outward.x * radialExtent,
-        outward.z * radialExtent,
-      ],
-    };
     const bounds = buildingPlacementBounds(placement);
-    const perimeter = orientedFootprintPerimeterPoints(bounds, 8);
-    if (!clearsOpenWater(bounds)) return undefined;
-    if (keepClearFootprint(bounds.center.x, bounds.center.z, bounds.radius)) {
-      return undefined;
-    }
-    if (protectedOrientedFootprintClearance(bounds) < 1) return undefined;
-    if (perimeter.some((point) =>
-      groundRoadMemberships(point.x, point.z)
-        .some((membership) => membership.clearance < 10 - 1e-6))) return undefined;
-    if (!buildingClearsElevatedDeck(bounds)) return undefined;
-    if (aboutSightlineFootprintMargin(bounds) <= 0) return undefined;
-    if (shibuyaSightCorridors.some((corridor) =>
-      segmentFootprintClearance(corridor.start, corridor.end, bounds)
-        <= corridor.halfWidth)) return undefined;
-    const conflicts = out.filter((existing) =>
-      orientedFootprintsOverlap(bounds, buildingPlacementBounds(existing), 2));
-    if (conflicts.length > 0) {
-      const mayReplaceOrdinarySouthWall = approach === 'south'
-        && distance >= 240
-        && conflicts.every((existing) => !isProtectedPlacement(existing));
-      if (!mayReplaceOrdinarySouthWall) return undefined;
-      for (const conflict of conflicts) out.splice(out.indexOf(conflict), 1);
-    }
-    out.push(placement);
-    return { placement, bounds, base, bin, tan, side, halfWidth };
+    const tangentialHalf = projectedFootprintHalfExtent(bounds, {
+      x: tan.x,
+      z: tan.z,
+    });
+    return { placement, bounds, tangentialHalf, radialHalf };
   };
 
-  const frontCandidates: ShibuyaCandidate[] = [];
-  const approachOrder = ['west', 'south', 'north', 'east'] as const;
-  for (const approachId of approachOrder) {
-    const approach = approachById.get(approachId)!;
-    const roadId = approachRoadId[approach.id];
-    const roadIndex = ROADS.findIndex((candidate) => candidate.id === roadId);
-    if (roadIndex < 0) throw new Error(`Missing Shibuya approach road ${roadId}`);
-    const road = ROADS[roadIndex];
-    const boundaryU = nearestCurveU(road.curve, approach.center);
-    const probe = 0.25 / road.curve.getLength();
-    const plus = road.curve.getPointAt(Math.min(1, boundaryU + probe));
-    const minus = road.curve.getPointAt(Math.max(0, boundaryU - probe));
-    const outwardSign = shibuyaPlazaClearance(plus.x, plus.z)
-      > shibuyaPlazaClearance(minus.x, minus.z) ? 1 : -1;
-    const distances = approach.id === 'north' || approach.id === 'east'
-      ? [41, 78]
-      : approach.id === 'south'
-        ? [16, 34, 53, 90, 127, 275]
-        : [16, 53, 90, 127];
+  // ── Restaurant: fills the NE corner of the Shibuya crossing ──
+  let restaurantFrontage: { x: number; z: number } | null = null;
+  if (BUILDING_CATALOG.has(RESTAURANT_FILE)) {
+    const toPlaza = new THREE.Vector3(
+      240 - RESTAURANT_POS.x,
+      0,
+      -RESTAURANT_POS.z,
+    ).normalize();
+    const restaurant: Placement = {
+      file: RESTAURANT_FILE,
+      position: [RESTAURANT_POS.x, 0, RESTAURANT_POS.z],
+      rotationY: RESTAURANT_ROT,
+      scale: RESTAURANT_SCALE,
+      outDir: [-toPlaza.x, -toPlaza.z],
+      centerOffset: [0, 0],
+      layoutRole: 'restaurant',
+    };
+    if (candidateValid(buildingPlacementBounds(restaurant))) {
+      out.push(restaurant);
+      // Keep a disc between the restaurant and the plaza building-free so nothing
+      // blocks it head-on (buildings to the sides are still allowed).
+      restaurantFrontage = {
+        x: RESTAURANT_POS.x + toPlaza.x * RESTAURANT_FRONTAGE_OFFSET,
+        z: RESTAURANT_POS.z + toPlaza.z * RESTAURANT_FRONTAGE_OFFSET,
+      };
+    }
+  }
+  const restaurantFrontageBlocks = (bounds: OrientedBuildingBounds): boolean =>
+    restaurantFrontage !== null
+    && Math.hypot(
+      bounds.center.x - restaurantFrontage.x,
+      bounds.center.z - restaurantFrontage.z,
+    ) < RESTAURANT_FRONTAGE_RADIUS;
 
-    for (let distanceIndex = 0; distanceIndex < distances.length; distanceIndex++) {
-      const distance = distances[distanceIndex];
-      const u = boundaryU + outwardSign * distance / road.curve.getLength();
-      if (u <= 0.001 || u >= 0.999) continue;
+  // Pack one row along one side of one road, advancing by each placed footprint.
+  // `anchorFor` gives the near-face distance (from road edge) at each cursor; the
+  // back row uses it to sit just behind whatever front building is ahead of it.
+  interface FrontRecord { distance: number; radialFar: number }
+  const packRow = (
+    road: (typeof ROADS)[number],
+    roadIndex: number,
+    side: 1 | -1,
+    pool: PoolPiece[],
+    phase: number,
+    anchorFor: (distance: number) => number,
+    record: FrontRecord[] | null,
+  ): void => {
+    const length = road.curve.getLength();
+    let distance = phase;
+    const recent: string[] = [];
+    let guard = 0;
+    while (distance < length && guard < 20000) {
+      guard++;
+      const u = distance / length;
       const base = road.curve.getPointAt(u);
       const tan = road.curve.getTangentAt(u).setY(0).normalize();
-      const bin = new THREE.Vector3().crossVectors(tan, new THREE.Vector3(0, 1, 0))
-        .normalize();
-      for (const side of [1, -1] as const) {
-        const model = approachId === 'south'
-          ? `${P}BldgLG_A_BuildingA`
-          : SHIBUYA_FRONT[
-            (approachOrder.indexOf(approachId) + distanceIndex + (side < 0 ? 1 : 0))
-              % SHIBUYA_FRONT.length
-          ];
-        const candidate = placeShibuya(
-          base,
-          bin,
-          tan,
-          side,
-          road.halfWidth,
-          anchorA,
-          model,
-          approachId === 'south' ? 14 : 18,
-          'shibuya-front',
-          approach.id,
-          roadId,
-          roadIndex,
-          distance,
-          false,
+      const bin = new THREE.Vector3().crossVectors(tan, UP).normalize();
+      const anchor = anchorFor(distance);
+      let advance = MIN_STEP;
+      for (let attempt = 0; attempt < ROW_ATTEMPTS; attempt++) {
+        const piece = pickPiece(pool, recent);
+        const made = buildRowPlacement(
+          base, tan, bin, side, road.halfWidth, anchor, roadIndex, piece,
         );
-        if (candidate) frontCandidates.push(candidate);
-      }
-    }
-  }
-
-  frontCandidates.forEach((front, index) => {
-    const placement = front.placement;
-    const outward = { x: placement.outDir![0], z: placement.outDir![1] };
-    const frontRadialExtent = projectedFootprintHalfExtent(front.bounds, outward);
-    const backAnchor = anchorA + 2 * frontRadialExtent + ALLEY;
-    placeShibuya(
-      front.base,
-      front.bin,
-      front.tan,
-      front.side,
-      front.halfWidth,
-      backAnchor,
-      SHIBUYA_BACK[index % SHIBUYA_BACK.length],
-      22,
-      'shibuya-back',
-      placement.shibuyaApproach!,
-      placement.roadId!,
-      placement.roadIndex!,
-      placement.shibuyaDistance!,
-      true,
-    );
-  });
-
-  // Retained standalone south hero from the Task 2 exact placement pipeline.
-  const southApproach = approachById.get('south')!;
-  const southRoadId = approachRoadId.south;
-  const southRoadIndex = ROADS.findIndex((candidate) => candidate.id === southRoadId);
-  if (southRoadIndex < 0) throw new Error(`Missing Shibuya approach road ${southRoadId}`);
-  const southRoad = ROADS[southRoadIndex];
-  const southBoundaryU = nearestCurveU(southRoad.curve, southApproach.center);
-  const southProbe = 0.25 / southRoad.curve.getLength();
-  const southPlus = southRoad.curve.getPointAt(Math.min(1, southBoundaryU + southProbe));
-  const southMinus = southRoad.curve.getPointAt(Math.max(0, southBoundaryU - southProbe));
-  const southOutwardSign = shibuyaPlazaClearance(southPlus.x, southPlus.z)
-    > shibuyaPlazaClearance(southMinus.x, southMinus.z) ? 1 : -1;
-  const southDistance = 120;
-  const southU = southBoundaryU
-    + southOutwardSign * southDistance / southRoad.curve.getLength();
-  const southBase = southRoad.curve.getPointAt(southU);
-  const southTan = southRoad.curve.getTangentAt(southU).setY(0).normalize();
-  const southBin = new THREE.Vector3()
-    .crossVectors(southTan, new THREE.Vector3(0, 1, 0))
-    .normalize();
-  placeShibuya(
-    southBase,
-    southBin,
-    southTan,
-    -1,
-    southRoad.halfWidth,
-    anchorB,
-    `${P}BldgLG_B_Main`,
-    22,
-    'shibuya-back',
-    'south',
-    southRoadId,
-    southRoadIndex,
-    southDistance,
-    false,
-  );
-
-  // Art-directed south-corner frontage uses the exact production south
-  // approach frame. These regular-scale buildings close the visual enclosure
-  // without narrowing the road or crossing sight corridors.
-  const placeShibuyaCornerAt = (
-    center: THREE.Vector3,
-    model: string,
-    foot: number,
-    side: -1 | 1,
-    approach: ApproachId,
-    distance: number,
-  ): void => {
-    const radial = new THREE.Vector3(center.x - 240, 0, center.z).normalize();
-    const placement: Placement = {
-      file: g(model),
-      position: [center.x, 0, center.z],
-      rotationY: Math.atan2(-radial.x, -radial.z),
-      foot,
-      outDir: [radial.x, radial.z],
-      centerOffset: [0, 0],
-      layoutRole: 'shibuya-corner',
-      shibuyaApproach: approach,
-      shibuyaSide: side,
-      shibuyaDistance: distance,
-      shibuyaAlleyApplicable: false,
-      roadId: southRoadId,
-      roadIndex: southRoadIndex,
-    };
-    const bounds = buildingPlacementBounds(placement);
-    const perimeter = orientedFootprintPerimeterPoints(bounds, 8);
-    if (!clearsOpenWater(bounds)) return;
-    if (protectedOrientedFootprintClearance(bounds) < 1) return;
-    if (perimeter.some((point) => groundRoadMemberships(point.x, point.z)
-      .some(({ clearance }) => clearance < 10 - 1e-6))) return;
-    if (!buildingClearsElevatedDeck(bounds)) return;
-    if (aboutSightlineFootprintMargin(bounds) <= 0) return;
-    if (shibuyaSightCorridors.some((corridor) =>
-      segmentFootprintClearance(corridor.start, corridor.end, bounds)
-        <= corridor.halfWidth)) return;
-    const conflicts = out.filter((existing) =>
-      orientedFootprintsOverlap(bounds, buildingPlacementBounds(existing), 2));
-    if (conflicts.some(isProtectedPlacement)) return;
-    for (const conflict of conflicts) out.splice(out.indexOf(conflict), 1);
-    out.push(placement);
-  };
-  // Keep the approved south frontage fixed in world space while the bike and
-  // road centerlines ease through the plaza independently of facade placement.
-  placeShibuyaCornerAt(
-    new THREE.Vector3(181, 0, -67),
-    `${P}BldgMD_B_Main`,
-    18,
-    1,
-    'south',
-    29.386,
-  );
-  placeShibuyaCornerAt(
-    new THREE.Vector3(184.796, 0, -42.114),
-    `${P}BldgMD_B_Main`,
-    18,
-    1,
-    'south',
-    4.5,
-  );
-  placeShibuyaCornerAt(
-    new THREE.Vector3(340, 0, -45),
-    `${P}BldgLG_A_BuildingA`,
-    14,
-    -1,
-    'east',
-    109.659,
-  );
-  placeShibuyaCornerAt(
-    new THREE.Vector3(220, 0, 140),
-    `${P}BldgLG_A_BuildingA`,
-    18,
-    1,
-    'north',
-    56.569,
-  );
-  placeShibuyaCornerAt(
-    new THREE.Vector3(325, 0, 80),
-    `${P}BldgLG_A_BuildingB`,
-    18,
-    -1,
-    'east',
-    116.726,
-  );
-  placeShibuyaCornerAt(
-    new THREE.Vector3(145, 0, 90),
-    `${P}BldgLG_A_BuildingB`,
-    18,
-    1,
-    'west',
-    145.344,
-  );
-
-  // The former Shibuya candidate pass consumed two draws (asset and rotation)
-  // for 60 production-road candidates. Preserve the ordinary-city RNG stream
-  // while Shibuya selection is now deterministic and geometry-driven.
-  for (let draw = 0; draw < 120; draw++) rng();
-
-  // back towers — sparser big buildings peeking over the front wall
-  for (const e of groundRoadEdgePoints(34)) {
-    const far = e.pos.z < -560;
-    if (isShibuyaWallSample(e.roadId, e.pos)) continue;
-    for (const side of [1, -1] as const) {
-      if (rng.chance(far ? 0.55 : 0.14)) continue;
-      place(e.pos, e.bin, e.tan, side, e.hw, anchorB, rng.chance(0.4) ? HERO : TALL, FOOT_B);
-    }
-  }
-
-  // ── Back-fill district: dense blocks behind the walls, with alley gaps, so the
-  //    surrounding area reads as a real city rather than a thin strip. ──
-  const FILL_FOOT = 18;
-  const cell = 42;
-  const CARD = [0, Math.PI / 2];
-  for (let x = -400; x <= 400; x += cell) {
-    for (let z = -720; z <= 150; z += cell) {
-      const jx = x + rng.range(-6, 6), jz = z + rng.range(-6, 6);
-      const c = groundRoadClearance(jx, jz);
-      if (c < 84) continue;                 // handled by the two road-facing rows
-      if (c > 230) continue;                // beyond the district → skyline territory
-      if (keepClear(jx, jz)) continue;
-      if (rng.chance(0)) continue;          // geometry filters retain alleys / courtyards
-      // The former 12% podium chance now yields ordinary SMALL fill so the RNG
-      // sequence — and thus the rest of the layout — stays unchanged.
-      let pool = rng.chance(0.12)
-        ? SMALL
-        : rng.chance(0.1) ? HERO : rng.chance(0.4) ? TALL : rng.chance(0.55) ? MID : SMALL;
-      let fillFoot = FILL_FOOT;
-      let file = g(rng.pick(pool));
-      let placement: Placement = {
-        file,
-        position: [jx, 0, jz],
-        rotationY: rng.pick(CARD) + rng.range(-0.05, 0.05),
-        foot: fillFoot,
-      };
-      let bounds = buildingPlacementBounds(placement);
-      if (!buildingClearsElevatedDeck(bounds)) {
-        pool = SMALL;
-        fillFoot = 11;
-        file = g(rng.pick(pool));
-        placement = {
-          ...placement,
-          file,
-          foot: fillFoot,
-          layoutRole: undefined,
-        };
-        bounds = buildingPlacementBounds(placement);
-      }
-      if (!buildingClearsElevatedDeck(bounds)) continue;
-      if (aboutSightlineFootprintMargin(bounds) <= 0) continue;
-      if (!clearsOpenWater(bounds)) continue;
-      if (keepClearFootprint(bounds.center.x, bounds.center.z, bounds.radius)) continue;
-      if (!clearsEveryGroundRoad(bounds.center.x, bounds.center.z, bounds.radius)) continue;
-      // Ordinary backfill only avoids protected placements so the existing
-      // dense district remains.
-      if (overlaps(bounds, true)) continue;
-      out.push(placement);
-    }
-  }
-
-  // Refill only the supported landward shoreline shoulders outside the
-  // protected bridge corridor. No ordinary massing is allowed past z=-600.
-  const ordinaryCount = (): number => out.filter(({ layoutRole }) =>
-    !layoutRole?.startsWith('shibuya-')
-    && layoutRole !== 'stunt-backdrop'
-    && !layoutRole?.startsWith('research-')).length;
-  const shorelineFiles = [...SMALL, ...MID];
-  let shorelineIndex = 0;
-  for (let z = -570; z <= -350 && ordinaryCount() < 280; z += 20) {
-    for (let x = -500; x <= 500 && ordinaryCount() < 280; x += 20) {
-      const file = g(shorelineFiles[shorelineIndex % shorelineFiles.length]);
-      const placement: Placement = {
-        file,
-        position: [x, 0, z],
-        rotationY: shorelineIndex % 2 === 0 ? 0 : Math.PI / 2,
-        foot: 10,
-      };
-      shorelineIndex++;
-      const bounds = buildingPlacementBounds(placement);
-      if (!clearsOpenWater(bounds)) continue;
-      if (keepClearFootprint(bounds.center.x, bounds.center.z, bounds.radius)) continue;
-      if (protectedOrientedFootprintClearance(bounds) < 1) continue;
-      if (!clearsEveryGroundRoad(bounds.center.x, bounds.center.z, bounds.radius)) continue;
-      if (!buildingClearsElevatedDeck(bounds)) continue;
-      if (aboutSightlineFootprintMargin(bounds) <= 0) continue;
-      if (overlaps(bounds)) continue;
-      out.push(placement);
-    }
-  }
-
-  // Targeted infill: the sparse per-sample skip roll in the front-wall pass
-  // above can (rarely) leave a visible gap in the wall. Force a retry at each
-  // reported gap by snapping to the nearest dense road-edge sample and
-  // re-running the exact same safety pipeline as the ordinary front wall.
-  const GAP_FILL_TARGETS: Array<{ x: number; z: number }> = [
-    { x: -202.08, z: 26.14 },
-    { x: -104.45, z: -20.48 },
-    { x: 45.74, z: 24.8 },
-    // (188.89, 14.67) removed: it force-planted a lone BldgLG_A on the north
-    // frontage of the Shibuya approach — a strip the isShibuyaWallSample skip
-    // otherwise clears — where its oversized mesh overhung the sidewalk.
-    { x: 348.63, z: -3.46 },
-    { x: 241.54, z: 108.43 },
-  ];
-  const denseEdgePoints = groundRoadEdgePoints(6);
-  for (const target of GAP_FILL_TARGETS) {
-    let nearest: GroundRoadEdgePoint | undefined;
-    let bestDistSq = Infinity;
-    for (const e of denseEdgePoints) {
-      const dx = e.pos.x - target.x;
-      const dz = e.pos.z - target.z;
-      const distSq = dx * dx + dz * dz;
-      if (distSq < bestDistSq) {
-        bestDistSq = distSq;
-        nearest = e;
-      }
-    }
-    if (!nearest) continue;
-    const side: 1 | -1 = (nearest.bin.x * (target.x - nearest.pos.x)
-      + nearest.bin.z * (target.z - nearest.pos.z)) >= 0 ? 1 : -1;
-    // Try progressively smaller footprints/pools so a tight curve or a
-    // neighboring landmark's larger footprint doesn't leave the gap empty.
-    // On a sharp curve the sidewalk-hugging anchor alone isn't enough road
-    // clearance even for a small footprint, so also step the anchor back in
-    // small increments — still snapped to this gap, still gated by the same
-    // safety pipeline, just standing a little further off the road.
-    const tiers: Array<{ pool: string[]; foot: number }> = [
-      { pool: rng.chance(0.35) ? TALL : MID, foot: FOOT_A },
-      { pool: SMALL, foot: 11 },
-      { pool: EDGE, foot: 3 },
-    ];
-    outer: for (const tier of tiers) {
-      for (const anchorPush of [0, 3, 6, 9, 12, 15]) {
-        if (place(nearest.pos, nearest.bin, nearest.tan, side, nearest.hw, anchorA + anchorPush, tier.pool, tier.foot)) {
-          break outer;
+        if (made && candidateValid(made.bounds)
+          && !restaurantFrontageBlocks(made.bounds)
+          && made.bounds.height
+            <= stuntHeightCap(made.bounds.center.x, made.bounds.center.z)) {
+          out.push(made.placement);
+          recent.push(familyOf(piece.file));
+          if (recent.length > RECENT_FAMILY_WINDOW) recent.shift();
+          advance = 2 * made.tangentialHalf + SEAM;
+          if (record) record.push({ distance, radialFar: anchor + 2 * made.radialHalf });
+          break;
         }
       }
+      distance += advance;
+    }
+  };
+
+  // ── Two rows along every ground road (ordinary streets + Shibuya legs) ──
+  // The back row is anchored adaptively just behind the nearest front building so
+  // line 2 hugs line 1 (no wide alley) while its phase offset covers front seams.
+  const BACK_MATCH_WINDOW = 12;
+  for (let roadIndex = 0; roadIndex < ROADS.length; roadIndex++) {
+    const road = ROADS[roadIndex];
+    if (!road.ground) continue;
+    for (const side of [1, -1] as const) {
+      const fronts: FrontRecord[] = [];
+      packRow(road, roadIndex, side, FRONT_POOL, 0, () => FRONT_ANCHOR, fronts);
+      const backAnchorFor = (distance: number): number => {
+        let maxFar = -Infinity;
+        for (const front of fronts) {
+          if (Math.abs(front.distance - distance) <= BACK_MATCH_WINDOW) {
+            maxFar = Math.max(maxFar, front.radialFar);
+          }
+        }
+        return maxFar > -Infinity ? maxFar + ROW_ALLEY : BACK_FALLBACK_ANCHOR;
+      };
+      packRow(road, roadIndex, side, BACK_POOL, BACK_PHASE, backAnchorFor, null);
     }
   }
 
-  // Drop the far background-fill district (see BACKGROUND_FILL_MAX_CLEARANCE):
-  // occluded during the ride, dominant in the whole-city draw + load cost.
-  // Curated scenes are always kept; everything else must hug a road. This also
-  // removes the shoreline-refill row at the waterline — it read as an isolated
-  // line of buildings floating on the water once the rest of the fill was gone.
-  // (The bridge/finale holograms used to anchor to that row; buildHolograms now
-  // skips gracefully when it has no safe shoulder parent.)
-  return out.filter((placement) => {
-    if (isCuratedScenePlacement(placement)) return true;
-    const { x, z } = placementCenter(placement);
-    return groundRoadClearance(x, z) <= BACKGROUND_FILL_MAX_CLEARANCE;
-  });
+  return out;
 }
 
 /** Street props + shop stalls + trees beyond the complete sidewalk footprint. */

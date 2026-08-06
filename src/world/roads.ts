@@ -71,7 +71,9 @@ export const ELEVATED_HIGHWAY_CONTROL_POINTS = [
   V(-680, 92, 160),
   V(-350, 90, 150),
   V(-40, 90, 110),
-  V(20, 88, -65),
+  // Pulled north (z-65→-50) + up so the guideway clears the tall About tower at
+  // (20,-78) it used to clip through.
+  V(18, 94, -50),
   V(90, 86, -55),
   V(160, 90, 30),
   V(210, 95, 150),

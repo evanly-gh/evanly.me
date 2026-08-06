@@ -1,4 +1,7 @@
 import manifest from '../../public/models/neocity/manifest.json';
+import variantsManifest from '../../public/models/neocity-variants/manifest.json';
+import monogonManifest from '../../public/models/monogon/manifest.json';
+import structuresManifest from '../../public/models/structures/manifest.json';
 import propManifest from '../../public/models/props/manifest.json';
 
 export interface BuildingMetrics {
@@ -43,8 +46,29 @@ interface Point2 {
   z: number;
 }
 
+interface RawManifestEntry {
+  name: string;
+  file: string;
+  bbox: number[];
+  tris: number;
+  category?: string;
+}
+
+// The NeoCity kit plus the extra placeable packs (monogon voxel buildings and
+// the standalone structures like the restaurant) all share one manifest schema.
+// Merging them into a single catalog lets the layout/collision math (which calls
+// buildingPlacementBounds → getBuildingMetrics) size and pack any of these files,
+// not just neocity ones. Unused heavy entries (e.g. structures/citygen) are never
+// referenced by a Placement, so they never load — this only adds lookup metadata.
+const CATALOG_MANIFESTS: RawManifestEntry[] = [
+  ...(manifest as RawManifestEntry[]),
+  ...(variantsManifest as RawManifestEntry[]),
+  ...(monogonManifest as RawManifestEntry[]),
+  ...(structuresManifest as RawManifestEntry[]),
+];
+
 export const BUILDING_CATALOG = new Map<string, BuildingMetrics>(
-  manifest.map((entry) => {
+  CATALOG_MANIFESTS.map((entry) => {
     const [x, y, z] = entry.bbox;
     return [entry.file, {
       name: entry.name,

@@ -28,13 +28,13 @@ export const COLORS = {
 /** Cyberpunk night lighting: dark base so neon/billboards dominate, moonlit
  *  key + colored neon fills for the ambiance. Tuned live in the viewer HUD. */
 export const LIGHTING = {
-  ambientIntensity: 0.12,
+  ambientIntensity: 0.05,  // deep base darkness so neon dominates
   keyIntensity: 0.55,
   fillIntensity: 0.5,
   rimIntensity: 1.4,
-  envIntensity: 0.28,   // scene.environment contribution (lower = moodier)
-  bloomIntensity: 0.9,
-  bloomThreshold: 0.55,
-  bloomRadius: 0.72,
-  exposure: 1.05,
+  envIntensity: 0.14,   // scene.environment contribution (lower = moodier)
+  bloomIntensity: 1.4,  // vibrant neon bloom
+  bloomThreshold: 0.5,
+  bloomRadius: 0.85,
+  exposure: 1.0,
 } as const;

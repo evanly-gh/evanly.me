@@ -1,4 +1,5 @@
 import {
+  BUILDING_CATALOG,
   buildingPlacementBounds,
   type OrientedBuildingBounds,
 } from './buildingCatalog';
@@ -9,7 +10,7 @@ import {
   keepClear,
   protectedFootprintClearance,
 } from './roads';
-import { buildShibuyaSightCorridors } from './intersections';
+import { buildShibuyaApproaches, buildShibuyaSightCorridors } from './intersections';
 import {
   WATER_BASIN,
   bridgeCorridorFootprintClearance,
@@ -210,6 +211,10 @@ function facadeCandidate(
 ): FacadeCandidate | undefined {
   if (parent.layoutRole === ABOUT_HERO_BACKDROP_ID) return undefined;
   if (parent.layoutRole === 'stunt-backdrop') return undefined;
+  // The research canyon carries its own curated content panels; keep the generic
+  // stock facade signs out of it so they don't clutter the billboard walls.
+  if (parent.layoutRole === 'research-front'
+    || parent.layoutRole === 'research-back') return undefined;
   if (!parent.outDir) return undefined;
   const bounds = buildingPlacementBounds(parent);
   const face = roadFacingFacade(bounds, parent.outDir);
@@ -521,25 +526,50 @@ function assertHologramFootprintSafety(sign: HologramSignPlacement): void {
 function buildHolograms(layout: Placement[]): HologramSignPlacement[] {
   const used = new Set<number>();
   const signs: HologramSignPlacement[] = [];
+  // Shibuya holograms perch on whichever real building sits nearest each anchor's
+  // intended spot (derived from the approach frame + side + distance). This keeps
+  // them working regardless of how the roadside walls were generated — the packed
+  // buildings carry no curated shibuya-* role. Each anchor tries successively
+  // farther buildings until one passes footprint safety; if none do (or none are
+  // near), the hologram is skipped rather than crashing the layout.
+  const PLAZA: Vec2 = [240, 0];
+  const approaches = buildShibuyaApproaches();
   for (const spec of SHIBUYA_ANCHORS) {
+    const frame = approaches.find((approach) => approach.id === spec.approach);
+    if (!frame) continue;
+    const centerDist = Math.hypot(frame.center.x - PLAZA[0], frame.center.z - PLAZA[1]);
+    const aheadDist = Math.hypot(
+      frame.center.x + frame.tangent.x - PLAZA[0],
+      frame.center.z + frame.tangent.z - PLAZA[1],
+    );
+    const dir = aheadDist >= centerDist ? 1 : -1;
+    const target: Vec2 = [
+      frame.center.x + frame.tangent.x * dir * spec.distance
+        + frame.binormal.x * spec.side * (frame.halfWidth + 18),
+      frame.center.z + frame.tangent.z * dir * spec.distance
+        + frame.binormal.z * spec.side * (frame.halfWidth + 18),
+    ];
     const candidates = layout.flatMap((placement, index) => {
-      if (used.has(index)
-        || (placement.layoutRole !== 'shibuya-front'
-          && placement.layoutRole !== 'shibuya-back')) return [];
-      return [{
-        index,
-        bounds: buildingPlacementBounds(placement),
-        score: Math.abs((placement.shibuyaDistance ?? Infinity) - spec.distance)
-          + (placement.shibuyaApproach === spec.approach ? 0 : 1000)
-          + (placement.shibuyaSide === spec.side ? 0 : 100),
-      }];
+      if (used.has(index) || !BUILDING_CATALOG.has(placement.file)) return [];
+      const bounds = buildingPlacementBounds(placement);
+      const distance = Math.hypot(bounds.center.x - target[0], bounds.center.z - target[1]);
+      if (distance > 55) return [];
+      // Nearer is better; nudge toward taller pieces as better hologram perches.
+      return [{ index, bounds, score: distance - Math.min(bounds.height, 120) * 0.05 }];
     }).sort((a, b) => a.score - b.score || a.index - b.index);
-    const parent = candidates[0];
-    if (!parent) throw new Error(`Missing curated hologram parent for ${spec.id}`);
-    used.add(parent.index);
-    const sign = hologramFromParent(spec, parent.index, parent.bounds, [240, 0], signs.length);
-    assertHologramFootprintSafety(sign);
-    signs.push(sign);
+    for (const candidate of candidates) {
+      const hologram = hologramFromParent(
+        spec, candidate.index, candidate.bounds, [240, 0], signs.length,
+      );
+      try {
+        assertHologramFootprintSafety(hologram);
+      } catch {
+        continue;
+      }
+      used.add(candidate.index);
+      signs.push(hologram);
+      break;
+    }
   }
   for (const spec of BRIDGE_ANCHORS) {
     // The shoulder buildings these anchored to were background-fill at the

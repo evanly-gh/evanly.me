@@ -78,6 +78,34 @@ export const STUNT_BACKDROP: readonly StuntBackdropPlacement[] = Object.freeze([
   backdrop('stunt-backdrop-8', 'KB3D_NEC_BldgLG_A_Main', 14.932, -333.972),
 ]);
 
+// Second, deeper row of tall/varied towers behind the backdrop wall. Purely for
+// depth from the hero camera (which looks east past the scaffold): they peek
+// through the gaps in the front wall. Placed well behind it (facade x=360) and
+// staggered against the front-row seams. Injected like STUNT_BACKDROP (bypass the
+// packer), and clear of the railway (which is far north at z>150 here).
+const BACKDROP_ROW2_FACADE_X = 360;
+const backdrop2 = (
+  id: string,
+  file: string,
+  halfX: number,
+  z: number,
+): StuntBackdropPlacement => Object.freeze({
+  id,
+  file,
+  position: [BACKDROP_ROW2_FACADE_X + halfX, 0, z] as StuntVector,
+  rotationY: 0,
+  scale: 1,
+  layoutRole: 'stunt-backdrop',
+});
+
+export const STUNT_BACKDROP_ROW2: readonly StuntBackdropPlacement[] = Object.freeze([
+  backdrop2('stunt-backdrop2-1', 'neocity/KB3D_NEC_BldgLG_B_Main.glb', 27.2865, -102),
+  backdrop2('stunt-backdrop2-2', 'neocity-variants/KB3D_NEC_BldgLG_C_Main_H100.glb', 17.6, -144),
+  backdrop2('stunt-backdrop2-3', 'neocity/KB3D_NEC_BldgLG_C_Main.glb', 17.6135, -188),
+  backdrop2('stunt-backdrop2-4', 'neocity-variants/KB3D_NEC_BldgLG_B_Main_H124.glb', 27.3, -236),
+  backdrop2('stunt-backdrop2-5', 'neocity/KB3D_NEC_BldgLG_A_Main.glb', 14.932, -300),
+]);
+
 export function measureBackdropGaps(): number[] {
   return STUNT_BACKDROP.slice(1).map((placement, index) =>
     orientedFootprintGap(

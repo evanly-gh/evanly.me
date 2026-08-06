@@ -105,10 +105,10 @@ export const FINALE_FADE_CONFIG = Object.freeze({
 // light are held down through the city and ramped up only as the ride lifts onto
 // the bridge toward the finale — so nothing bleeds through the skyline earlier.
 export const MOON_PRESENCE_RAMP = Object.freeze({ start: 0.8, end: 0.92 });
-// Scene key-light floor kept before the ramp so the night city stays readable
-// without the moon "spilling over everything"; it rises to the full config
-// intensity by the finale.
-export const MOON_KEYLIGHT_FLOOR_FRACTION = 0.4;
+// The moon must NOT light the city outside the finale — it only ramps up as the
+// ride lifts onto the bridge (MOON_PRESENCE_RAMP). Floor is 0 so the moon key
+// light contributes nothing to the city until then, then rises to full at finale.
+export const MOON_KEYLIGHT_FLOOR_FRACTION = 0;
 
 export function moonPresenceAt(semanticT: number): number {
   if (!Number.isFinite(semanticT)) {

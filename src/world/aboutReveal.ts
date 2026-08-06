@@ -312,11 +312,17 @@ export const ABOUT_PLAZA_PLACEMENTS: readonly Placement[] = Object.freeze([
   // Tall towers flanking the sign, just outside its silhouette — they frame it.
   aboutPlazaPlacement('KB3D_NEC_BldgLG_C_Main', -142, -78, 0.15),
   aboutPlazaPlacement('KB3D_NEC_BldgLG_C_Main', 20, -78, -0.15),
-  // Tall towers rising BEHIND the sign so it reads against a wall of city
-  // instead of empty sky — the outer two loom over its top corners.
-  aboutPlazaPlacement('KB3D_NEC_BldgLG_C_Main', -95, -120, 0.1),
-  aboutPlazaPlacement('KB3D_NEC_BldgLG_C_Main', -20, -120, -0.1),
-  aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Main', -57, -124),
+  // TWO layers of varied tall towers rising BEHIND the sign so it reads against a
+  // deep wall of city instead of empty sky. Front layer (z≈-124) is staggered
+  // against a deeper layer (z≈-182); mixed heights (201m / 143m / 67m) give the
+  // backdrop variety and depth. Hand-spaced (injected, so no auto collision test).
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_B_Main', -100, -124, 0.08),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_C_Main', -52, -124, -0.05),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Main', -6, -124, 0.05),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_C_Main', -124, -182),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_B_Main', -76, -182),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_C_Main', -28, -182),
+  aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Main', 20, -182),
   // Thin lit spires flanking the approach for vertical cyberpunk clutter.
   aboutPlazaPlacement('KB3D_NEC_BldgLG_C_AntennaA', -124, -55),
   aboutPlazaPlacement('KB3D_NEC_BldgLG_C_AntennaB', -124, -28),

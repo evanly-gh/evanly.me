@@ -115,8 +115,10 @@ export const STUNT_RAMP2 = Object.freeze({
 const PROTECTED_SHOULDER_MARGIN = 4;
 const STUNT_KEEP_CLEAR_X0 =
   STUNT_SERVICE_ALLEY.westEdgeX - PROTECTED_SHOULDER_MARGIN;
-const PROJECTS_MAIN_ROAD_KEEP_CLEAR_X1 =
-  PROJECTS_MAIN_ROAD.eastEdgeX + PROTECTED_SHOULDER_MARGIN;
+// Bridge the main-road keep-clear all the way to the stunt keep-clear so no
+// roadside building can sit in the open x-slot between them — that slot is
+// directly on the hero camera → ramp sightline.
+const PROJECTS_MAIN_ROAD_KEEP_CLEAR_X1 = STUNT_KEEP_CLEAR_X0;
 
 export const STUNT_CLEARANCE = Object.freeze({
   physicalRoadMargin:
@@ -129,7 +131,9 @@ export const STUNT_CLEARANCE = Object.freeze({
 export const STUNT_KEEP_CLEAR: Readonly<StuntProtectedRect> = Object.freeze({
   x0: STUNT_KEEP_CLEAR_X0,
   x1: 340,
-  z0: -310,
+  // Extended south to -345 so no roadside building lands in front of the last
+  // backdrop panel (project-dubhacks on stunt-backdrop-8 at z≈-334).
+  z0: -345,
   z1: -55,
 });
 
@@ -137,7 +141,7 @@ export const PROJECTS_MAIN_ROAD_KEEP_CLEAR:
 Readonly<StuntProtectedRect> = Object.freeze({
   x0: 224,
   x1: PROJECTS_MAIN_ROAD_KEEP_CLEAR_X1,
-  z0: -310,
+  z0: -345,
   z1: -55,
 });
 
@@ -151,7 +155,9 @@ export const STUNT_CAMERA_SIDE = Object.freeze({
     x0: STUNT_CENTER_X - 97,
     x1: PROJECTS_MAIN_ROAD.eastEdgeX,
     z0: -340,
-    z1: -100,
+    // Extended north to the ramp entry (~z-68) so camera-side buildings can't
+    // block the view of the bike rolling onto the first ramp.
+    z1: -55,
   }) satisfies Readonly<StuntProtectedRect>,
 });
 

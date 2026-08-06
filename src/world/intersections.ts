@@ -20,7 +20,7 @@ const CROSSWALK_EDGE_GAP = 0.5; // clearance between the plaza edge and the band
 // so the west/south crossings are aligned to it — not the axis-aligned plaza
 // edges — and pads are held well off its roadway (onto the sidewalk).
 const BOULEVARD_HALF_WIDTH = 11;
-const PAD_ROAD_CLEARANCE = 4; // metres a pad must sit past the boulevard edge (mid-sidewalk)
+const PAD_ROAD_CLEARANCE = 1.5; // metres a pad must sit past the boulevard edge (on the narrowed sidewalk)
 // The west/south crossings are set back down their leg (away from the plaza
 // mouth) so both ends land on real, un-clipped sidewalk rather than reading as
 // stranded in the intersection.
@@ -371,7 +371,7 @@ export function buildSidewalkIndicators(
       // Sit each tactile pad squarely at the band's end, just outside the road
       // edge, long axis parallel to the bars and the street edge.
       let lateralOffset = side * (
-        approach.halfWidth + 1 + INDICATOR_WIDTH / 2 + INDICATOR_MARGIN
+        approach.halfWidth + INDICATOR_WIDTH / 2 + INDICATOR_MARGIN
       );
       const at = (offset: number) => bandCenter.clone()
         .addScaledVector(approach.binormal, offset);
@@ -538,7 +538,8 @@ export function buildStraightRoadCrossings(): {
         id: indicatorId,
         center: center.clone()
           .setY(SIDEWALK_TOP_Y + INDICATOR_HEIGHT / 2)
-          .addScaledVector(spacingAxis, side * 12.4),
+          // band half-span is 11; seat the pad's inner edge at the band end
+          .addScaledVector(spacingAxis, side * (11 + 1.15 / 2 + 0.1)),
         longAxis: tangent.clone(),
         length: 3.2,
         width: 1.15,
