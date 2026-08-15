@@ -25,6 +25,9 @@ function PortfolioBootShell() {
     });
     return () => cancelAnimationFrame(frame);
   }, []);
+  // Minimal dark boot screen shown only while the app chunk loads — deliberately
+  // near-empty (no big heading) so it doesn't clash with the cinematic intro gate
+  // that takes over the moment <ScrollExperience> mounts.
   return (
     <main
       role="status"
@@ -36,19 +39,54 @@ function PortfolioBootShell() {
         minHeight: '100vh',
         placeItems: 'center',
         padding: '2rem',
-        color: '#eff7ff',
+        color: '#cdeffd',
         background: '#05060f',
-        fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
+        fontFamily:
+          '"Bahnschrift Condensed", "DIN Condensed", "Oswald", ui-sans-serif, system-ui, sans-serif',
       }}
     >
-      <div style={{ width: 'min(28rem, 100%)' }}>
-        <p style={{ color: '#9ce8ff', letterSpacing: '0.12em' }}>
-          EVAN LI · PORTFOLIO
+      <div
+        style={{
+          display: 'grid',
+          justifyItems: 'center',
+          gap: '0.9rem',
+          width: 'min(24rem, 82vw)',
+        }}
+      >
+        <p
+          style={{
+            margin: 0,
+            color: '#ffbf45',
+            letterSpacing: '0.32em',
+            fontSize: '0.8rem',
+            textTransform: 'uppercase',
+          }}
+        >
+          EVAN LI · PORTFOLIO CITY
         </p>
-        <h1 style={{ marginBlock: '0.5rem 1rem', fontSize: 'clamp(2rem, 8vw, 4rem)' }}>
-          Entering the city
-        </h1>
-        <progress aria-label="Loading portfolio" style={{ width: '100%' }} />
+        <div
+          style={{
+            width: '100%',
+            height: '0.5rem',
+            border: '1px solid #2bfdf9',
+            background: 'rgba(4,10,18,0.82)',
+            overflow: 'hidden',
+            boxShadow: '0 0 12px rgba(43,253,249,0.35)',
+          }}
+        >
+          <div
+            style={{
+              height: '100%',
+              width: '38%',
+              background: '#2bfdf9',
+              boxShadow: '0 0 10px rgba(43,253,249,0.8)',
+              animation: 'evanly-boot-slide 1.1s ease-in-out infinite',
+            }}
+          />
+        </div>
+        <style>{
+          '@keyframes evanly-boot-slide{0%{transform:translateX(-110%)}100%{transform:translateX(320%)}}'
+        }</style>
       </div>
     </main>
   );

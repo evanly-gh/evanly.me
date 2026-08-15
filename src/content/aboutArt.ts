@@ -3,9 +3,11 @@ import { RESUME, type ImageSlot } from './resume';
 export const ABOUT_PORTRAIT_FALLBACK_SRC =
   '/images/about/about-portrait-placeholder.webp';
 
+// Aspect matched to the hero screen plane (110x70 = 1.571) so the poster art is
+// not horizontally stretched on the billboard.
 export const ABOUT_ART_SIZE = Object.freeze({
   width: 3072,
-  height: 2048,
+  height: 1954,
 });
 
 export type AboutArtRegionId =

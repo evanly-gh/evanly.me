@@ -85,24 +85,21 @@ function panelLocalMatrix(
 }
 
 export function buildResearchRenderAssembly(): ResearchRenderAssembly {
-  const beams = RESEARCH_GATEWAYS.map((gateway) => ({
-    id: `${gateway.id}:beam`,
-    parentId: gateway.id,
-    matrix: matrix(gateway.beam.center, 0, gateway.beam.scale),
-  }));
+  // Overhead gateway members (the beam spanning the road + horizontal ties) and
+  // the gateway-face panels were removed: they hung over the road and briefly
+  // blocked the whole view as the bike rode onto the bridge. The vertical
+  // supports (posts flanking the road) stay, and the research content still shows
+  // on the side tower-facade panels.
+  const beams: ResearchRenderInstance[] = [];
   const supports = RESEARCH_GATEWAYS.flatMap((gateway) =>
     gateway.supports.map((support) => ({
       id: support.id,
       parentId: support.buildingId,
       matrix: matrix(support.center, 0, support.scale),
     })));
-  const ties = RESEARCH_GATEWAYS.flatMap((gateway) =>
-    gateway.ties.map((tie) => ({
-      id: tie.id,
-      parentId: tie.buildingId,
-      matrix: matrix(tie.center, 0, tie.scale),
-    })));
-  const screens = RESEARCH_PANELS.map((panel) => ({
+  const ties: ResearchRenderInstance[] = [];
+  const panels = RESEARCH_PANELS.filter((panel) => panel.mount !== 'gateway-face');
+  const screens = panels.map((panel) => ({
     id: panel.id,
     parentId: panel.parentId,
     matrix: panelLocalMatrix(
@@ -117,7 +114,7 @@ export function buildResearchRenderAssembly(): ResearchRenderAssembly {
   const backingDepth = RESEARCH_PANEL_RENDER_CONFIG.backing.depth;
   const backOffset =
     RESEARCH_PANEL_RENDER_CONFIG.backing.screenToFront + backingDepth / 2;
-  const backings = RESEARCH_PANELS.map((panel) => ({
+  const backings = panels.map((panel) => ({
     id: `${panel.id}:backing`,
     parentId: panel.parentId,
     matrix: panelLocalMatrix(
@@ -126,7 +123,7 @@ export function buildResearchRenderAssembly(): ResearchRenderAssembly {
       [panel.width + 0.8, panel.height + 0.8, backingDepth],
     ),
   }));
-  const attachments = RESEARCH_PANELS.flatMap((panel) =>
+  const attachments = panels.flatMap((panel) =>
     ([-1, 1] as const).flatMap((horizontal) =>
       ([-1, 1] as const).map((vertical) => ({
       id: `${panel.id}:mount:${horizontal}:${vertical}`,

@@ -1,55 +1,67 @@
 {
-  "hash": "f2277715",
+  "hash": "bc0c0327",
   "configHash": "eb7b7e81",
-  "lockfileHash": "828b02fb",
-  "browserHash": "62d2d7dc",
+  "lockfileHash": "10d17a09",
+  "browserHash": "67bc95b6",
   "optimized": {
     "react/jsx-dev-runtime": {
       "src": "../../node_modules/react/jsx-dev-runtime.js",
       "file": "react_jsx-dev-runtime.js",
-      "fileHash": "88270d14",
+      "fileHash": "9843c813",
       "needsInterop": true
     },
     "react": {
       "src": "../../node_modules/react/index.js",
       "file": "react.js",
-      "fileHash": "3aa6ba16",
+      "fileHash": "5df23aff",
       "needsInterop": true
     },
     "react-dom/client": {
       "src": "../../node_modules/react-dom/client.js",
       "file": "react-dom_client.js",
-      "fileHash": "d6eb17d4",
+      "fileHash": "3c7d0eeb",
       "needsInterop": true
     },
     "@react-three/fiber": {
       "src": "../../node_modules/@react-three/fiber/dist/react-three-fiber.esm.js",
       "file": "@react-three_fiber.js",
-      "fileHash": "b3f491eb",
+      "fileHash": "d3f2e3ec",
       "needsInterop": false
     },
     "@react-three/drei": {
       "src": "../../node_modules/@react-three/drei/index.js",
       "file": "@react-three_drei.js",
-      "fileHash": "de2c14a7",
+      "fileHash": "02f4c653",
       "needsInterop": false
     },
     "@react-three/postprocessing": {
       "src": "../../node_modules/@react-three/postprocessing/dist/index.js",
       "file": "@react-three_postprocessing.js",
-      "fileHash": "8dc7a00e",
+      "fileHash": "297338a6",
       "needsInterop": false
     },
     "three": {
       "src": "../../node_modules/three/build/three.module.js",
       "file": "three.js",
-      "fileHash": "cd2a6de8",
+      "fileHash": "2aa221f5",
       "needsInterop": false
     },
     "three/addons/utils/BufferGeometryUtils.js": {
       "src": "../../node_modules/three/examples/jsm/utils/BufferGeometryUtils.js",
       "file": "three_addons_utils_BufferGeometryUtils__js.js",
-      "fileHash": "ace92416",
+      "fileHash": "bd180868",
+      "needsInterop": false
+    },
+    "gsap": {
+      "src": "../../node_modules/gsap/index.js",
+      "file": "gsap.js",
+      "fileHash": "43a2c768",
+      "needsInterop": false
+    },
+    "gsap/ScrollTrigger": {
+      "src": "../../node_modules/gsap/ScrollTrigger.js",
+      "file": "gsap_ScrollTrigger.js",
+      "fileHash": "fb09127f",
       "needsInterop": false
     }
   },
@@ -63,20 +75,20 @@
     "chunk-LFC33N37": {
       "file": "chunk-LFC33N37.js"
     },
-    "chunk-UJ5E5XI2": {
-      "file": "chunk-UJ5E5XI2.js"
-    },
-    "chunk-IXPELBPS": {
-      "file": "chunk-IXPELBPS.js"
-    },
     "chunk-UVO2OVQ4": {
       "file": "chunk-UVO2OVQ4.js"
+    },
+    "chunk-HH3OQLIY": {
+      "file": "chunk-HH3OQLIY.js"
     },
     "chunk-Y7AWLA4Y": {
       "file": "chunk-Y7AWLA4Y.js"
     },
     "chunk-WSPQGYBW": {
       "file": "chunk-WSPQGYBW.js"
+    },
+    "chunk-IXPELBPS": {
+      "file": "chunk-IXPELBPS.js"
     },
     "chunk-DC5AMYBS": {
       "file": "chunk-DC5AMYBS.js"

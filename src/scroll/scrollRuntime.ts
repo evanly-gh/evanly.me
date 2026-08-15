@@ -19,6 +19,46 @@ export function introOverlayOpacityAt(semanticT: number): number {
   return 1 - eased;
 }
 
+// Post-moon outro: as the finale camera tilts up off the moon (t≈0.94→1.0), a
+// full-screen banner — identical to the top of the static portfolio page — fades
+// in over the dimming canvas, so when the pinned ride releases at t=1 the viewer
+// is already at the head of the traditional page. Eased ramp, same system as the
+// intro/section overlays.
+export function outroOverlayOpacityAt(semanticT: number): number {
+  if (!Number.isFinite(semanticT)) {
+    throw new Error('Outro overlay progress must be finite');
+  }
+  const progress = Math.max(0, Math.min(1, (semanticT - 0.94) / (0.995 - 0.94)));
+  return progress * progress * (3 - 2 * progress);
+}
+
+export interface SectionTitleWindow {
+  fadeInStart: number;
+  fadeInEnd: number;
+  fadeOutStart: number;
+  fadeOutEnd: number;
+}
+
+// Per-section on-screen title (About / Projects / Research): fades up as the
+// camera enters the section, holds, then fades out before the next beat — the
+// same eased ramp as the intro overlay so all the overlays read as one system.
+export function sectionTitleOpacityAt(
+  semanticT: number,
+  window: SectionTitleWindow,
+): number {
+  if (!Number.isFinite(semanticT)) {
+    throw new Error('Section title progress must be finite');
+  }
+  const smooth = (t: number) => t * t * (3 - 2 * t);
+  const { fadeInStart, fadeInEnd, fadeOutStart, fadeOutEnd } = window;
+  if (semanticT <= fadeInStart || semanticT >= fadeOutEnd) return 0;
+  if (semanticT < fadeInEnd) {
+    return smooth((semanticT - fadeInStart) / (fadeInEnd - fadeInStart));
+  }
+  if (semanticT <= fadeOutStart) return 1;
+  return 1 - smooth((semanticT - fadeOutStart) / (fadeOutEnd - fadeOutStart));
+}
+
 export type ScrollExperienceMode =
   | { kind: 'scroll'; reducedMotion: boolean }
   | { kind: 'shot'; semanticT: number };

@@ -15,7 +15,7 @@ export interface CityZonePlacement {
 
 const STUNT_START_Z = -60;
 const RESEARCH_START_Z = -360;
-const FINALE_START_Z = -600;
+const FINALE_START_Z = -740;
 const SHIBUYA_START_X = 150;
 
 export function cityZoneForPlacement(

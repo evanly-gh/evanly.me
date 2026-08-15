@@ -1,4 +1,10 @@
 import {
+  require_scheduler
+} from "./chunk-Y7AWLA4Y.js";
+import {
+  require_react
+} from "./chunk-WSPQGYBW.js";
+import {
   ACESFilmicToneMapping,
   BasicShadowMap,
   Clock,
@@ -23,12 +29,6 @@ import {
   WebGLRenderer,
   three_module_exports
 } from "./chunk-IXPELBPS.js";
-import {
-  require_scheduler
-} from "./chunk-Y7AWLA4Y.js";
-import {
-  require_react
-} from "./chunk-WSPQGYBW.js";
 import {
   __commonJS,
   __toESM
@@ -10624,4 +10624,4 @@ react/cjs/react-jsx-runtime.development.js:
   * LICENSE file in the root directory of this source tree.
   *)
 */
-//# sourceMappingURL=chunk-UJ5E5XI2.js.map
+//# sourceMappingURL=chunk-HH3OQLIY.js.map

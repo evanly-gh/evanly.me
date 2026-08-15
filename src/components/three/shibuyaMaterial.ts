@@ -161,6 +161,7 @@ export function styleShibuyaWallMaterial(material: THREE.Material): THREE.Materi
   if (!(material instanceof THREE.MeshStandardMaterial)) return material;
   material.emissive.setHex(0x000000);
   material.emissiveIntensity = 0;
+  material.side = THREE.DoubleSide; // hollow shells shouldn't read as see-through
   material.userData.role = 'shibuya-neutral-mapped-base';
   material.needsUpdate = true;
   return material;
@@ -207,6 +208,7 @@ export function styleRestaurantMaterial(material: THREE.Material): THREE.Materia
     material.roughness = 0.3;
     material.metalness = 0.35;
   }
+  material.side = THREE.DoubleSide; // hollow shell shouldn't read as see-through
   material.userData.role = 'restaurant-neon-shell';
   material.needsUpdate = true;
   return material;

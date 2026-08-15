@@ -109,9 +109,9 @@ export const ROADS: RoadDef[] = [
     id: ELEVATED_HIGHWAY_ID,
     kind: 'elevated-highway',
     curve: hwy,
-    halfWidth: 2.6, // slim straddle-beam guideway, not a road-width deck
+    halfWidth: 3.8, // wider straddle-beam guideway (was 2.6) to match bigger cars
     ground: false,
-    level: 0,
+    level: -22, // drop the whole guideway ~22 m so it reads lower over the city
   },
   ...shibuyaSideRoads.map(({ id, curve, halfWidth }) => ({
     id: `shibuya-${id}`,
@@ -126,10 +126,24 @@ export const ROADS: RoadDef[] = [
 // ── Keep-clear zones (rectangles) — the ramp/scaffold stunt corridor; the city
 //    grid must not place buildings/props here. ──
 export interface Rect { x0: number; x1: number; z0: number; z1: number }
+// The bike's Shibuya turn (route.ts SHIBUYA_TURN_CURVE) arcs through the pocket
+// between the plaza (protected only to z=-28) and the stunt keep-clears (which
+// begin at z=-55) as it swings out to (285, -68). Nothing carved that -55..-28
+// band, so the roadside packer dropped towers directly in the ride path. Protect
+// the turn corridor so no building sits where the bike travels.
+const SHIBUYA_TURN_KEEP_CLEAR: Rect = { x0: 200, x1: 300, z0: -58, z1: -20 };
+// After the 2nd jump the bike touches down at (285,-348) and merges diagonally
+// onto the main road (x=240) by z=-375. That band sits in a gap the stunt
+// keep-clears leave open (they stop at z=-345) and north of the research walls
+// (which begin at z=-378) — so the roadside packer dropped a tower right on the
+// landing→merge diagonal and the bike phased through it. Close the gap.
+const STUNT_LANDING_KEEP_CLEAR: Rect = { x0: 240, x1: 300, z0: -380, z1: -345 };
 export const KEEP_CLEAR: Rect[] = [
   PROJECTS_MAIN_ROAD_KEEP_CLEAR,
   STUNT_KEEP_CLEAR,
   STUNT_CAMERA_KEEP_CLEAR,
+  SHIBUYA_TURN_KEEP_CLEAR,
+  STUNT_LANDING_KEEP_CLEAR,
   BRIDGE_CORRIDOR, // shoreline, elevated finale, and moon sightline
 ];
 export function keepClear(x: number, z: number): boolean {

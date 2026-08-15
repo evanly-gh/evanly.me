@@ -1,4 +1,5 @@
 import {
+  Fragment,
   Suspense,
   createContext,
   memo,
@@ -13,7 +14,13 @@ import {
 } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { GizmoHelper, GizmoViewport, OrbitControls, PointerLockControls, useEnvironment, useGLTF, useTexture } from '@react-three/drei';
-import { EffectComposer, Bloom } from '@react-three/postprocessing';
+import {
+  EffectComposer,
+  Bloom,
+  BrightnessContrast,
+  HueSaturation,
+  Vignette,
+} from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { PALETTE, LIGHTING } from '../../theme';
 import {
@@ -116,16 +123,31 @@ import { styleRobotMaterial } from './robotMaterial';
 import { useCommittedThreeResource } from './useCommittedThreeResources';
 import {
   SHIBUYA_WALL_LIGHTS,
-  buildShibuyaFacadePixels,
-  createShibuyaFacadePanelMaterial,
+  styleRestaurantMaterial,
   styleShibuyaWallMaterial,
 } from './shibuyaMaterial';
+import { AdBillboard, PanelGlow } from './AdBillboard';
+import { getAllAdPlacements } from '../../world/adBillboardPlacement';
+import { createShibuyaPanelResources } from './shibuyaKit';
+import { createProjectPanelResources } from './stuntKit';
+import { createResearchResources } from './researchKit';
+import { createAboutHeroResources } from './aboutKit';
+import { MonorailBogie, MonorailCarBody } from './MonorailCar';
+import {
+  CAR_GAP,
+  CAR_HEIGHT,
+  CAR_LENGTH,
+  carVariant,
+  createMonorailResources,
+} from './monorailKit';
 import { buildShibuyaFacadePanels } from '../../world/visualFraming';
 import type { ProgressStore } from '../../choreography/progressStore';
+import type { IntroPhase } from '../../choreography/introSequence';
 import { remapScroll } from '../../choreography/scrollRemap';
 import { sceneAnimationTime } from '../../scroll/scrollRuntime';
 import { BikeRider, type BikeRiderHandle } from './BikeRider';
 import { ProductionDirector } from './ProductionDirector';
+import { IntroBillboard } from './IntroBillboard';
 import {
   BRIDGE_RENDER_CONFIG,
   FINALE_ATMOSPHERE_CONFIG,
@@ -145,24 +167,14 @@ import {
 } from '../../world/shoreline';
 import { FACADE_SIGN_TARGET, HOLOGRAM_ANCHOR_IDS } from '../../world/signLayout';
 import {
-  FACADE_SIGN_RENDER_CONFIG,
-  HOLOGRAM_SIGN_RENDER_CONFIG,
-  TASK5_SCENE_NAMES,
-  buildSignRenderBatches,
   frameTask5FacadeInspectionSubject,
   inspectTask5Scene,
   setTask5CameraView,
-  type SignRenderBatch,
   type Task5CameraView,
   type Task5FacadeInspectionSubject,
   type Task5SceneSnapshot,
 } from './signRender';
-import { buildSignPixelArt, type SignArtVariant } from './signArt';
-import {
-  buildAboutArtLayout,
-  renderAboutArt,
-  resolveAboutPortraitSrc,
-} from '../../content/aboutArt';
+import { resolveAboutPortraitSrc } from '../../content/aboutArt';
 import { RESUME } from '../../content/resume';
 import { buildAboutHeroReveal } from '../../world/aboutReveal';
 import {
@@ -173,12 +185,6 @@ import {
   inspectTask2Scene,
   type Task2SceneSnapshot,
 } from './aboutRender';
-import {
-  STUNT_PROJECT_PANELS,
-  buildProjectArtLayout,
-  estimateProjectGalleryTextureBytes,
-  renderProjectArt,
-} from '../../world/stuntContent';
 import { buildScaffoldStructure } from '../../world/stuntLayout';
 import {
   PROJECT_PANEL_RENDER_CONFIG,
@@ -188,11 +194,6 @@ import {
   inspectStuntScene,
   type StuntSceneSnapshot,
 } from './stuntRender';
-import {
-  RESEARCH_PANELS,
-  buildResearchArtLayout,
-  renderResearchArt,
-} from '../../world/researchContent';
 import {
   RESEARCH_PANEL_RENDER_CONFIG,
   RESEARCH_SCENE_NAMES,
@@ -311,325 +312,84 @@ function makeConcreteTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-function makeSignTexture(
-  i: number,
-  variant: SignArtVariant,
-): THREE.CanvasTexture {
-  const art = buildSignPixelArt(i, variant);
-  const cv = document.createElement('canvas');
-  cv.width = art.width;
-  cv.height = art.height;
-  const ctx = cv.getContext('2d')!;
-  const image = ctx.createImageData(art.width, art.height);
-  image.data.set(art.data);
-  ctx.putImageData(image, 0, 0);
-  const tex = new THREE.CanvasTexture(cv);
-  tex.anisotropy = 4;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-function SignBatchMesh({
-  batch,
-  name,
-  geometry,
-  material,
-  renderOrder = 0,
-}: {
-  batch: SignRenderBatch;
-  name: string;
-  geometry: THREE.BufferGeometry;
-  material: THREE.Material;
-  renderOrder?: number;
-}) {
-  const ref = useRef<THREE.InstancedMesh>(null);
-  useLayoutEffect(() => {
-    const mesh = ref.current;
-    if (!mesh) return;
-    batch.instances.forEach(({ matrix }, index) => mesh.setMatrixAt(index, matrix));
-    mesh.count = batch.instances.length;
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.computeBoundingSphere();
-  }, [batch]);
-  return (
-    <instancedMesh
-      ref={ref}
-      name={name}
-      args={[geometry, material, batch.instances.length]}
-      userData={{ instances: batch.instances }}
-      renderOrder={renderOrder}
-      frustumCulled={false}
-    />
-  );
-}
-
+/**
+ * Ambient city signage. Distributes signLayout's validated, visibility-pruned
+ * sign slots across the cyberpunk ad billboards in three mount styles: flat wall
+ * panels, hanging blades projecting off facades, and ground-level pillars
+ * (holograms keep the hologram slots). See adBillboardPlacement.buildAdPlacements.
+ */
 export function Signs() {
-  const layout = useVisibilityLayout();
-  const signs = layout.signs;
-  const batches = useMemo(() => buildSignRenderBatches(signs), [signs]);
-  const resources = useCommittedThreeResource('signs', ({ own }) => {
-    const facadeTextures = Array.from({ length: 8 }, (_, index) =>
-      own(makeSignTexture(index, 'facade')));
-    const hologramTextures = Array.from({ length: 4 }, (_, index) =>
-      own(makeSignTexture(index, 'hologram')));
-    const facadeMaterials = facadeTextures.map((map) => own(new THREE.MeshBasicMaterial({
-      map,
-      side: FACADE_SIGN_RENDER_CONFIG.screen.side,
-      toneMapped: FACADE_SIGN_RENDER_CONFIG.screen.toneMapped,
-      polygonOffset: FACADE_SIGN_RENDER_CONFIG.screen.polygonOffset,
-      polygonOffsetFactor: FACADE_SIGN_RENDER_CONFIG.screen.polygonOffsetFactor,
-      polygonOffsetUnits: FACADE_SIGN_RENDER_CONFIG.screen.polygonOffsetUnits,
-      depthTest: FACADE_SIGN_RENDER_CONFIG.screen.depthTest,
-      depthWrite: FACADE_SIGN_RENDER_CONFIG.screen.depthWrite,
-    })));
-    const hologramMaterials = hologramTextures.map((map) => own(new THREE.MeshBasicMaterial({
-      map,
-      side: HOLOGRAM_SIGN_RENDER_CONFIG.screen.side,
-      toneMapped: HOLOGRAM_SIGN_RENDER_CONFIG.screen.toneMapped,
-      transparent: HOLOGRAM_SIGN_RENDER_CONFIG.screen.transparent,
-      opacity: HOLOGRAM_SIGN_RENDER_CONFIG.screen.opacity,
-      depthWrite: HOLOGRAM_SIGN_RENDER_CONFIG.screen.depthWrite,
-      depthTest: HOLOGRAM_SIGN_RENDER_CONFIG.screen.depthTest,
-      blending: HOLOGRAM_SIGN_RENDER_CONFIG.screen.blending,
-    })));
-    const backingMaterial = own(new THREE.MeshStandardMaterial({
-      color: 0x05060c,
-      roughness: 0.8,
-      metalness: 0.65,
-    }));
-    const attachmentMaterial = own(new THREE.MeshStandardMaterial({
-      color: 0x20283a,
-      roughness: 0.45,
-      metalness: 0.85,
-    }));
-    const emitterMaterial = own(new THREE.MeshStandardMaterial({
-      color: HOLOGRAM_SIGN_RENDER_CONFIG.emitter.color,
-      emissive: new THREE.Color(PALETTE.cyan),
-      emissiveIntensity: HOLOGRAM_SIGN_RENDER_CONFIG.emitter.emissiveIntensity,
-      roughness: 0.35,
-      metalness: 0.8,
-      toneMapped: false,
-    }));
-    const beamMaterial = own(new THREE.MeshBasicMaterial({
-      color: PALETTE.cyan,
-      transparent: HOLOGRAM_SIGN_RENDER_CONFIG.beam.transparent,
-      opacity: HOLOGRAM_SIGN_RENDER_CONFIG.beam.opacity,
-      depthWrite: HOLOGRAM_SIGN_RENDER_CONFIG.beam.depthWrite,
-      depthTest: HOLOGRAM_SIGN_RENDER_CONFIG.beam.depthTest,
-      blending: HOLOGRAM_SIGN_RENDER_CONFIG.beam.blending,
-      side: HOLOGRAM_SIGN_RENDER_CONFIG.beam.side,
-      toneMapped: false,
-    }));
-    const value = {
-      textures: [...facadeTextures, ...hologramTextures],
-      facadeMaterials,
-      hologramMaterials,
-      backingMaterial,
-      attachmentMaterial,
-      emitterMaterial,
-      beamMaterial,
-      planeGeometry: own(new THREE.PlaneGeometry(1, 1)),
-      boxGeometry: own(new THREE.BoxGeometry(1, 1, 1)),
-      emitterGeometry: own(new THREE.CylinderGeometry(1, 1.14, 1, 20)),
-      beamGeometry: own(new THREE.CylinderGeometry(0.16, 1, 1, 20, 1, true)),
-    };
-    return {
-      value,
-      resources: [
-        ...value.textures,
-        ...value.facadeMaterials,
-        ...value.hologramMaterials,
-        value.backingMaterial,
-        value.attachmentMaterial,
-        value.emitterMaterial,
-        value.beamMaterial,
-        value.planeGeometry,
-        value.boxGeometry,
-        value.emitterGeometry,
-        value.beamGeometry,
-      ],
-    };
-  }, []);
-  if (!resources) return null;
+  const placed = useMemo(() => getAllAdPlacements(), []);
+  useEffect(() => {
+    // Dev: expose placed ad-sign slots for scripted camera framing.
+    (window as unknown as { __AD_SIGNS__?: unknown }).__AD_SIGNS__ =
+      placed.map((b) => ({ id: b.id, mount: b.mount, pos: b.position, rotationY: b.rotationY }));
+  }, [placed]);
   return (
-    <group dispose={null}>
-      {batches.facadeScreens.map((batch) => (
-        <SignBatchMesh
-          key={`facade-${batch.textureIndex}`}
-          batch={batch}
-          name={TASK5_SCENE_NAMES.facadeScreen}
-          geometry={resources.planeGeometry}
-          material={resources.facadeMaterials[batch.textureIndex!]}
-          renderOrder={FACADE_SIGN_RENDER_CONFIG.screen.renderOrder}
+    <group dispose={null} name="ad-signs">
+      {placed.map((b) => (
+        <AdBillboard
+          key={b.id}
+          def={b.def}
+          mount={b.mount}
+          anchor={b.anchor}
+          position={b.position}
+          rotationY={b.rotationY}
+          fitBox={b.fitBox}
         />
       ))}
-      <SignBatchMesh
-        batch={batches.backings}
-        name={TASK5_SCENE_NAMES.facadeBacking}
-        geometry={resources.boxGeometry}
-        material={resources.backingMaterial}
-        renderOrder={FACADE_SIGN_RENDER_CONFIG.backing.renderOrder}
-      />
-      <SignBatchMesh
-        batch={batches.attachments}
-        name={TASK5_SCENE_NAMES.facadeAttachment}
-        geometry={resources.boxGeometry}
-        material={resources.attachmentMaterial}
-      />
-      {batches.hologramScreens.map((batch) => (
-        <SignBatchMesh
-          key={`hologram-${batch.textureIndex}`}
-          batch={batch}
-          name={TASK5_SCENE_NAMES.hologramScreen}
-          geometry={resources.planeGeometry}
-          material={resources.hologramMaterials[batch.textureIndex!]}
-          renderOrder={HOLOGRAM_SIGN_RENDER_CONFIG.screen.renderOrder}
-        />
-      ))}
-      <SignBatchMesh
-        batch={batches.emitters}
-        name={TASK5_SCENE_NAMES.hologramEmitter}
-        geometry={resources.emitterGeometry}
-        material={resources.emitterMaterial}
-      />
-      <SignBatchMesh
-        batch={batches.beams}
-        name={TASK5_SCENE_NAMES.hologramBeam}
-        geometry={resources.beamGeometry}
-        material={resources.beamMaterial}
-        renderOrder={HOLOGRAM_SIGN_RENDER_CONFIG.beam.renderOrder}
-      />
     </group>
   );
 }
 
+/** Neon rim + halo glow at a section panel's world pose (w/h read from the
+ *  screen matrix's scale), matching the ad-billboard look. */
+function GlowFrame({ matrix, color }: { matrix: THREE.Matrix4; color: string }) {
+  const frame = useMemo(() => {
+    const pos = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    const scl = new THREE.Vector3();
+    matrix.decompose(pos, quat, scl);
+    return { pos, quat, w: scl.x, h: scl.y };
+  }, [matrix]);
+  return (
+    <group position={frame.pos} quaternion={frame.quat}>
+      <PanelGlow w={frame.w} h={frame.h} color={color} />
+    </group>
+  );
+}
+
+/** Per-project accent colours (matches each format's palette primary). */
+const PROJECT_GLOW = ['#39f6ff', '#ffbd42', '#bca2ff', '#d8ff45', '#ff4db8'];
+
 export function ProjectsPanels() {
   const assembly = useMemo(() => buildStuntPanelRenderAssembly(), []);
-  const resources = useCommittedThreeResource('stunt-project-panels', ({ own }) => {
-    const textureEstimate = estimateProjectGalleryTextureBytes();
-    const textures = STUNT_PROJECT_PANELS.map((panel) => {
-      const art = buildProjectArtLayout(panel);
-      const canvas = document.createElement('canvas');
-      canvas.width = art.size.width;
-      canvas.height = art.size.height;
-      const context = canvas.getContext('2d');
-      if (!context) throw new Error(`Project art canvas unavailable: ${panel.id}`);
-      renderProjectArt(context, art);
-      const texture = own(new THREE.CanvasTexture(canvas));
-      texture.colorSpace = THREE.SRGBColorSpace;
-      texture.anisotropy = 8;
-      texture.generateMipmaps = true;
-      texture.minFilter = THREE.LinearMipmapLinearFilter;
-      texture.magFilter = THREE.LinearFilter;
-      const estimate = textureEstimate.textures.find(
-        ({ panelId }) => panelId === panel.id,
-      );
-      if (!estimate) throw new Error(`Project texture estimate missing: ${panel.id}`);
-      texture.userData.projectGallery = {
-        ...estimate,
-        artAudit: {
-          regions: art.regions.filter(({ id }) => id !== 'background'),
-        },
-      };
-      return texture;
-    });
-    const screenMaterials = textures.map((map) => own(new THREE.MeshBasicMaterial({
-      map,
-      side: PROJECT_PANEL_RENDER_CONFIG.screen.side,
-      toneMapped: PROJECT_PANEL_RENDER_CONFIG.screen.toneMapped,
-      depthTest: PROJECT_PANEL_RENDER_CONFIG.screen.depthTest,
-      polygonOffset: PROJECT_PANEL_RENDER_CONFIG.screen.polygonOffset,
-      polygonOffsetFactor:
-        PROJECT_PANEL_RENDER_CONFIG.screen.polygonOffsetFactor,
-      polygonOffsetUnits:
-        PROJECT_PANEL_RENDER_CONFIG.screen.polygonOffsetUnits,
-      transparent: PROJECT_PANEL_RENDER_CONFIG.screen.transparent,
-      opacity: PROJECT_PANEL_RENDER_CONFIG.screen.opacity,
-      blending: PROJECT_PANEL_RENDER_CONFIG.screen.blending,
-      depthWrite: PROJECT_PANEL_RENDER_CONFIG.screen.depthWrite,
-    })));
-    const backingMaterial = own(new THREE.MeshStandardMaterial({
-      color: 0x050913,
-      emissive: new THREE.Color(0x07111f),
-      emissiveIntensity: 0.25,
-      roughness: 0.72,
-      metalness: 0.66,
-    }));
-    const attachmentMaterial = own(new THREE.MeshStandardMaterial({
-      color: 0x1c2b3d,
-      emissive: new THREE.Color(PALETTE.cyan),
-      emissiveIntensity: 0.16,
-      roughness: 0.48,
-      metalness: 0.82,
-    }));
-    const emitterMaterial = own(new THREE.MeshStandardMaterial({
-      color: 0x241344,
-      emissive: new THREE.Color(0xbca2ff),
-      emissiveIntensity:
-        PROJECT_PANEL_RENDER_CONFIG.hologram.emitterEmissiveIntensity,
-      roughness: 0.32,
-      metalness: 0.82,
-      toneMapped: PROJECT_PANEL_RENDER_CONFIG.hologram.emitterToneMapped,
-    }));
-    const beamMaterial = own(new THREE.MeshBasicMaterial({
-      color: 0x7df9ff,
-      transparent: true,
-      opacity: PROJECT_PANEL_RENDER_CONFIG.hologram.beamOpacity,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-      toneMapped: false,
-    }));
-    const planeGeometry = own(new THREE.PlaneGeometry(1, 1));
-    const boxGeometry = own(new THREE.BoxGeometry(1, 1, 1));
-    const emitterGeometry = own(new THREE.CylinderGeometry(1, 1.2, 1, 20));
-    const beamGeometry = own(new THREE.CylinderGeometry(0.3, 1, 1, 20, 1, true));
-    return {
-      value: {
-        textures,
-        screenMaterials,
-        backingMaterial,
-        attachmentMaterial,
-        emitterMaterial,
-        beamMaterial,
-        planeGeometry,
-        boxGeometry,
-        emitterGeometry,
-        beamGeometry,
-      },
-      resources: [
-        ...textures,
-        ...screenMaterials,
-        backingMaterial,
-        attachmentMaterial,
-        emitterMaterial,
-        beamMaterial,
-        planeGeometry,
-        boxGeometry,
-        emitterGeometry,
-        beamGeometry,
-      ],
-    };
-  }, []);
+  const resources = useCommittedThreeResource(
+    'stunt-project-panels',
+    createProjectPanelResources,
+    [],
+  );
   if (!resources) return null;
   return (
     <group dispose={null}>
       {assembly.screens.map((instance, index) => (
-        <mesh
-          key={instance.id}
-          name={STUNT_SCENE_NAMES.panelScreen}
-          matrix={instance.matrix}
-          matrixAutoUpdate={false}
-          geometry={resources.planeGeometry}
-          material={resources.screenMaterials[index]}
-          renderOrder={PROJECT_PANEL_RENDER_CONFIG.screen.renderOrder}
-          userData={{
-            id: instance.id,
-            parentId: instance.parentId,
-            screenToBackingFront: instance.screenToBackingFront,
-          }}
-          dispose={null}
-        />
+        <Fragment key={instance.id}>
+          <mesh
+            name={STUNT_SCENE_NAMES.panelScreen}
+            matrix={instance.matrix}
+            matrixAutoUpdate={false}
+            geometry={resources.planeGeometry}
+            material={resources.screenMaterials[index]}
+            renderOrder={PROJECT_PANEL_RENDER_CONFIG.screen.renderOrder}
+            userData={{
+              id: instance.id,
+              parentId: instance.parentId,
+              screenToBackingFront: instance.screenToBackingFront,
+            }}
+            dispose={null}
+          />
+          <GlowFrame matrix={instance.matrix} color={PROJECT_GLOW[index % PROJECT_GLOW.length]} />
+        </Fragment>
       ))}
       {assembly.backings.map((instance) => (
         <mesh
@@ -699,75 +459,11 @@ export function ProjectsPanels() {
 
 export function ResearchGateways() {
   const assembly = useMemo(() => buildResearchRenderAssembly(), []);
-  const resources = useCommittedThreeResource('research-gateways', ({ own }) => {
-    const artPool = ([0, 1] as const).map((contentIndex) => {
-      const panel = RESEARCH_PANELS.find((candidate) =>
-        candidate.contentIndex === contentIndex);
-      if (!panel) {
-        throw new Error(`Research art pool is missing content ${contentIndex}`);
-      }
-      const art = buildResearchArtLayout(panel);
-      const canvas = document.createElement('canvas');
-      canvas.width = art.size.width;
-      canvas.height = art.size.height;
-      const context = canvas.getContext('2d');
-      if (!context) throw new Error(`Research art canvas unavailable: ${panel.id}`);
-      renderResearchArt(context, art);
-      const texture = own(new THREE.CanvasTexture(canvas));
-      texture.colorSpace = THREE.SRGBColorSpace;
-      texture.anisotropy = 8;
-      texture.generateMipmaps = true;
-      texture.minFilter = THREE.LinearMipmapLinearFilter;
-      texture.magFilter = THREE.LinearFilter;
-      return texture;
-    });
-    const screenMaterials = artPool.map((map) => own(new THREE.MeshBasicMaterial({
-      map,
-      side: RESEARCH_PANEL_RENDER_CONFIG.screen.side,
-      toneMapped: RESEARCH_PANEL_RENDER_CONFIG.screen.toneMapped,
-      depthTest: RESEARCH_PANEL_RENDER_CONFIG.screen.depthTest,
-      depthWrite: RESEARCH_PANEL_RENDER_CONFIG.screen.depthWrite,
-      polygonOffset: RESEARCH_PANEL_RENDER_CONFIG.screen.polygonOffset,
-      polygonOffsetFactor:
-        RESEARCH_PANEL_RENDER_CONFIG.screen.polygonOffsetFactor,
-      polygonOffsetUnits:
-        RESEARCH_PANEL_RENDER_CONFIG.screen.polygonOffsetUnits,
-    })));
-    const structureMaterial = own(new THREE.MeshStandardMaterial({
-      color: 0x172235,
-      emissive: new THREE.Color(PALETTE.cyan),
-      emissiveIntensity: 0.12,
-      roughness: 0.48,
-      metalness: 0.82,
-    }));
-    const backingMaterial = own(new THREE.MeshStandardMaterial({
-      color: 0x030811,
-      emissive: new THREE.Color(0x061321),
-      emissiveIntensity: 0.3,
-      roughness: 0.72,
-      metalness: 0.7,
-    }));
-    const planeGeometry = own(new THREE.PlaneGeometry(1, 1));
-    const boxGeometry = own(new THREE.BoxGeometry(1, 1, 1));
-    return {
-      value: {
-        textures: artPool,
-        screenMaterials,
-        structureMaterial,
-        backingMaterial,
-        planeGeometry,
-        boxGeometry,
-      },
-      resources: [
-        ...artPool,
-        ...screenMaterials,
-        structureMaterial,
-        backingMaterial,
-        planeGeometry,
-        boxGeometry,
-      ],
-    };
-  }, []);
+  const resources = useCommittedThreeResource(
+    'research-gateways',
+    createResearchResources,
+    [],
+  );
   if (!resources) return null;
   const renderBoxes = (
     instances: typeof assembly.beams,
@@ -803,21 +499,23 @@ export function ResearchGateways() {
         resources.structureMaterial,
       )}
       {assembly.screens.map((instance) => (
-        <mesh
-          key={instance.id}
-          name={RESEARCH_SCENE_NAMES.panelScreen}
-          matrix={instance.matrix}
-          matrixAutoUpdate={false}
-          geometry={resources.planeGeometry}
-          material={resources.screenMaterials[instance.textureIndex ?? 0]}
-          renderOrder={RESEARCH_PANEL_RENDER_CONFIG.screen.renderOrder}
-          userData={{
-            id: instance.id,
-            parentId: instance.parentId,
-            screenToBackingFront: instance.screenToBackingFront,
-          }}
-          dispose={null}
-        />
+        <Fragment key={instance.id}>
+          <mesh
+            name={RESEARCH_SCENE_NAMES.panelScreen}
+            matrix={instance.matrix}
+            matrixAutoUpdate={false}
+            geometry={resources.planeGeometry}
+            material={resources.screenMaterialById[instance.id]}
+            renderOrder={RESEARCH_PANEL_RENDER_CONFIG.screen.renderOrder}
+            userData={{
+              id: instance.id,
+              parentId: instance.parentId,
+              screenToBackingFront: instance.screenToBackingFront,
+            }}
+            dispose={null}
+          />
+          <GlowFrame matrix={instance.matrix} color={(instance.textureIndex ?? 0) === 0 ? '#2bfdf9' : '#ff3da6'} />
+        </Fragment>
       ))}
       {renderBoxes(
         assembly.backings,
@@ -849,72 +547,11 @@ export function AboutHero() {
   );
   const portraitSrc = resolveAboutPortraitSrc(RESUME.about.faceImage);
   const portrait = useTexture(portraitSrc);
-  const resources = useCommittedThreeResource('about-hero', ({ own }) => {
-    const art = buildAboutArtLayout(portraitSrc);
-    const canvas = document.createElement('canvas');
-    canvas.width = art.size.width;
-    canvas.height = art.size.height;
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('About hero canvas context is unavailable');
-    renderAboutArt(context, portrait.image as CanvasImageSource, art);
-    const texture = own(new THREE.CanvasTexture(canvas));
-    texture.colorSpace = ABOUT_HERO_RENDER_CONFIG.texture.colorSpace;
-    texture.anisotropy = ABOUT_HERO_RENDER_CONFIG.texture.anisotropy;
-    const screenMaterial = own(new THREE.MeshBasicMaterial({
-      map: texture,
-      side: ABOUT_HERO_RENDER_CONFIG.screen.side,
-      toneMapped: ABOUT_HERO_RENDER_CONFIG.screen.toneMapped,
-      depthTest: ABOUT_HERO_RENDER_CONFIG.screen.depthTest,
-      depthWrite: ABOUT_HERO_RENDER_CONFIG.screen.depthWrite,
-      polygonOffset: ABOUT_HERO_RENDER_CONFIG.screen.polygonOffset,
-      polygonOffsetFactor:
-        ABOUT_HERO_RENDER_CONFIG.screen.polygonOffsetFactor,
-      polygonOffsetUnits:
-        ABOUT_HERO_RENDER_CONFIG.screen.polygonOffsetUnits,
-    }));
-    const backingMaterial = own(new THREE.MeshStandardMaterial({
-      color: ABOUT_HERO_RENDER_CONFIG.backing.color,
-      roughness: ABOUT_HERO_RENDER_CONFIG.backing.roughness,
-      metalness: ABOUT_HERO_RENDER_CONFIG.backing.metalness,
-    }));
-    const attachmentMaterial = own(new THREE.MeshStandardMaterial({
-      color: ABOUT_HERO_RENDER_CONFIG.attachment.color,
-      roughness: ABOUT_HERO_RENDER_CONFIG.attachment.roughness,
-      metalness: ABOUT_HERO_RENDER_CONFIG.attachment.metalness,
-    }));
-    const plane = own(new THREE.PlaneGeometry(1, 1));
-    const box = own(new THREE.BoxGeometry(1, 1, 1));
-    const glowMaterial = own(new THREE.MeshStandardMaterial({
-      color: 0x081a20,
-      emissive: new THREE.Color(PALETTE.cyan),
-      emissiveIntensity: 2.2,
-      toneMapped: false,
-    }));
-    const cylinder = own(new THREE.CylinderGeometry(1, 1, 1, 12));
-    const value = {
-      texture,
-      screenMaterial,
-      backingMaterial,
-      attachmentMaterial,
-      glowMaterial,
-      plane,
-      box,
-      cylinder,
-    };
-    return {
-      value,
-      resources: [
-        texture,
-        screenMaterial,
-        backingMaterial,
-        attachmentMaterial,
-        glowMaterial,
-        plane,
-        box,
-        cylinder,
-      ],
-    };
-  }, [portrait, portraitSrc]);
+  const resources = useCommittedThreeResource(
+    'about-hero',
+    (scope) => createAboutHeroResources(scope, portrait, portraitSrc),
+    [portrait, portraitSrc],
+  );
   if (!resources) return null;
   return (
     <group name="about-hero-owned" dispose={null}>
@@ -928,6 +565,7 @@ export function AboutHero() {
         renderOrder={ABOUT_HERO_RENDER_CONFIG.screen.renderOrder}
         dispose={null}
       />
+      <GlowFrame matrix={assembly.screen.matrix} color="#2bfdf9" />
       <mesh
         name={TASK2_SCENE_NAMES.backing}
         matrix={assembly.backing.matrix}
@@ -1147,16 +785,23 @@ function FreeCamHud() {
 // BUILDING_DECK_VERTICAL_MARGIN = curve.y - 5.4. The beam + strut + car stack
 // below must stay within that.
 const MONORAIL_BEAM_HEIGHT = 1.6;
-const MONORAIL_STRUT_DROP = 0.8;
-const MONORAIL_CAR_HEIGHT = 2.2;
-const MONORAIL_CAR_WIDTH = 3;
-const MONORAIL_CAR_LENGTH = 8;
-const MONORAIL_CAR_GAP = 1.2;
-const MONORAIL_CAR_COUNT = 3;
+// Stationary consist parked on the guideway over the main boulevard. The car
+// asset (see monorailKit / MonorailCar) is sized to the beam; the vertical stack
+// (beam 1.6 + neck-drop + car height) stays inside the guideway's protected
+// clearance volume (curve.y − 5.4).
+const MONORAIL_CAR_COUNT = 5;
+// Tightened (0.7 → 0.2) so the taller car body (now 3.6 m) still hangs inside the
+// guideway's protected clearance volume (curve.y − 5.4): beam 1.6 + neck 0.2 +
+// car 3.6 = 5.4 exactly.
+const MONORAIL_NECK_DROP = 0.2; // gap from beam underside down to the car roof
 
 export function Pillars() {
+  // Denser support spacing (default 55 → 28) so the elevated guideway reads as a
+  // properly-supported monorail rather than a sparse span. Every added candidate
+  // still runs the full off-street / off-building / off-keep-clear collision test.
   const pillars = useMemo(() => buildHighwayPillarLayout(
     buildCityLayout().map(buildingPlacementBounds),
+    28,
   ), []);
   const resources = useCommittedThreeResource('pillars', ({ own }) => {
     const material = own(new THREE.MeshStandardMaterial({
@@ -1189,55 +834,55 @@ export function Pillars() {
 
 export function MonorailTrain() {
   const road = useMemo(() => ROADS.find((r) => r.id === ELEVATED_HIGHWAY_ID)!, []);
-  const curveLength = useMemo(() => road.curve.getLength(), [road]);
-  const groupRefs = useRef<(THREE.Group | null)[]>([]);
-  const phaseRef = useRef(0);
-  const resources = useCommittedThreeResource('monorail-train', ({ own }) => {
-    const carGeometry = own(new THREE.BoxGeometry(MONORAIL_CAR_LENGTH, MONORAIL_CAR_HEIGHT, MONORAIL_CAR_WIDTH));
-    const strutGeometry = own(new THREE.BoxGeometry(0.3, MONORAIL_STRUT_DROP, 0.3));
-    const carMat = own(new THREE.MeshStandardMaterial({
-      color: 0x181a24,
-      roughness: 0.4,
-      metalness: 0.5,
-      emissive: new THREE.Color(PALETTE.cyan),
-      emissiveIntensity: 0.18,
-    }));
-    const strutMat = own(new THREE.MeshStandardMaterial({ color: 0x0d0f18, roughness: 0.6, metalness: 0.5 }));
-    return {
-      value: { carGeometry, strutGeometry, carMat, strutMat },
-      resources: [carGeometry, strutGeometry, carMat, strutMat],
-    };
-  }, []);
+  const resources = useCommittedThreeResource('monorail-train', createMonorailResources, []);
 
-  useFrame((_, delta) => {
-    phaseRef.current = (phaseRef.current + delta * 6) % curveLength;
-    const spacing = MONORAIL_CAR_LENGTH + MONORAIL_CAR_GAP;
-    for (let i = 0; i < MONORAIL_CAR_COUNT; i++) {
-      const group = groupRefs.current[i];
-      if (!group) continue;
-      const s = (phaseRef.current - i * spacing + curveLength * 100) % curveLength;
-      const u = s / curveLength;
-      const p = road.curve.getPointAt(u);
-      const tangent = road.curve.getTangentAt(u);
-      const carTopY = p.y + road.level - MONORAIL_BEAM_HEIGHT - MONORAIL_STRUT_DROP;
-      group.position.set(p.x, carTopY - MONORAIL_CAR_HEIGHT / 2, p.z);
-      group.rotation.y = Math.atan2(-tangent.z, tangent.x);
+  // A stationary consist parked where the guideway passes over the main
+  // boulevard (z≈0), each car sampled along the curve so the train bends with
+  // the rail and hangs from the beam by its bogie.
+  const cars = useMemo(() => {
+    const curve = road.curve;
+    const length = curve.getLength();
+
+    // Centre the consist on the guideway's crossing of the central boulevard:
+    // the point of minimum |z| within the city core (x roughly −80…110).
+    let centreU = 0.5;
+    let bestZ = Infinity;
+    const SCAN = 800;
+    for (let i = 0; i <= SCAN; i++) {
+      const u = i / SCAN;
+      const p = curve.getPointAt(u);
+      if (p.x > -80 && p.x < 110 && Math.abs(p.z) < bestZ) {
+        bestZ = Math.abs(p.z);
+        centreU = u;
+      }
     }
-  });
+
+    const spacing = CAR_LENGTH + CAR_GAP;
+    const centreS = centreU * length;
+    return Array.from({ length: MONORAIL_CAR_COUNT }, (_, i) => {
+      const s = centreS + (i - (MONORAIL_CAR_COUNT - 1) / 2) * spacing;
+      const u = Math.min(Math.max(s / length, 0), 1);
+      const p = curve.getPointAt(u);
+      const tangent = curve.getTangentAt(u);
+      const beamUnderside = p.y + road.level - MONORAIL_BEAM_HEIGHT;
+      const carCentreY = beamUnderside - MONORAIL_NECK_DROP - CAR_HEIGHT / 2;
+      return {
+        position: [p.x, carCentreY, p.z] as [number, number, number],
+        yaw: Math.atan2(-tangent.z, tangent.x),
+        variant: carVariant(i, MONORAIL_CAR_COUNT),
+        // beam underside expressed in the car's local (car-centred) frame
+        bogieTopLocal: beamUnderside - carCentreY,
+      };
+    });
+  }, [road]);
 
   if (!resources) return null;
-  const { carGeometry, strutGeometry, carMat, strutMat } = resources;
   return (
-    <group dispose={null}>
-      {Array.from({ length: MONORAIL_CAR_COUNT }).map((_, i) => (
-        <group key={i} ref={(el) => { groupRefs.current[i] = el; }} dispose={null}>
-          <mesh geometry={carGeometry} material={carMat} dispose={null} />
-          <mesh
-            geometry={strutGeometry}
-            material={strutMat}
-            position={[0, MONORAIL_CAR_HEIGHT / 2 + MONORAIL_STRUT_DROP / 2, 0]}
-            dispose={null}
-          />
+    <group name="monorail-train" dispose={null}>
+      {cars.map((car, i) => (
+        <group key={i} position={car.position} rotation={[0, car.yaw, 0]} dispose={null}>
+          <MonorailCarBody res={resources} variant={car.variant} />
+          <MonorailBogie res={resources} topY={car.bogieTopLocal} housingH={0.5} wheelZ={0.7} />
         </group>
       ))}
     </group>
@@ -1316,12 +961,18 @@ export function Roads() {
       );
       const edgeGlowL = own(buildCurveRibbon(r.curve, 0.3, { offset: r.halfWidth - 0.4, lift: r.level + 0.06, clip: edgeClip }));
       const edgeGlowR = own(buildCurveRibbon(r.curve, 0.3, { offset: -(r.halfWidth - 0.4), lift: r.level + 0.06, clip: edgeClip }));
+      // The centre line runs continuous THROUGH the Shibuya plaza (unlike the edge
+      // glow, which stops at it), so it is not clipped by the plaza — only the
+      // cross street still ends its centre line at the boulevard edge.
+      const centreClip = r.ground && isCrossStreet
+        ? crossStreetInfraClipAtBoulevard
+        : undefined;
       const centre = service
         ? null
-        : own(buildCurveRibbon(r.curve, 0.14, { lift: r.level + 0.06, clip: edgeClip }));
-      // wide raised sidewalks (half-width 4.5 → 9 m) + a raised curb lip at the road edge
-      const walkL = r.ground && !service ? own(buildCurveRibbon(r.curve, 4.5, { offset: r.halfWidth + 4.5, lift: 0.45, clip: walkClip })) : null;
-      const walkR = r.ground && !service ? own(buildCurveRibbon(r.curve, 4.5, { offset: -(r.halfWidth + 4.5), lift: 0.45, clip: walkClip })) : null;
+        : own(buildCurveRibbon(r.curve, 0.14, { lift: r.level + 0.06, clip: centreClip }));
+      // narrowed raised sidewalks (half-width 2.5 → 5 m) + a raised curb lip at the road edge
+      const walkL = r.ground && !service ? own(buildCurveRibbon(r.curve, 2.5, { offset: r.halfWidth + 2.5, lift: 0.45, clip: walkClip })) : null;
+      const walkR = r.ground && !service ? own(buildCurveRibbon(r.curve, 2.5, { offset: -(r.halfWidth + 2.5), lift: 0.45, clip: walkClip })) : null;
       const curbL = r.ground && !service ? own(buildCurveRibbon(r.curve, 0.4, { offset: r.halfWidth + 0.4, lift: 0.5, clip: walkClip })) : null;
       const curbR = r.ground && !service ? own(buildCurveRibbon(r.curve, 0.4, { offset: -(r.halfWidth + 0.4), lift: 0.5, clip: walkClip })) : null;
       // elevated decks get a dark under-slab (slightly wider, dropped down) so
@@ -1574,9 +1225,9 @@ function ZoneReady({
   return null;
 }
 
-// The five instancing passes BuildingZone renders (ordinary / backdrop / walls
-// / research / props); onReady fires once all five have completed mounting.
-const BUILDING_ZONE_PASS_COUNT = 5;
+// The six instancing passes BuildingZone renders (ordinary / backdrop / walls
+// / research / restaurant / props); onReady fires once all have completed mounting.
+const BUILDING_ZONE_PASS_COUNT = 6;
 
 function BuildingZone({
   layout,
@@ -1589,14 +1240,16 @@ function BuildingZone({
   id: CityZoneId;
   onReady: (id: CityZoneId) => void;
 }) {
-  const [backdrop, walls, research, ordinary] = useMemo(() => [
+  const [backdrop, walls, research, restaurant, ordinary] = useMemo(() => [
       layout.filter(({ layoutRole }) => layoutRole === 'stunt-backdrop'),
       layout.filter(({ layoutRole }) => layoutRole?.startsWith('shibuya-')),
       layout.filter(({ layoutRole }) => layoutRole?.startsWith('research-')),
+      layout.filter(({ layoutRole }) => layoutRole === 'restaurant'),
       layout.filter(({ layoutRole }) =>
         !layoutRole?.startsWith('shibuya-')
         && !layoutRole?.startsWith('research-')
-        && layoutRole !== 'stunt-backdrop'),
+        && layoutRole !== 'stunt-backdrop'
+        && layoutRole !== 'restaurant'),
     ], [layout]);
   // Fire onReady once all five instancing passes have finished scheduling their
   // progressive mount, rather than the moment the zone commits — otherwise the
@@ -1617,6 +1270,7 @@ function BuildingZone({
   const onBackdrop = useCallback(() => notify('backdrop'), [notify]);
   const onWalls = useCallback(() => notify('walls'), [notify]);
   const onResearch = useCallback(() => notify('research'), [notify]);
+  const onRestaurant = useCallback(() => notify('restaurant'), [notify]);
   const onProps = useCallback(() => notify('props'), [notify]);
   return (
     <>
@@ -1646,6 +1300,12 @@ function BuildingZone({
         inspectionGroupName={
           INSPECT_ENABLED ? RESEARCH_SCENE_NAMES.wallReadyFile : undefined
         }
+      />
+      <InstancedPieces
+        placements={restaurant}
+        progressive
+        onComplete={onRestaurant}
+        materialTransform={styleRestaurantMaterial}
       />
       <InstancedPieces
         placements={props}
@@ -1774,35 +1434,17 @@ function ShibuyaWallLighting() {
   );
 }
 
-function makeShibuyaFacadeTexture(): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 256;
-  const context = canvas.getContext('2d')!;
-  const image = context.createImageData(canvas.width, canvas.height);
-  image.data.set(buildShibuyaFacadePixels(canvas.width, canvas.height));
-  context.putImageData(image, 0, 0);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
-  return texture;
-}
-
 export function ShibuyaFacadePanels() {
   const layout = useVisibilityLayout();
   const panels = useMemo(() => buildShibuyaFacadePanels(
     layout.buildings.filter(({ layoutRole }) =>
       layoutRole?.startsWith('shibuya-')),
   ), [layout.buildings]);
-  const resources = useCommittedThreeResource('shibuya-panels', ({ own }) => {
-    const texture = own(makeShibuyaFacadeTexture());
-    const material = own(createShibuyaFacadePanelMaterial(texture));
-    const geometry = own(new THREE.PlaneGeometry(1, 1));
-    return {
-      value: { material, geometry },
-      resources: [texture, material, geometry],
-    };
-  }, []);
+  const resources = useCommittedThreeResource(
+    'shibuya-panels',
+    createShibuyaPanelResources,
+    [],
+  );
   if (!resources) return null;
   return (
     <group dispose={null}>
@@ -1833,10 +1475,12 @@ export function Ground() {
     const geometry = own(assembly.ground);
     own(assembly.water);
     own(assembly.retaining);
+    // Wet-asphalt look: low roughness + raised metalness lets the ground pick up
+    // the neon fills / environment as slick reflections (rainy cyberpunk street).
     const material = own(new THREE.MeshStandardMaterial({
       map: texture,
-      roughness: 0.95,
-      metalness: 0.05,
+      roughness: 0.32,
+      metalness: 0.5,
     }));
     return {
       value: { geometry, material },
@@ -3277,6 +2921,8 @@ export interface CityProps {
   inspect?: boolean;
   onZoneReady?: (zone: CityZoneId) => void;
   onZoneActive?: (zone: CityZoneId) => void;
+  introPhase?: IntroPhase;
+  onIntroComplete?: () => void;
 }
 
 function City({
@@ -3285,6 +2931,8 @@ function City({
   inspect = INSPECT_ENABLED,
   onZoneReady,
   onZoneActive,
+  introPhase,
+  onIntroComplete,
 }: CityProps) {
   const [activeProfile, setActiveProfile] = useState(
     REQUESTED_VISIBILITY_PROFILE,
@@ -3468,11 +3116,12 @@ function City({
       {/* cool moonlit key from the moon's direction — ramped by progress so it
           only fully spills over the scene at the finale */}
       <MoonKeyLight />
-      {/* violet sky / dark ground bounce */}
-      <hemisphereLight args={[PALETTE.violet, '#050510', 0.18]} />
-      {/* subtle neon fills: magenta from one flank, cyan from the other */}
-      <directionalLight position={[-320, 90, 120]} intensity={0.28} color={PALETTE.magenta} />
-      <directionalLight position={[340, 80, -280]} intensity={0.3} color={PALETTE.cyan} />
+      {/* violet sky / dark ground bounce — kept low for deep shadows */}
+      <hemisphereLight args={[PALETTE.violet, '#050510', 0.06]} />
+      {/* Faint magenta/cyan flank fills — deliberately dim so the BILLBOARDS (and
+          window neon) carry the city's colour rather than a global wash. */}
+      <directionalLight position={[-320, 90, 120]} intensity={0.16} color={PALETTE.magenta} />
+      <directionalLight position={[340, 80, -280]} intensity={0.18} color={PALETTE.cyan} />
       {/* 3 point lights shaded per-fragment on every PBR surface city-wide;
           only meaningful at the Shibuya crossing, so mount them with that zone
           instead of paying for them across the whole ride. */}
@@ -3481,10 +3130,15 @@ function City({
       {production && progressStore && (
         <>
           <BikeRider ref={bikeRef} />
+          {introPhase && introPhase !== 'live' && (
+            <IntroBillboard phase={introPhase} />
+          )}
           <ProductionDirector
             store={progressStore}
             bikeRef={bikeRef}
             inspect={inspect}
+            introPhase={introPhase}
+            onIntroComplete={onIntroComplete}
           />
         </>
       )}
@@ -3560,6 +3214,12 @@ function City({
           resolutionScale={0.5}
           mipmapBlur
         />
+        {/* Colour grade for the moody cyberpunk look: punch up saturation so the
+            neon reads vibrant, deepen contrast so unlit surfaces crush toward
+            black, and a vignette to pull focus into the lit street. */}
+        <HueSaturation saturation={0.32} />
+        <BrightnessContrast brightness={-0.04} contrast={0.18} />
+        <Vignette eskil={false} offset={0.28} darkness={0.62} />
       </EffectComposer>
       </DeferredScene>
       </VisibilityLayoutContext.Provider>

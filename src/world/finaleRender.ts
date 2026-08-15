@@ -133,7 +133,7 @@ export const FINALE_ATMOSPHERE_CONFIG = Object.freeze({
     y0: -2,
     y1: 58,
     z0: -2240,
-    z1: -640,
+    z1: -780,
   }),
 });
 

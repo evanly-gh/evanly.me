@@ -198,7 +198,7 @@ function endPanels(): ResearchPanel[] {
   });
 }
 
-const RESEARCH_ROUTE_END_Z = -600;
+const RESEARCH_ROUTE_END_Z = -740;
 
 export const RESEARCH_PANELS: readonly ResearchPanel[] = Object.freeze([
   ...gatewayPanels(0),
@@ -314,11 +314,16 @@ export function buildResearchArtLayout(
   panel: ResearchPanel,
 ): ResearchArtLayout {
   const record = RESEARCH_CONTENT_RECORDS[panel.contentIndex];
+  // Per-panel canvas sized to the panel's real aspect so the texture is never
+  // stretched on the plane (the old fixed 2048x1024 was warped onto portrait
+  // facade panels). Height fixed; width follows width/height.
+  const H = RESEARCH_ART_MIN_HEIGHT;
+  const W = Math.max(640, Math.min(2048, Math.round(H * (panel.width / panel.height))));
   return {
     panelId: panel.id,
     size: {
-      width: RESEARCH_ART_MIN_WIDTH,
-      height: RESEARCH_ART_MIN_HEIGHT,
+      width: W,
+      height: H,
     },
     copy: {
       eyebrow: `RESEARCH 0${panel.contentIndex + 1}`,
@@ -402,26 +407,102 @@ export function measureResearchArtLineBoxes(
   });
 }
 
+/** Word-wrap `text` to fit `maxWidth` at the current context font, capped to
+ *  `maxLines` (last line ellipsised if it overflows). Uniform — never squashed. */
+function wrapToWidth(
+  context: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  maxLines: number,
+): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (line && context.measureText(candidate).width > maxWidth) {
+      lines.push(line);
+      line = word;
+      if (lines.length === maxLines) break;
+    } else {
+      line = candidate;
+    }
+  }
+  if (line && lines.length < maxLines) lines.push(line);
+  return lines;
+}
+
+/**
+ * Neon research panel. Aspect-correct (canvas matches the panel plane), text is
+ * wrapped uniformly (no horizontal squash) and shrunk to fit, with a neon glow
+ * on the frame + text to match the ad-billboard look.
+ */
 export function renderResearchArt(
   context: CanvasRenderingContext2D,
   art: ResearchArtLayout,
 ): void {
-  const { width, height } = art.size;
-  context.fillStyle = art.palette.background;
-  context.fillRect(0, 0, width, height);
-  context.fillStyle = art.palette.surface;
-  context.fillRect(42, 42, width - 84, height - 84);
-  context.strokeStyle = art.palette.primary;
-  context.lineWidth = 10;
-  context.strokeRect(42, 42, width - 84, height - 84);
+  const { width: W, height: H } = art.size;
+  const P = art.palette;
+
+  context.fillStyle = P.background;
+  context.fillRect(0, 0, W, H);
+  const m = Math.round(Math.min(W, H) * 0.05);
+  context.fillStyle = P.surface;
+  context.fillRect(m, m, W - 2 * m, H - 2 * m);
+  // Glowing neon frame.
+  context.save();
+  context.strokeStyle = P.primary;
+  context.shadowColor = P.primary;
+  context.shadowBlur = Math.round(H * 0.02);
+  context.lineWidth = Math.max(4, Math.round(H * 0.009));
+  context.strokeRect(m, m, W - 2 * m, H - 2 * m);
+  context.restore();
+
+  const padX = m + Math.round(W * 0.035);
+  const maxW = W - 2 * padX;
+  const fontFor = (px: number, weight: string, mono: boolean) =>
+    `${weight} ${Math.round(px)}px ${mono ? 'ui-monospace, monospace' : 'Inter, system-ui, sans-serif'}`;
   context.textBaseline = 'top';
-  for (const box of measureResearchArtLineBoxes(context, art)) {
+  let y = m + Math.round(H * 0.06);
+
+  // A text block: shrinks its font until every wrapped line fits maxW, then
+  // draws with a coloured glow. Advances the vertical cursor.
+  const block = (
+    text: string,
+    sizePx: number,
+    color: string,
+    weight: string,
+    mono: boolean,
+    maxLines: number,
+    glow: number,
+  ): void => {
+    if (!text) return;
+    let fs = sizePx;
+    let lines: string[] = [];
+    for (let i = 0; i < 6; i += 1) {
+      context.font = fontFor(fs, weight, mono);
+      lines = wrapToWidth(context, text, maxW, maxLines);
+      const widest = Math.max(...lines.map((l) => context.measureText(l).width), 1);
+      if (widest <= maxW) break;
+      fs *= maxW / widest; // shrink uniformly to fit
+    }
+    context.font = fontFor(fs, weight, mono);
     context.save();
-    context.translate(box.x, box.y);
-    context.scale(box.scaleX, 1);
-    context.fillStyle = box.color;
-    context.font = box.font;
-    context.fillText(box.text, 0, 0);
+    context.fillStyle = color;
+    context.shadowColor = color;
+    context.shadowBlur = glow;
+    const lh = fs * 1.14;
+    for (const l of lines) {
+      context.fillText(l, padX, y);
+      y += lh;
+    }
     context.restore();
-  }
+    y += fs * 0.35; // gap after block
+  };
+
+  block(art.copy.eyebrow, H * 0.045, P.primary, '700', true, 1, H * 0.02);
+  block(art.copy.title, H * 0.11, P.text, '800', false, 3, H * 0.03);
+  y += H * 0.01;
+  block(art.copy.stack, H * 0.055, P.secondary, '700', true, 2, H * 0.018);
+  block(art.copy.blurb, H * 0.052, P.muted, '600', false, 6, H * 0.012);
 }

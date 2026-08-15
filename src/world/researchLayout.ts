@@ -18,7 +18,7 @@ export const RESEARCH_ROUTE = Object.freeze({
   centerX: 240,
   startZ: -360,
   straightStartZ: -375,
-  endZ: -600,
+  endZ: -740,
   deckHalfWidth: 11,
   sidewalkOuterOffset: 20,
 });
@@ -42,7 +42,9 @@ export interface ResearchWallPlacement {
 const FRONT_FILE = 'neocity/KB3D_NEC_BldgLG_A_BuildingA.glb';
 const BACK_HERO_B = 'neocity/KB3D_NEC_BldgLG_B_Main.glb';
 const BACK_HERO_C = 'neocity/KB3D_NEC_BldgLG_C_Main.glb';
-const FRONT_Z = Array.from({ length: 14 }, (_, index) => -378 - index * 16);
+// 24 towers step from z=-378 to ≈-746 so the lengthened canyon (endZ -740) is
+// walled the whole way instead of trailing off bare near the bridge.
+const FRONT_Z = Array.from({ length: 24 }, (_, index) => -378 - index * 16);
 const FRONT_ALLEY = 1;
 const BACK_ALLEY = 2;
 const BACK_GAP = 7.5;
@@ -114,8 +116,8 @@ interface BackWallSpec {
 
 function buildBackWallSpecs(side: ResearchSide): BackWallSpec[] {
   const files = side === -1
-    ? [BACK_HERO_C, BACK_HERO_B, BACK_HERO_C, BACK_HERO_B, BACK_HERO_C]
-    : [BACK_HERO_B, BACK_HERO_C, BACK_HERO_B, BACK_HERO_C, BACK_HERO_B];
+    ? [BACK_HERO_C, BACK_HERO_B, BACK_HERO_C, BACK_HERO_B, BACK_HERO_C, BACK_HERO_B, BACK_HERO_C]
+    : [BACK_HERO_B, BACK_HERO_C, BACK_HERO_B, BACK_HERO_C, BACK_HERO_B, BACK_HERO_C, BACK_HERO_B];
   let northEdge = side === -1 ? -364 : -360;
   return files.map((file) => {
     const bounds = buildingPlacementBounds({

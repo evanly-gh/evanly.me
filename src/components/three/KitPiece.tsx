@@ -30,9 +30,19 @@ export function KitPiece({
     c.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
-      const mat = m.material as THREE.MeshStandardMaterial;
-      if (mat && mat.emissive && (mat.emissiveMap || EMISSIVE_HINT.test(mat.name || ''))) {
-        mat.emissiveIntensity = 1.6;
+      const mats = Array.isArray(m.material) ? m.material : [m.material];
+      for (const raw of mats) {
+        const mat = raw as THREE.MeshStandardMaterial;
+        if (!mat) continue;
+        // Building shells (esp. glass) ship as single-sided FrontSide meshes with
+        // inward-facing back walls; from outside you see straight through the
+        // culled faces into the empty interior ("hollow"). Render both sides so
+        // the shell reads solid. (City instances get this via tuneClonedMaterial;
+        // the gallery renders raw GLTFs through here, so it needs the same fix.)
+        mat.side = THREE.DoubleSide;
+        if (mat.emissive && (mat.emissiveMap || EMISSIVE_HINT.test(mat.name || ''))) {
+          mat.emissiveIntensity = 1.6;
+        }
       }
     });
     if (scale !== 1) c.scale.setScalar(scale);

@@ -22,21 +22,21 @@ export const BRIDGE_CORRIDOR: WorldRect = {
   x0: 160,
   x1: 320,
   z0: -2350,
-  z1: -600,
+  z1: -740,
 };
 
 export const WATER_BASIN: WorldRect & { y: number } = {
   x0: -1200,
   x1: 1680,
   z0: -2400,
-  z1: -600,
+  z1: -740,
   y: WATER_LEVEL,
 };
 
 export const CITY_GROUND_BOUNDS: WorldRect & { y: number } = {
   x0: -3000,
   x1: 3000,
-  z0: -600,
+  z0: -740,
   z1: 2800,
   y: -0.15,
 };

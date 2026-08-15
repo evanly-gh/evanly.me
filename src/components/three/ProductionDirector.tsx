@@ -20,7 +20,23 @@ import {
   type BikeFramingMeasurement,
 } from './bikeFraming';
 import { rawForSemantic } from '../../choreography/scrollRemap';
-import { BikePath } from '../../choreography/bikePath';
+import { BikePath, wheelRotationForDistance } from '../../choreography/bikePath';
+import {
+  INTRO_BIKE_LEAN_ANGLE,
+  INTRO_BIKE_LEAN_CROUCH,
+  INTRO_BIKE_LEAN_POS,
+  INTRO_BIKE_LEAN_YAW,
+  INTRO_CAM_FOV,
+  INTRO_CAM_POS,
+  INTRO_CAM_TARGET,
+  INTRO_DRIVE_DURATION,
+  introDrivePosition,
+  introDriveYaw,
+  introEase,
+  type IntroPhase,
+} from '../../choreography/introSequence';
+import { buildCityLayout } from '../../world/cityLayout';
+import { buildingPlacementBounds } from '../../world/buildingCatalog';
 import {
   measureMountedSceneSubjects,
   type MountedSceneSubjectMeasurement,
@@ -28,6 +44,10 @@ import {
 
 const ADAPTER_ORDER = ['bike', 'camera', 'content', 'fx'] as const;
 const FRAME_SAMPLE_LIMIT = 600;
+// Mouse look-around peek (radians) layered on top of the scripted camera each
+// frame, for a game-like interactive feel.
+const PARALLAX_YAW = 0.05;
+const PARALLAX_PITCH = 0.035;
 
 export interface ScrollInspectionSnapshot {
   raw: number;
@@ -122,19 +142,80 @@ export function ProductionDirector({
   store,
   bikeRef,
   inspect,
+  introPhase = 'live',
+  onIntroComplete,
 }: {
   store: ProgressStore;
   bikeRef: RefObject<BikeRiderHandle | null>;
   inspect: boolean;
+  introPhase?: IntroPhase;
+  onIntroComplete?: () => void;
 }) {
   const { camera, scene, size } = useThree();
+  // Live-read the intro state inside useFrame without re-creating the loop.
+  const introPhaseRef = useRef<IntroPhase>(introPhase);
+  introPhaseRef.current = introPhase;
+  const onIntroCompleteRef = useRef(onIntroComplete);
+  onIntroCompleteRef.current = onIntroComplete;
+  const driveStartRef = useRef(0);
+  const prevPhaseRef = useRef<IntroPhase>('live');
+  const introDoneRef = useRef(false);
+  const introYawQuat = useMemo(
+    () => new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(0, 1, 0),
+      INTRO_BIKE_LEAN_YAW,
+    ),
+    [],
+  );
+  const introScratch = useMemo(
+    () => ({
+      pos: new THREE.Vector3(),
+      parkedQuat: new THREE.Quaternion(),
+      headingQuat: new THREE.Quaternion(),
+      yUp: new THREE.Vector3(0, 1, 0),
+    }),
+    [],
+  );
+  // Normalised pointer (−1..1) → eased, for the camera look-around peek.
+  const mouseTargetRef = useRef({ x: 0, y: 0 });
+  const mouseEasedRef = useRef({ x: 0, y: 0 });
   const rig = useMemo(buildProductionCameraRig, []);
   const semanticRef = useRef(0);
   const updateCountRef = useRef(0);
   const cameraTargetRef = useRef(new THREE.Vector3());
+  // Scroll-driven target pose; the camera critically-damps toward it each frame.
+  const desiredPosRef = useRef(new THREE.Vector3());
+  const desiredTargetRef = useRef(new THREE.Vector3());
+  const desiredFovRef = useRef(50);
+  const camInitedRef = useRef(false);
   const lastVersionRef = useRef(-1);
+  // Smoothed scroll progress: eased toward the store's raw each frame so discrete
+  // wheel ticks become continuous glides (bike + scene stop reading as chunky).
+  const smoothRawRef = useRef(0);
+  const progressInitedRef = useRef(false);
+  const lastAppliedRawRef = useRef(-1);
   const frameSamplesRef = useRef<number[]>([]);
   const bikePath = useMemo(() => new BikePath(), []);
+
+  // Seed the desired pose with the opening shot so the first frame starts framed.
+  useMemo(() => {
+    const pose = rig.sample(0);
+    desiredPosRef.current.copy(pose.position);
+    desiredTargetRef.current.copy(pose.target);
+    desiredFovRef.current = pose.fov;
+  }, [rig]);
+
+  // Building footprints (oriented boxes + roof height) for camera anti-clip.
+  const obbs = useMemo(
+    () => buildCityLayout()
+      .filter((p) => p.outDir || p.layoutRole)
+      .map((p) => {
+        const b = buildingPlacementBounds(p);
+        return { cx: b.center.x, cz: b.center.z, hx: b.halfX, hz: b.halfZ, rot: b.rotationY, top: b.height };
+      })
+      .filter((o) => o.top > 6),
+    [],
+  );
 
   const director = useMemo(() => {
     if (!(camera instanceof THREE.PerspectiveCamera)) {
@@ -147,8 +228,12 @@ export function ProductionDirector({
     };
     const cameraAdapter: ProgressAdapter = {
       setProgress: (semanticT) => {
-        const pose = rig.apply(camera, semanticT);
-        cameraTargetRef.current.copy(pose.target);
+        // Record the target pose; the per-frame damp (below) eases the camera
+        // toward it so scene hand-offs are continuous instead of snapping.
+        const pose = rig.sample(semanticT);
+        desiredPosRef.current.copy(pose.position);
+        desiredTargetRef.current.copy(pose.target);
+        desiredFovRef.current = pose.fov;
       },
     };
     const content: ProgressAdapter = {
@@ -176,12 +261,169 @@ export function ProductionDirector({
     samples.push(delta * 1000);
     if (samples.length > FRAME_SAMPLE_LIMIT) samples.shift();
 
+    // Ease the pointer for the camera look-around peek (applied after each lookAt).
+    const mouse = mouseEasedRef.current;
+    const mouseTarget = mouseTargetRef.current;
+    const mouseK = 1 - Math.pow(0.0006, delta);
+    mouse.x += (mouseTarget.x - mouse.x) * mouseK;
+    mouse.y += (mouseTarget.y - mouse.y) * mouseK;
+
+    // ── Cinematic intro ──────────────────────────────────────────────────────
+    // While loading/title/driving, the scroll ride is suspended: the bike is
+    // driven manually (leaning against a building, then animating to the t=0
+    // start) and the camera holds the close-up before easing back to the opening
+    // chase. Handing off at t=0 is seamless because the drive-in ends exactly on
+    // the t=0 route pose the scroll ride would start from.
+    const phase = introPhaseRef.current;
+    if (phase !== 'live') {
+      const state0 = bikePath.state(0);
+      // Drive-in progress is measured off a wall-clock timestamp captured the
+      // moment we enter 'driving', so it always plays over exactly
+      // INTRO_DRIVE_DURATION regardless of frame timing (a delta-accumulator can
+      // fast-forward if the START re-render stalls a frame).
+      if (phase === 'driving' && prevPhaseRef.current !== 'driving') {
+        driveStartRef.current = performance.now();
+      }
+      prevPhaseRef.current = phase;
+      const p = phase === 'driving'
+        ? introEase(
+            (performance.now() - driveStartRef.current)
+              / (INTRO_DRIVE_DURATION * 1000),
+          )
+        : 0;
+      // Bike drives the merge curve facing its direction of travel (not sliding
+      // sideways): position follows the bezier, yaw tracks the curve tangent, and
+      // the heading eases out of the parked orientation over the first fifth so
+      // there's no snap when START is pressed. It arrives at the t=0 pose heading
+      // straight down the street.
+      const bikePos = introDrivePosition(p, state0.pos, introScratch.pos);
+      const parkedQuat = introScratch.parkedQuat
+        .copy(introYawQuat).multiply(state0.quat);
+      const headingQuat = introScratch.headingQuat
+        .setFromAxisAngle(introScratch.yUp, introDriveYaw(p, state0.pos))
+        .multiply(state0.quat);
+      const bikeQuat = parkedQuat.slerp(headingQuat, introEase(Math.min(1, p / 0.2)));
+      const driveDistance = INTRO_BIKE_LEAN_POS.distanceTo(state0.pos);
+      bikeRef.current?.setManualState(bikePos, bikeQuat, {
+        lean: THREE.MathUtils.lerp(INTRO_BIKE_LEAN_ANGLE, state0.pose.lean, p),
+        pitch: 0,
+        crouch: THREE.MathUtils.lerp(INTRO_BIKE_LEAN_CROUCH, state0.pose.crouch, p),
+        wheelSpin: wheelRotationForDistance(driveDistance * p),
+      });
+      // Camera: hold the close-up, then ease to the opening chase pose.
+      if (camera instanceof THREE.PerspectiveCamera) {
+        const chase = rig.sample(0);
+        camera.position.copy(INTRO_CAM_POS).lerp(chase.position, p);
+        cameraTargetRef.current.copy(INTRO_CAM_TARGET).lerp(chase.target, p);
+        camera.fov = THREE.MathUtils.lerp(INTRO_CAM_FOV, chase.fov, p);
+        camera.up.set(0, 1, 0);
+        camera.lookAt(cameraTargetRef.current);
+        camera.rotateY(-mouse.x * PARALLAX_YAW);
+        camera.rotateX(-mouse.y * PARALLAX_PITCH);
+        camera.updateProjectionMatrix();
+        // Seed the damp state so the live ride continues from this exact pose
+        // (no first-frame snap to rig.sample(0)).
+        camInitedRef.current = true;
+        desiredPosRef.current.copy(chase.position);
+        desiredTargetRef.current.copy(chase.target);
+        desiredFovRef.current = chase.fov;
+      }
+      scene.userData.activeSection = 'intro';
+      scene.userData.contentProgress = 0;
+      scene.userData.fxProgress = 0;
+      if (phase === 'driving' && p >= 1 && !introDoneRef.current) {
+        introDoneRef.current = true;
+        onIntroCompleteRef.current?.();
+      }
+      return;
+    }
+
     const snapshot = store.read();
-    if (snapshot.version === lastVersionRef.current) return;
-    semanticRef.current = director.setProgress(snapshot.raw);
-    updateCountRef.current += 1;
+    const targetRaw = snapshot.raw;
+    if (!progressInitedRef.current) {
+      smoothRawRef.current = targetRaw;
+      progressInitedRef.current = true;
+    } else {
+      // ~0.3 s ease so a big per-tick jump glides in smoothly instead of snapping.
+      smoothRawRef.current = THREE.MathUtils.damp(smoothRawRef.current, targetRaw, 3.6, delta);
+      if (Math.abs(smoothRawRef.current - targetRaw) < 1e-5) smoothRawRef.current = targetRaw;
+    }
+    // Drive bike + camera-target from the smoothed progress every frame it moves.
+    if (smoothRawRef.current !== lastAppliedRawRef.current) {
+      semanticRef.current = director.setProgress(smoothRawRef.current);
+      updateCountRef.current += 1;
+      lastAppliedRawRef.current = smoothRawRef.current;
+    }
     lastVersionRef.current = snapshot.version;
+
+    // Critically-damp the camera toward the scroll-driven pose every frame. This
+    // is what makes transitions seamless: the per-key rig stops (velocity → 0) at
+    // every keyframe, so snapping to it reads as choppy; easing toward it gives
+    // continuous motion through scene hand-offs. The target damps alongside the
+    // position, so the bike stays framed the whole way.
+    if (camera instanceof THREE.PerspectiveCamera) {
+      if (!camInitedRef.current) {
+        camera.position.copy(desiredPosRef.current);
+        cameraTargetRef.current.copy(desiredTargetRef.current);
+        camera.fov = desiredFovRef.current;
+        camInitedRef.current = true;
+      } else {
+        const L = 6.5; // damping rate (~0.15 s settle)
+        const p = camera.position;
+        const dp = desiredPosRef.current;
+        p.x = THREE.MathUtils.damp(p.x, dp.x, L, delta);
+        p.y = THREE.MathUtils.damp(p.y, dp.y, L, delta);
+        p.z = THREE.MathUtils.damp(p.z, dp.z, L, delta);
+        const c = cameraTargetRef.current;
+        const dt = desiredTargetRef.current;
+        c.x = THREE.MathUtils.damp(c.x, dt.x, L, delta);
+        c.y = THREE.MathUtils.damp(c.y, dt.y, L, delta);
+        c.z = THREE.MathUtils.damp(c.z, dt.z, L, delta);
+        camera.fov = THREE.MathUtils.damp(camera.fov, desiredFovRef.current, L, delta);
+      }
+      // Anti-clip: never let the camera sit inside a building — if its XZ is over
+      // a footprint, ride up over that roof. Ramped by penetration so it eases up
+      // as it approaches rather than popping (keeps the motion smooth).
+      const MARGIN = 5;
+      const CLEAR = 8;
+      const cx = camera.position.x;
+      const cz = camera.position.z;
+      let minY = camera.position.y;
+      for (const o of obbs) {
+        const dx = cx - o.cx;
+        const dz = cz - o.cz;
+        const c = Math.cos(o.rot);
+        const s = Math.sin(o.rot);
+        const lx = dx * c + dz * s;
+        const lz = -dx * s + dz * c;
+        const penX = o.hx + MARGIN - Math.abs(lx);
+        const penZ = o.hz + MARGIN - Math.abs(lz);
+        if (penX > 0 && penZ > 0) {
+          const ramp = Math.min(1, Math.min(penX, penZ) / MARGIN);
+          const need = o.top + CLEAR;
+          if (need > camera.position.y) {
+            minY = Math.max(minY, camera.position.y + (need - camera.position.y) * ramp);
+          }
+        }
+      }
+      camera.position.y = minY;
+      camera.up.set(0, 1, 0);
+      camera.lookAt(cameraTargetRef.current);
+      // Mouse look-around peek layered on top of the scripted view.
+      camera.rotateY(-mouse.x * PARALLAX_YAW);
+      camera.rotateX(-mouse.y * PARALLAX_PITCH);
+      camera.updateProjectionMatrix();
+    }
   }, -100);
+
+  useEffect(() => {
+    const onMove = (event: PointerEvent) => {
+      mouseTargetRef.current.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouseTargetRef.current.y = (event.clientY / window.innerHeight) * 2 - 1;
+    };
+    window.addEventListener('pointermove', onMove, { passive: true });
+    return () => window.removeEventListener('pointermove', onMove);
+  }, []);
 
   useEffect(() => {
     if (!inspect) return undefined;

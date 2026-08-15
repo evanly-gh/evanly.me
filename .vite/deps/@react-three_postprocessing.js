@@ -6,7 +6,11 @@ import {
   useFrame,
   useLoader,
   useThree
-} from "./chunk-UJ5E5XI2.js";
+} from "./chunk-HH3OQLIY.js";
+import "./chunk-Y7AWLA4Y.js";
+import {
+  require_react
+} from "./chunk-WSPQGYBW.js";
 import {
   AlwaysDepth,
   BackSide,
@@ -76,10 +80,6 @@ import {
   Vector4,
   WebGLRenderTarget
 } from "./chunk-IXPELBPS.js";
-import "./chunk-Y7AWLA4Y.js";
-import {
-  require_react
-} from "./chunk-WSPQGYBW.js";
 import {
   __publicField,
   __toESM

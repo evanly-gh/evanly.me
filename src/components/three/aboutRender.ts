@@ -231,34 +231,16 @@ export function buildAboutPlazaDressing(
     x: number, y: number, z: number,
     sx: number, sy: number, sz: number,
   ): THREE.Matrix4 => matrix([x, y, z], rot, [sx, sy, sz]);
-  const cyl = (
-    x: number, y: number, z: number, radius: number, height: number,
-  ): THREE.Matrix4 => matrix([x, y, z], rot, [radius, height, radius]);
 
   const structure = [
     box(px, 2.5, structZ, screen.width + 16, 5, 12), // ground mounting plinth
   ];
 
-  // Light poles down the approach (at the cross-street curb lines), lamp head
-  // cantilevered toward the roadway centre.
+  // Street light poles/lamps intentionally removed — they ringed the plaza and
+  // read as distracting clutter in front of the About hero shot. The surrounding
+  // city buildings/signs light the scene instead.
   const poles: THREE.Matrix4[] = [];
   const lamps: THREE.Matrix4[] = [];
-  for (const x of [-71, -49]) {
-    const inward = x < -60 ? 2.4 : -2.4;
-    for (const z of [20, -6, -32, -56]) {
-      poles.push(cyl(x, 6.5, z, 0.4, 13));
-      lamps.push(box(x + inward, 12.4, z, 3.2, 0.6, 1.1));
-    }
-  }
-  // Streetlights along the boulevard sidewalks flanking the intersection, lamp
-  // heads cantilevered toward the roadway centre (z = 0).
-  for (const z of [-16, 16]) {
-    const inward = z < 0 ? 2.4 : -2.4;
-    for (const x of [-104, -30, 44, 104]) {
-      poles.push(cyl(x, 6.5, z, 0.4, 13));
-      lamps.push(box(x, 12.4, z + inward, 1.1, 0.6, 3.2));
-    }
-  }
 
   return { structure, poles, lamps };
 }

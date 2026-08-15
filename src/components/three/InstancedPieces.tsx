@@ -128,6 +128,10 @@ function tuneClonedMaterial(c: THREE.Material): THREE.Material {
     && (standard.emissiveMap || EMISSIVE_HINT.test(standard.name || ''))) {
     standard.emissiveIntensity = 1.6;
   }
+  // Render both faces so hollow KitBash shells (no interior/back walls) don't
+  // read as see-through windows — with FrontSide you could look straight through
+  // a building and see it was empty inside.
+  standard.side = THREE.DoubleSide;
   return c;
 }
 

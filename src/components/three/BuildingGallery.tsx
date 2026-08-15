@@ -1,6 +1,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import {
+  Environment,
   GizmoHelper,
   GizmoViewport,
   Html,
@@ -10,6 +11,8 @@ import { EffectComposer, Bloom, N8AO } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { PALETTE, LIGHTING } from '../../theme';
 import { KitPiece } from './KitPiece';
+import { BillboardCatalog } from './BillboardCatalog';
+import { MonorailShowcase } from './MonorailShowcase';
 
 // Every pack's manifest. Each was written by tools/process-gallery.mjs (or
 // assets:kitbash / assets:variants); a pack that was skipped still ships an
@@ -323,8 +326,13 @@ export default function BuildingGallery() {
   // Stable identity so each ReadySignal effect runs exactly once on mount.
   const bump = useCallback(() => setReady((n) => n + 1), []);
 
+  // Reserve floor + fog depth for the billboard catalog + monorail rows on Z.
+  const BILLBOARD_ZONE = 900;
+  const MONORAIL_ZONE = 260;
+  const monorailZStart = totalDepth + BILLBOARD_ZONE + ROW_GAP;
+  const sceneDepth = totalDepth + BILLBOARD_ZONE + MONORAIL_ZONE;
   const groundW = maxRowLength + 400;
-  const groundD = totalDepth + 400;
+  const groundD = sceneDepth + 400;
 
   // Dev: expose row layout (key, z, length) for scripted camera framing.
   useEffect(() => {
@@ -358,15 +366,20 @@ export default function BuildingGallery() {
         <directionalLight position={[center - 300, 400, 300]} intensity={0.5} color={PALETTE.magenta} />
         <directionalLight position={[center + 300, 420, -200]} intensity={0.55} color={PALETTE.cyan} />
         <directionalLight position={[center, 700, totalDepth / 2]} intensity={0.6} color="#ffffff" />
+        {/* Night env map so the billboards' metallic hardware (backings, rails,
+            brackets) reads as it does in the shipping city scene. */}
+        <Suspense fallback={null}>
+          <Environment preset="night" />
+        </Suspense>
 
         {/* ground + gridline so the lineup reads as rows on a floor */}
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[center, 0, totalDepth / 2]}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[center, 0, sceneDepth / 2]}>
           <planeGeometry args={[groundW, groundD]} />
           <meshStandardMaterial color="#080a14" roughness={0.9} />
         </mesh>
         <gridHelper
           args={[Math.max(groundW, groundD), Math.round(Math.max(groundW, groundD) / 20), '#1b2340', '#11162a']}
-          position={[center, 0.02, totalDepth / 2]}
+          position={[center, 0.02, sceneDepth / 2]}
         />
 
         {rows.map((row) => (
@@ -401,6 +414,15 @@ export default function BuildingGallery() {
             ))}
           </group>
         ))}
+
+        {/* Billboard catalog rows — every billboard used in the city, isolated
+            with its own hardware, appended after the GLB pack rows on Z. */}
+        <Suspense fallback={null}>
+          <BillboardCatalog zStart={totalDepth + ROW_GAP} />
+        </Suspense>
+
+        {/* Procedural suspended-monorail asset, appended as the final row. */}
+        <MonorailShowcase zStart={monorailZStart} />
 
         <GalleryFlyCam lookAt={openTarget} />
 

@@ -290,7 +290,8 @@ const artTypography = (
 
 const ART_PROFILES = Object.freeze({
   'facade-hero': Object.freeze({
-    size: Object.freeze({ width: 1344, height: 768 }),
+    // width matched to the 50x30 panel aspect (1.667) so text isn't stretched
+    size: Object.freeze({ width: 1280, height: 768 }),
     typography: artTypography(768, 0.145, 0.085, 0.075),
     palette: Object.freeze({
       background: '#02070d',
@@ -302,7 +303,8 @@ const ART_PROFILES = Object.freeze({
     }),
   }),
   'facade-portrait': Object.freeze({
-    size: Object.freeze({ width: 640, height: 1024 }),
+    // width matched to the 32x34 panel aspect (0.94) so text isn't stretched
+    size: Object.freeze({ width: 964, height: 1024 }),
     typography: artTypography(1024, 0.14),
     palette: Object.freeze({
       background: '#120b04',
@@ -314,7 +316,8 @@ const ART_PROFILES = Object.freeze({
     }),
   }),
   'floating-hologram': Object.freeze({
-    size: Object.freeze({ width: 896, height: 896 }),
+    // width matched to the 28x26 panel aspect (1.08) so text isn't stretched
+    size: Object.freeze({ width: 965, height: 896 }),
     typography: artTypography(896, 0.142, 0.085, 0.09),
     palette: Object.freeze({
       background: '#09051a',
@@ -326,7 +329,8 @@ const ART_PROFILES = Object.freeze({
     }),
   }),
   'scaffold-hung': Object.freeze({
-    size: Object.freeze({ width: 1280, height: 704 }),
+    // width matched to the 34x20 panel aspect (1.7) so text isn't stretched
+    size: Object.freeze({ width: 1197, height: 704 }),
     typography: artTypography(704, 0.145, 0.085, 0.08),
     palette: Object.freeze({
       background: '#11130d',
@@ -338,7 +342,8 @@ const ART_PROFILES = Object.freeze({
     }),
   }),
   'facade-ribbon': Object.freeze({
-    size: Object.freeze({ width: 1536, height: 408 }),
+    // width matched to the 40x16 panel aspect (2.5) so text isn't stretched
+    size: Object.freeze({ width: 1020, height: 408 }),
     typography: artTypography(408, 0.18, 0.155, 0.16),
     palette: Object.freeze({
       background: '#13030e',

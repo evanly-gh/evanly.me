@@ -2,6 +2,7 @@ import { RESUME, type Project } from '../content/resume';
 
 export type NativePortfolioMode =
   | 'immersive'
+  | 'outro'
   | 'text'
   | 'reduced'
   | 'compact'
@@ -23,6 +24,39 @@ export function SkipToContent() {
   );
 }
 
+/**
+ * Portfolio hero (eyebrow / name / tagline). Shared so the post-moon outro
+ * banner rendered over the 3D canvas is byte-identical to the top of the static
+ * page it hands off to — the tilt-up lands on this exact block.
+ */
+export function PortfolioHero({
+  variant = 'page',
+}: {
+  variant?: 'page' | 'banner';
+}) {
+  return (
+    <header
+      className={
+        'native-portfolio__hero'
+        + (variant === 'banner' ? ' native-portfolio__hero--banner' : '')
+      }
+    >
+      <p className="native-portfolio__eyebrow">Portfolio</p>
+      <h1>{RESUME.name}</h1>
+      <p className="native-portfolio__tagline">{RESUME.tagline}</p>
+      {variant === 'page' && (
+        <nav aria-label="Portfolio sections">
+          <a href="#about">About</a>
+          <a href="#projects">Projects</a>
+          <a href="#research">Research</a>
+          <a href="#education">Education</a>
+          <a href="#contact">Contact</a>
+        </nav>
+      )}
+    </header>
+  );
+}
+
 export function NativePortfolio({ mode }: { mode: NativePortfolioMode }) {
   const visible = mode !== 'immersive';
   return (
@@ -37,18 +71,7 @@ export function NativePortfolio({ mode }: { mode: NativePortfolioMode }) {
       }
       data-presentation={mode}
     >
-      <header className="native-portfolio__hero">
-        <p className="native-portfolio__eyebrow">Portfolio</p>
-        <h1>{RESUME.name}</h1>
-        <p>{RESUME.tagline}</p>
-        <nav aria-label="Portfolio sections">
-          <a href="#about">About</a>
-          <a href="#projects">Projects</a>
-          <a href="#research">Research</a>
-          <a href="#education">Education</a>
-          <a href="#contact">Contact</a>
-        </nav>
-      </header>
+      <PortfolioHero variant="page" />
 
       <section id="about" aria-labelledby="about-heading">
         <h2 id="about-heading">About</h2>

@@ -47,6 +47,7 @@ body,
 }
 
 .scroll-pin {
+  position: relative;
   width: 100%;
   height: 100vh;
   overflow: hidden;
@@ -120,6 +121,45 @@ body,
   color: #9ce8ff;
   font-size: clamp(0.78rem, 1.4vw, 1.05rem);
   letter-spacing: 0.38em;
+}
+
+/* Per-section title cards (About / Projects / Research) — same neon system as
+   the intro overlay, parked lower-left so they don't fight the scene. Each fades
+   in and out on scroll (opacity driven imperatively, like the intro title). */
+.city-section-title {
+  position: absolute;
+  bottom: clamp(4rem, 16vh, 11rem);
+  left: clamp(1.5rem, 7vw, 7rem);
+  z-index: 18;
+  padding: 0.85rem 0 0.95rem 1.25rem;
+  border-left: 2px solid #ff3abf;
+  color: #ecfbff;
+  font-family: "Bahnschrift Condensed", "DIN Condensed", sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  filter: drop-shadow(0 0 1.4rem rgba(255, 58, 191, 0.28));
+  pointer-events: none;
+  will-change: opacity;
+}
+
+.city-section-title__index {
+  display: block;
+  margin-bottom: 0.4rem;
+  color: #2bfdf9;
+  font-size: clamp(0.62rem, 0.95vw, 0.8rem);
+  letter-spacing: 0.26em;
+}
+
+.city-section-title h2 {
+  margin: 0;
+  font-size: clamp(2rem, 5.5vw, 5rem);
+  font-stretch: condensed;
+  font-weight: 800;
+  line-height: 0.85;
+  text-shadow:
+    0.035em 0 #ff3abf,
+    -0.022em 0 #2bfdf9,
+    0 0 1rem rgba(220, 246, 255, 0.34);
 }
 
 .city-loading-status {
@@ -356,6 +396,354 @@ body,
     grid-template-columns: 1fr;
     gap: 0.25rem;
   }
+}
+
+/* ───────────────────────────── Cinematic intro gate ───────────────────────── */
+/* Title / loading overlay laid OVER the live scene — no dark filter, the city
+   stays fully visible; only a soft bottom vignette anchors the text/button. */
+.city-intro-gate {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 2rem 9vh;
+  background: linear-gradient(180deg, transparent 58%, rgba(3, 4, 12, 0.6) 100%);
+  color: #ecfbff;
+  font-family: "Bahnschrift Condensed", "DIN Condensed", "Oswald", sans-serif;
+  text-align: center;
+  transition: opacity 0.6s ease;
+}
+
+.city-intro-gate[data-phase="driving"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.city-intro-gate__inner {
+  display: grid;
+  justify-items: center;
+  gap: 1rem;
+  max-width: min(50rem, 92vw);
+}
+
+.city-intro-gate__eyebrow {
+  color: #ffbf45;
+  letter-spacing: 0.32em;
+  font-size: clamp(0.7rem, 1.3vw, 0.95rem);
+  text-transform: uppercase;
+  text-shadow: 0 0 12px rgba(0, 0, 0, 0.9);
+}
+
+.city-intro-gate__title {
+  margin: 0;
+  font-family: "Bahnschrift Condensed", "DIN Condensed", "Oswald", sans-serif;
+  font-stretch: condensed;
+  font-weight: 800;
+  font-size: clamp(3.5rem, 15vw, 11rem);
+  letter-spacing: 0.02em;
+  line-height: 0.82;
+  text-transform: uppercase;
+  text-shadow:
+    0.04em 0 #ff3abf,
+    -0.025em 0 #2bfdf9,
+    0 0 1.6rem rgba(220, 246, 255, 0.5),
+    0 0 0.5rem rgba(0, 0, 0, 0.85);
+  animation: intro-fade-up 0.7s ease both;
+}
+
+.city-intro-gate__sub {
+  margin: 0;
+  color: #cdeffd;
+  letter-spacing: 0.34em;
+  font-size: clamp(0.75rem, 1.5vw, 1.05rem);
+  text-transform: uppercase;
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.9);
+  animation: intro-fade-up 0.7s ease 0.08s both;
+}
+
+.city-intro-gate__loading {
+  display: grid;
+  justify-items: center;
+  gap: 0.85rem;
+  width: min(30rem, 82vw);
+  animation: intro-fade-up 0.5s ease both;
+}
+
+.city-intro-gate__bar {
+  width: 100%;
+  height: 1.15rem;
+  padding: 3px;
+  border: 2px solid #2bfdf9;
+  background: rgba(4, 10, 18, 0.82);
+  box-shadow:
+    0 0 14px rgba(43, 253, 249, 0.35),
+    inset 0 0 8px rgba(43, 253, 249, 0.15);
+  image-rendering: pixelated;
+}
+
+.city-intro-gate__bar-fill {
+  display: block;
+  height: 100%;
+  background: repeating-linear-gradient(
+    90deg,
+    #2bfdf9 0 10px,
+    #14b7c9 10px 14px
+  );
+  box-shadow: 0 0 10px rgba(43, 253, 249, 0.8);
+  transition: width 0.4s steps(12);
+}
+
+.city-intro-gate__status {
+  color: #cdeffd;
+  letter-spacing: 0.3em;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.9);
+}
+
+.city-intro-gate__start {
+  margin-top: 0.8rem;
+  padding: 0.8rem 2.6rem;
+  font-family: "Bahnschrift Condensed", "DIN Condensed", "Oswald", sans-serif;
+  font-weight: 800;
+  font-size: clamp(1.05rem, 2.2vw, 1.5rem);
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: #05060f;
+  background: #2bfdf9;
+  border: none;
+  cursor: pointer;
+  clip-path: polygon(
+    0 0,
+    calc(100% - 12px) 0,
+    100% 12px,
+    100% 100%,
+    12px 100%,
+    0 calc(100% - 12px)
+  );
+  box-shadow:
+    0 0 20px rgba(43, 253, 249, 0.7),
+    6px 6px 0 rgba(255, 58, 191, 0.55);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+  animation: intro-fade-up 0.7s ease 0.16s both;
+}
+
+.city-intro-gate__start:hover,
+.city-intro-gate__start:focus-visible {
+  background: #7dfcff;
+  transform: translate(-2px, -2px);
+  box-shadow:
+    0 0 24px rgba(43, 253, 249, 0.9),
+    9px 9px 0 rgba(255, 58, 191, 0.6);
+  outline: none;
+}
+
+.city-intro-gate__start:active {
+  transform: translate(2px, 2px);
+  box-shadow:
+    0 0 14px rgba(43, 253, 249, 0.7),
+    2px 2px 0 rgba(255, 58, 191, 0.5);
+}
+
+@keyframes intro-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+/* Game-like custom cursor: hide the OS pointer over the immersive ride so the
+   CursorFx reticle reads as the cursor. */
+.scroll-experience[data-presentation="immersive"],
+.scroll-experience[data-presentation="immersive"] * {
+  cursor: none !important;
+}
+
+.cursor-fx {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  pointer-events: none;
+}
+
+/* ─────────────────────────── Post-moon outro banner ───────────────────────── */
+.city-outro-banner {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  gap: 1.5rem;
+  padding: 2rem;
+  background: linear-gradient(
+    180deg,
+    rgba(3, 4, 12, 0.32),
+    rgba(3, 4, 12, 0.9) 62%,
+    #05060f 100%
+  );
+  pointer-events: none;
+  will-change: opacity;
+  text-align: center;
+}
+
+.city-outro-banner__hint {
+  color: #9ce8ff;
+  letter-spacing: 0.3em;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  font-family: "Courier New", "Cascadia Mono", ui-monospace, monospace;
+  animation: outro-hint-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes outro-hint-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ───────────── Cyberpunk-pixel theme: post-moon static page + banner ───────── */
+.native-portfolio--outro,
+.city-outro-banner {
+  font-family: "Courier New", "Cascadia Mono", ui-monospace, SFMono-Regular,
+    Menlo, monospace;
+}
+
+.native-portfolio--outro {
+  position: relative;
+  color: #d7f6ff;
+  background: linear-gradient(180deg, #070912 0%, #05060f 100%);
+}
+
+.native-portfolio--outro::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(43, 253, 249, 0.045) 0 2px,
+    transparent 2px 4px
+  );
+  mix-blend-mode: screen;
+}
+
+.native-portfolio--outro > * {
+  position: relative;
+  z-index: 1;
+}
+
+.native-portfolio--outro .native-portfolio__hero,
+.city-outro-banner .native-portfolio__hero {
+  min-height: auto;
+  gap: 1rem;
+}
+
+.native-portfolio--outro .native-portfolio__eyebrow,
+.city-outro-banner .native-portfolio__eyebrow {
+  color: #ff5ad0;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  text-shadow: 0 0 10px rgba(255, 90, 208, 0.55);
+}
+
+.native-portfolio--outro h1,
+.city-outro-banner h1 {
+  margin: 0;
+  font-size: clamp(2.6rem, 10vw, 7rem);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  line-height: 0.9;
+  color: #eafcff;
+  text-shadow:
+    0.05em 0 #ff3abf,
+    -0.03em 0 #2bfdf9,
+    0 0 1.4rem rgba(43, 253, 249, 0.45);
+}
+
+.native-portfolio--outro .native-portfolio__tagline,
+.city-outro-banner .native-portfolio__tagline {
+  color: #9ce8ff;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-size: clamp(0.8rem, 1.6vw, 1.05rem);
+}
+
+.native-portfolio--outro h2 {
+  color: #2bfdf9;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-shadow: 0 0 12px rgba(43, 253, 249, 0.4);
+}
+
+.native-portfolio--outro h3,
+.native-portfolio--outro h4 {
+  color: #eafcff;
+  letter-spacing: 0.06em;
+}
+
+.native-portfolio--outro section,
+.native-portfolio--outro footer {
+  border-top: 1px solid rgba(43, 253, 249, 0.25);
+}
+
+.native-portfolio--outro a {
+  color: #7df9ff;
+}
+
+.native-portfolio--outro nav {
+  gap: 0.6rem 1.2rem;
+}
+
+.native-portfolio--outro nav a {
+  padding: 0.35rem 0.85rem;
+  border: 1px solid rgba(125, 249, 255, 0.4);
+  text-decoration: none;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+}
+
+.native-portfolio--outro nav a:hover {
+  background: rgba(125, 249, 255, 0.12);
+}
+
+.native-portfolio--outro .native-project {
+  background: rgba(10, 16, 30, 0.85);
+  border: 1px solid rgba(43, 253, 249, 0.35);
+  border-radius: 0;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 58, 191, 0.08),
+    0 0 18px rgba(43, 253, 249, 0.06);
+  clip-path: polygon(
+    0 0,
+    calc(100% - 10px) 0,
+    100% 10px,
+    100% 100%,
+    10px 100%,
+    0 calc(100% - 10px)
+  );
+}
+
+.native-portfolio--outro .native-project__stack,
+.native-portfolio--outro .native-skills dt {
+  color: #ff7be5;
+}
+
+.native-portfolio--outro .native-skills > div {
+  border-bottom-color: rgba(43, 253, 249, 0.2);
 }
 
 @media (prefers-reduced-motion: reduce) {

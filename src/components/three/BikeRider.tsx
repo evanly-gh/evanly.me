@@ -42,6 +42,17 @@ export interface MountedBikeSnapshot {
 
 export interface BikeRiderHandle {
   setProgress(semanticT: number): BikeState | undefined;
+  /**
+   * Place the bike from an arbitrary transform + pose, bypassing the route.
+   * Used by the cinematic intro (bike leaning against a building, then driving
+   * itself to the t=0 start) — see introSequence.ts / ProductionDirector.
+   */
+  setManualState(
+    position: THREE.Vector3,
+    quaternion: THREE.Quaternion,
+    pose: BikePose,
+    finaleOpacity?: number,
+  ): void;
   setTrailFx(semanticT: number): void;
   snapshot(): MountedBikeSnapshot | undefined;
   object(): THREE.Group | null;
@@ -187,6 +198,15 @@ export const BikeRider = forwardRef<BikeRiderHandle>(function BikeRider(
 
   useImperativeHandle(forwardedRef, () => ({
     setProgress: apply,
+    setManualState: (position, quaternion, pose, finaleOpacity = 1) => {
+      const current = assetRef.current;
+      if (!current) return;
+      current.group.position.copy(position);
+      current.group.quaternion.copy(quaternion);
+      current.pose(pose);
+      applyBikeFinaleOpacity(current, finaleOpacity);
+      current.group.updateMatrixWorld(true);
+    },
     setTrailFx: (semanticT) => {
       trailsRef.current?.setProgress(
         semanticT,

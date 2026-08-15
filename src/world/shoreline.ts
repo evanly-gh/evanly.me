@@ -8,7 +8,7 @@ import {
 export const SHORELINE_CONFIG = {
   x0: WATER_BASIN.x0,
   x1: WATER_BASIN.x1,
-  baseZ: -600,
+  baseZ: -740,
   bridgeX: 240,
   sampleSpacing: 8,
   smoothWavelength: 96,

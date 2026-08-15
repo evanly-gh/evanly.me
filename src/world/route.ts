@@ -34,10 +34,10 @@ const WAYPOINTS: [number, number, number][] = [
   [...STUNT_ROUTE.flip2Apex.position],
   [...STUNT_ROUTE.descentTop.position],
   [...STUNT_ROUTE.groundResume.position],
-  [ PROJECTS_MAIN_ROAD.centerX,  0,  -470],   // researchMid
-  [ PROJECTS_MAIN_ROAD.centerX,  0,  -600],   // researchEnd
-  [ PROJECTS_MAIN_ROAD.centerX,  8,  -640],   // bridgeStart
-  [ PROJECTS_MAIN_ROAD.centerX, 16, -1600],   // bridgeEnd
+  [ PROJECTS_MAIN_ROAD.centerX,  0,  -540],   // researchMid
+  [ PROJECTS_MAIN_ROAD.centerX,  0,  -740],   // researchEnd (canyon lengthened +140m)
+  [ PROJECTS_MAIN_ROAD.centerX,  8,  -780],   // bridgeStart (keeps the 40m lift)
+  [ PROJECTS_MAIN_ROAD.centerX, 16, -1740],   // bridgeEnd (shifted −140 to keep length)
 ];
 
 export const SHIBUYA_TURN_START_T = 0.28;
@@ -221,7 +221,7 @@ export function buildProjectsTrafficCurve(): THREE.Curve<THREE.Vector3> {
       return optionalTarget.set(
         PROJECTS_MAIN_ROAD.centerX,
         0,
-        THREE.MathUtils.lerp(-68, -600, (t - 0.5) * 2),
+        THREE.MathUtils.lerp(-68, -740, (t - 0.5) * 2),
       );
     }
   }();
@@ -506,7 +506,7 @@ function sampleSemanticTrajectoryPoint(
     return optionalTarget.set(
       PROJECTS_MAIN_ROAD.centerX,
       0,
-      THREE.MathUtils.lerp(-375, -600, fraction),
+      THREE.MathUtils.lerp(-375, -740, fraction),
     );
   }
   if (

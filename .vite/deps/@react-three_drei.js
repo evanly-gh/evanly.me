@@ -2,6 +2,9 @@ import {
   Events
 } from "./chunk-LFC33N37.js";
 import {
+  require_client
+} from "./chunk-UVO2OVQ4.js";
+import {
   addAfterEffect,
   addEffect,
   applyProps,
@@ -17,7 +20,11 @@ import {
   useInstanceHandle,
   useLoader,
   useThree
-} from "./chunk-UJ5E5XI2.js";
+} from "./chunk-HH3OQLIY.js";
+import "./chunk-Y7AWLA4Y.js";
+import {
+  require_react
+} from "./chunk-WSPQGYBW.js";
 import {
   AddEquation,
   AdditiveBlending,
@@ -212,13 +219,6 @@ import {
   WireframeGeometry,
   ZeroFactor
 } from "./chunk-IXPELBPS.js";
-import {
-  require_client
-} from "./chunk-UVO2OVQ4.js";
-import "./chunk-Y7AWLA4Y.js";
-import {
-  require_react
-} from "./chunk-WSPQGYBW.js";
 import {
   __commonJS,
   __export,

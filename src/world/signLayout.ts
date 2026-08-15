@@ -596,7 +596,7 @@ function buildHolograms(layout: Placement[]): HologramSignPlacement[] {
     } catch {
       continue;
     }
-    const sign = hologramFromParent(spec, parent.index, parent.bounds, [240, -600], signs.length);
+    const sign = hologramFromParent(spec, parent.index, parent.bounds, [240, -740], signs.length);
     try {
       assertHologramFootprintSafety(sign);
     } catch {

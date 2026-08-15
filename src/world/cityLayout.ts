@@ -37,6 +37,7 @@ import {
 } from './aboutReveal';
 import { STUNT_BACKDROP, STUNT_BACKDROP_ROW2 } from './stuntLayout';
 import { RESEARCH_WALLS } from './researchLayout';
+import { SHIBUYA_FILLER_PLACEMENTS } from './shibuyaFillers';
 import {
   researchCorridorPointClearance,
   researchCorridorSegmentClearance,
@@ -297,6 +298,7 @@ function computeCityLayout(seed: number): Placement[] {
     ...STUNT_BACKDROP.map((placement) => ({ ...placement })),
     ...STUNT_BACKDROP_ROW2.map((placement) => ({ ...placement })),
     ...RESEARCH_WALLS.map((placement) => ({ ...placement })),
+    ...SHIBUYA_FILLER_PLACEMENTS.map((placement) => ({ ...placement })),
   ];
 
   const shibuyaSightCorridors = buildShibuyaSightCorridors();

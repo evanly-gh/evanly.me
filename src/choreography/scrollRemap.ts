@@ -200,6 +200,17 @@ const PROJECTS_SEMANTIC_INTERVAL = Object.freeze([0.36, 0.69] as const);
 // blowing past in ~3 wheel notches.
 const ABOUT_SEMANTIC_INTERVAL = Object.freeze([0.12, 0.28] as const);
 const ABOUT_SEMANTIC_WEIGHT = 3;
+// The 2nd-jump landing → descend → research-entry handoff swings the camera from
+// the side hero cam to a behind-the-bike chase. Give it extra scroll dwell so the
+// swing plays out as a slow sweep under the finger (not a snap), and so a fast
+// scroll can't skip past the bike between the two angles.
+const DESCEND_SEMANTIC_INTERVAL = Object.freeze([0.63, 0.72] as const);
+const DESCEND_SEMANTIC_WEIGHT = 3;
+// The research canyon straight (t 0.70→0.84) was lengthened ~1.6× in world space
+// (endZ -600 → -740). Give that t-range proportionally more scroll so the ride
+// through the longer canyon keeps the same on-screen speed instead of speeding up.
+const RESEARCH_SEMANTIC_INTERVAL = Object.freeze([0.70, 0.84] as const);
+const RESEARCH_SEMANTIC_WEIGHT = 1.6;
 const BASELINE_PINNED_TRAVEL_VH = 700;
 const CURRENT_PINNED_TRAVEL_VH = 1350;
 const LEGACY_SCROLL_REMAP = buildScrollRemap(ZONES, STUNT_FLIP_TIMINGS);
@@ -223,6 +234,14 @@ const CURRENT_SCROLL_REMAP = buildScrollRemap(
     {
       interval: ABOUT_SEMANTIC_INTERVAL,
       weight: ABOUT_SEMANTIC_WEIGHT,
+    },
+    {
+      interval: DESCEND_SEMANTIC_INTERVAL,
+      weight: DESCEND_SEMANTIC_WEIGHT,
+    },
+    {
+      interval: RESEARCH_SEMANTIC_INTERVAL,
+      weight: RESEARCH_SEMANTIC_WEIGHT,
     },
   ],
 );
