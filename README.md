@@ -1,9 +1,6 @@
 # evanly.me
 
-Evan Li's personal portfolio — a scroll‑driven, cinematic 3D ride through a neon
-cyberpunk city. A Tron‑style bike carries the viewer past the About, Projects, and
-Research sections and ends on a moonlit bridge. An accessible DOM layer mirrors the
-content for SEO and reduced‑motion users.
+Hey there, I'm Evan and this is the code behind my interactive cyber-city personal website. This took way too long to make... hope you enjoy it!
 
 ## Stack
 

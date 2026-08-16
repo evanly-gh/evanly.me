@@ -73,8 +73,5 @@ fill in empty space gaps
 fix lag
 camera smooth
 
-lighting fix
-Add on screen visuals
 Update actual information
 Ugrade billboards
-The "lightrail"
