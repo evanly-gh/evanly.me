@@ -12,7 +12,7 @@ test/
 .superpowers/
 /C/
 tools/verification/
-assets/
+/assets/
 
 # Scratch screenshots / captures
 /*.jpeg
