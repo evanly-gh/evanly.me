@@ -641,6 +641,57 @@ function ExposureSync() {
   return null;
 }
 
+// Sole driver of the render loop (Canvas runs frameloop="never"). Without this
+// the scene re-ran a full forward + 4-effect bloom/grade pass every animation
+// frame forever — on a 120/144Hz display that's up to 144 full frames/sec even
+// when idle, and it kept burning the GPU at full rate while the canvas was
+// scrolled off-screen behind the HTML resume. This:
+//   1. Caps the loop at ~MAX_RENDER_FPS (spares high-refresh displays).
+//   2. Halts rendering entirely when the canvas leaves the viewport (reading the
+//      resume) or the tab is hidden.
+const MAX_RENDER_FPS = 60;
+function RenderGate() {
+  const advance = useThree((s) => s.advance);
+  const gl = useThree((s) => s.gl);
+  useEffect(() => {
+    const frameInterval = 1000 / MAX_RENDER_FPS;
+    const canvas = gl.domElement;
+    let raf = 0;
+    let last = -Infinity;
+    let onScreen = true;
+    let visible = !document.hidden;
+
+    const io = new IntersectionObserver(
+      ([entry]) => { onScreen = entry.isIntersecting; },
+      { threshold: 0 },
+    );
+    io.observe(canvas);
+
+    const onVisibility = () => { visible = !document.hidden; };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    const loop = (t: number) => {
+      raf = requestAnimationFrame(loop);
+      // Paused: keep the (cheap) rAF alive so we resume instantly, but issue no
+      // draw calls when nothing is visible.
+      if (!onScreen || !visible) return;
+      // Frame cap: skip ticks until an interval has elapsed. The 1ms slack keeps
+      // a 60Hz display locked to a clean 60 rather than dropping to 30.
+      if (t - last < frameInterval - 1) return;
+      last = t;
+      advance(t);
+    };
+    raf = requestAnimationFrame(loop);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      io.disconnect();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [advance, gl]);
+  return null;
+}
+
 /**
  * FPS-style fly camera: pointer-lock mouse-look (yaw/pitch only, no roll) +
  * frame-rate-independent WASD movement, Q/E for down/up, Shift to boost.
@@ -3093,13 +3144,17 @@ function City({
   return (
     <>
     <Canvas
-      // dpr capped at 1.5: on HiDPI/Retina the uncapped devicePixelRatio (2–3)
+      // dpr capped at 1.25: on HiDPI/Retina the uncapped devicePixelRatio (2–3)
       // meant the whole forward pass AND every Bloom composite ran at 4–9× the
-      // fragment count. 1.5 keeps edges crisp while roughly halving GPU load.
+      // fragment count. 1.25 keeps this dark neon scene crisp while cutting the
+      // per-pixel work ~30% vs 1.5 (and ~2.25× vs an uncapped 2.0).
       // antialias:false because the EffectComposer resolves separately
       // (multisampling={0}), so an MSAA backbuffer here was pure waste.
       // high-performance steers multi-GPU laptops off the integrated chip.
-      dpr={[1, 1.5]}
+      dpr={[1, 1.25]}
+      // frameloop="never": the render loop is driven exclusively by RenderGate,
+      // which caps FPS and halts rendering when the canvas is off-screen/hidden.
+      frameloop="never"
       gl={{
         antialias: false,
         powerPreference: 'high-performance',
@@ -3110,6 +3165,7 @@ function City({
       <VisibilityLayoutContext.Provider value={activeLayout}>
       <color attach="background" args={['#05060f']} />
       <fog attach="fog" args={['#0a0a1c', 260, 2100]} />
+      <RenderGate />
       <ExposureSync />
       <DeferredScene>
       <ambientLight intensity={LIGHTING.ambientIntensity} />
