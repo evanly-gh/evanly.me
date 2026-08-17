@@ -1349,6 +1349,47 @@ function BuildingZone({
   );
 }
 
+// Per-zone visibility windows in semantic-t. A zone is drawn only while story
+// progress is inside its window; outside it the whole zone's InstancedMeshes are
+// skipped (group.visible=false), cutting per-frame triangles/draw calls. Windows
+// are one-sided-generous: every zone is visible from early enough that it's never
+// missing from the forward view down the corridor, and is only culled once the
+// camera has moved well past it. GpuPrewarm compiles all zone materials up front
+// regardless of visibility, so revealing a zone doesn't compile-hitch.
+const ZONE_VISIBILITY_WINDOW: Record<CityZoneId, [number, number]> = {
+  route: [0, 0.44],
+  shibuya: [0, 0.6],
+  projects: [0, 0.86],
+  research: [0.28, 1.01],
+  finale: [0.52, 1.01],
+};
+
+// Wraps a BuildingZone in a group whose visibility tracks story progress. In
+// non-production modes (inspect/city view) scene.userData.contentProgress is
+// undefined, so the zone stays visible — culling only applies to the ride.
+function CulledBuildingZone(props: {
+  layout: CityPlacement[];
+  props: CityPlacement[];
+  id: CityZoneId;
+  onReady: (id: CityZoneId) => void;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+  const [start, end] = ZONE_VISIBILITY_WINDOW[props.id];
+  useFrame(({ scene }) => {
+    const group = groupRef.current;
+    if (!group) return;
+    const progress = scene.userData.contentProgress;
+    group.visible = typeof progress !== 'number'
+      ? true
+      : progress >= start && progress <= end;
+  });
+  return (
+    <group ref={groupRef}>
+      <BuildingZone {...props} />
+    </group>
+  );
+}
+
 function ProceduralBuildingShells({
   placements,
 }: {
@@ -3177,7 +3218,7 @@ function City({
       <CanyonFillers />
       {activeZones.map((zone) => (
         <Suspense fallback={null} key={zone}>
-          <BuildingZone
+          <CulledBuildingZone
             id={zone}
             layout={cityZones[zone]}
             props={propZones[zone]}
