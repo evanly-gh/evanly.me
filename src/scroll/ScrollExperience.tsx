@@ -289,17 +289,21 @@ export default function ScrollExperience() {
     if (!introApplies) setIntroPhase('live');
   }, [introApplies]);
 
-  // loading → title once the whole city is ready, with a safety timeout so a slow
-  // zone can't strand the loader on the title screen forever.
+  // loading → title as soon as the FIRST zone you see and drive into (`route`)
+  // is ready — the rest of the city keeps loading in the background while the
+  // title/START screen is up, so START appears in a few seconds instead of
+  // waiting on the whole city (which pushed it to the ~12s safety timeout). A
+  // shorter safety timeout still un-strands the loader if even `route` is slow.
+  const startZoneReady = readyCityZones.includes('route');
   useEffect(() => {
     if (!introApplies || introPhase !== 'loading') return undefined;
-    if (loading.complete) {
+    if (startZoneReady) {
       setIntroPhase('title');
       return undefined;
     }
-    const timeout = window.setTimeout(() => setIntroPhase('title'), 12000);
+    const timeout = window.setTimeout(() => setIntroPhase('title'), 8000);
     return () => window.clearTimeout(timeout);
-  }, [introApplies, introPhase, loading.complete]);
+  }, [introApplies, introPhase, startZoneReady]);
 
   // Lock page scroll until the ride goes live, so the tall sentinel can't be
   // scrolled during loading / title / drive-in.

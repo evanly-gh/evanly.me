@@ -144,7 +144,6 @@ import { buildShibuyaFacadePanels } from '../../world/visualFraming';
 import type { ProgressStore } from '../../choreography/progressStore';
 import type { IntroPhase } from '../../choreography/introSequence';
 import { remapScroll } from '../../choreography/scrollRemap';
-import { sceneAnimationTime } from '../../scroll/scrollRuntime';
 import { BikeRider, type BikeRiderHandle } from './BikeRider';
 import { ProductionDirector } from './ProductionDirector';
 import { IntroBillboard } from './IntroBillboard';
@@ -641,54 +640,37 @@ function ExposureSync() {
   return null;
 }
 
-// Sole driver of the render loop (Canvas runs frameloop="never"). Without this
-// the scene re-ran a full forward + 4-effect bloom/grade pass every animation
-// frame forever — on a 120/144Hz display that's up to 144 full frames/sec even
-// when idle, and it kept burning the GPU at full rate while the canvas was
-// scrolled off-screen behind the HTML resume. This:
-//   1. Caps the loop at ~MAX_RENDER_FPS (spares high-refresh displays).
-//   2. Halts rendering entirely when the canvas leaves the viewport (reading the
-//      resume) or the tab is hidden.
-const MAX_RENDER_FPS = 60;
+// Pauses the render loop when the canvas is scrolled out of view (reading the
+// HTML resume) or the tab is hidden — there's no reason to keep running a full
+// forward + bloom pass on a canvas nobody can see, and it was pegging the GPU
+// behind the resume section. Rendering runs at the display's native refresh
+// while visible: an earlier FPS cap here introduced scroll judder on high-
+// refresh displays, so smoothness now comes from cutting per-frame work
+// elsewhere, not from throttling the loop.
 function RenderGate() {
-  const advance = useThree((s) => s.advance);
+  const setFrameloop = useThree((s) => s.setFrameloop);
   const gl = useThree((s) => s.gl);
   useEffect(() => {
-    const frameInterval = 1000 / MAX_RENDER_FPS;
     const canvas = gl.domElement;
-    let raf = 0;
-    let last = -Infinity;
     let onScreen = true;
     let visible = !document.hidden;
+    const apply = () => setFrameloop(onScreen && visible ? 'always' : 'never');
 
     const io = new IntersectionObserver(
-      ([entry]) => { onScreen = entry.isIntersecting; },
+      ([entry]) => { onScreen = entry.isIntersecting; apply(); },
       { threshold: 0 },
     );
     io.observe(canvas);
 
-    const onVisibility = () => { visible = !document.hidden; };
+    const onVisibility = () => { visible = !document.hidden; apply(); };
     document.addEventListener('visibilitychange', onVisibility);
-
-    const loop = (t: number) => {
-      raf = requestAnimationFrame(loop);
-      // Paused: keep the (cheap) rAF alive so we resume instantly, but issue no
-      // draw calls when nothing is visible.
-      if (!onScreen || !visible) return;
-      // Frame cap: skip ticks until an interval has elapsed. The 1ms slack keeps
-      // a 60Hz display locked to a clean 60 rather than dropping to 30.
-      if (t - last < frameInterval - 1) return;
-      last = t;
-      advance(t);
-    };
-    raf = requestAnimationFrame(loop);
+    apply();
 
     return () => {
-      cancelAnimationFrame(raf);
       io.disconnect();
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [advance, gl]);
+  }, [setFrameloop, gl]);
   return null;
 }
 
@@ -2282,15 +2264,9 @@ export function WaterBasin() {
       resources: [geometry, material],
     };
   }, []);
-  useFrame(({ clock, scene }) => {
-    if (waterResources) {
-      waterResources.material.uniforms.uTime.value = sceneAnimationTime(
-        location.search,
-        Number(scene.userData.fxProgress ?? 0),
-        clock.getElapsedTime(),
-      );
-    }
-  });
+  // Waves disabled: uTime stays 0 so the water surface is static. The animated
+  // ripple read as distractingly fast and cost a per-frame uniform update for
+  // little visual payoff.
   if (!waterResources) return null;
   return (
     <mesh
@@ -2303,7 +2279,6 @@ export function WaterBasin() {
 }
 
 export function FinaleAtmosphere() {
-  const pointsRef = useRef<THREE.Points>(null);
   const resources = useCommittedThreeResource(
     'finale-atmosphere',
     ({ own }) => {
@@ -2329,21 +2304,11 @@ export function FinaleAtmosphere() {
     },
     [],
   );
-  useFrame(({ clock, scene }) => {
-    if (!resources || !pointsRef.current) return;
-    const time = sceneAnimationTime(
-      location.search,
-      Number(scene.userData.fxProgress ?? 0),
-      clock.getElapsedTime(),
-    );
-    pointsRef.current.rotation.y = Math.sin(time * 0.03) * 0.02;
-    resources.material.opacity = FINALE_ATMOSPHERE_CONFIG.opacity
-      * (0.92 + Math.sin(time * 0.17) * 0.08);
-  });
+  // Stars/atmosphere animation disabled: the drift + opacity pulse read as
+  // distractingly fast and cost a per-frame update. The field is now static.
   if (!resources) return null;
   return (
     <points
-      ref={pointsRef}
       name={TASK4_SCENE_NAMES.atmosphere}
       geometry={resources.geometry}
       material={resources.material}
@@ -3152,9 +3117,8 @@ function City({
       // (multisampling={0}), so an MSAA backbuffer here was pure waste.
       // high-performance steers multi-GPU laptops off the integrated chip.
       dpr={[1, 1.25]}
-      // frameloop="never": the render loop is driven exclusively by RenderGate,
-      // which caps FPS and halts rendering when the canvas is off-screen/hidden.
-      frameloop="never"
+      // Renders at native refresh; RenderGate flips frameloop to "never" only
+      // when the canvas is scrolled off-screen or the tab is hidden.
       gl={{
         antialias: false,
         powerPreference: 'high-performance',
