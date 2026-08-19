@@ -335,18 +335,13 @@ export const ABOUT_PLAZA_PLACEMENTS: readonly Placement[] = Object.freeze([
   aboutPlazaPlacement('KB3D_NEC_BldgSM_A_ConcreteBarrier', 4, -48, 0.2),
   aboutPlazaPlacement('KB3D_NEC_BldgSM_B_Cart', 6, -66, -0.5),
   aboutPlazaPlacement('KB3D_NEC_BldgSM_C_Boxes', 2, -38, 0.9),
-  // Trees on the approach sidewalks (lower foreground of the locked shot).
-  aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Tree', -84, 66),
-  aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Tree', -36, 66),
-  aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Tree', -84, 34),
-  aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Tree', -36, 34),
+  // (Approach-sidewalk trees removed — they sat in the foreground of the hold and
+  //  the low pan swept up over one, blocking the sign and hitching the camera.)
   // Fill the barren EAST flank (outside the poster's sightline, x > -5) with
   // buildings pulled close to the boulevard/approach edge so it isn't an empty
   // apron, plus a column of ground clutter + a tree down the east sidewalk.
   aboutPlazaPlacement('KB3D_NEC_BldgMD_C_Main', 42, -42, -0.5),
   aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Main', 66, -100, -0.3),
-  aboutPlazaPlacement('KB3D_NEC_BldgLG_A_BuildingD', 78, 46, -0.4),
-  aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Tree', 2, -22),
   aboutPlazaPlacement('KB3D_NEC_BldgSM_C_Boxes', 10, -50, 0.4),
   aboutPlazaPlacement('KB3D_NEC_BldgSM_C_CratesB', 13, -72, 0.8),
   aboutPlazaPlacement('KB3D_NEC_BldgSM_C_Pipes', 15, -90, 0.2),
@@ -360,10 +355,10 @@ export const ABOUT_PLAZA_PLACEMENTS: readonly Placement[] = Object.freeze([
   // Kept west of x≈95: the WEST Shibuya approach places a building wall out to
   // x≈123 (z 22–41), so anything larger/further east here collides with and
   // culls those curated shibuya parents (breaks buildHolograms). Stay clear.
-  aboutPlazaPlacement('KB3D_NEC_BldgMD_C_Main', 36, 40, 0.2),
-  aboutPlazaPlacement('KB3D_NEC_BldgLG_C_Main', 60, 70, -0.1),
+  // (Near NE-corner fills at (36,40) and (60,70) removed — they cluttered the
+  //  beginning corner the camera pans across; the deeper (92,102) tower stays for
+  //  backdrop depth.)
   aboutPlazaPlacement('KB3D_NEC_BldgMD_C_Main', 92, 102, 0.1),
-  aboutPlazaPlacement('KB3D_NEC_BldgLG_A_Tree', 24, 26),
   aboutPlazaPlacement('KB3D_NEC_BldgSM_C_Boxes', 88, 24, 0.5),
 ]);
 
