@@ -248,6 +248,15 @@ const RESTAURANT_POS = new THREE.Vector3(292, 0, 54);
 const RESTAURANT_FRONTAGE_OFFSET = 22; // disc centre, toward the plaza
 const RESTAURANT_FRONTAGE_RADIUS = 26; // packer buildings inside this disc are skipped
 
+// ── About-corner camera keep-clear ──
+// The camera pans low out of the About hold (x≈-60, z≈62) diagonally down to the
+// boulevard (z≈0) as it hands off to the Shibuya chase. The packer used to drop
+// tall towers in this corner, so the low camera had to skim up and over their
+// roofs — an awkward vertical hitch mid-pan. Skip packer buildings whose centre
+// falls in this box so the sweep corridor stays open. (Role-tagged about-plaza
+// pieces are placed separately and are unaffected.)
+const ABOUT_CORNER_CLEAR = { minX: -40, maxX: 15, minZ: 8, maxZ: 52 };
+
 // ── Stunt visibility corridor ──
 // The hero "projects" camera sits west of the main road (x≈209) and looks east at
 // the ramp/scaffold on the x≈285 service alley. Buildings the packer places in the
@@ -439,6 +448,13 @@ function computeCityLayout(seed: number): Placement[] {
       bounds.center.z - restaurantFrontage.z,
     ) < RESTAURANT_FRONTAGE_RADIUS;
 
+  // Keep the About→Shibuya camera sweep corridor clear of packer towers.
+  const aboutCornerBlocks = (bounds: OrientedBuildingBounds): boolean =>
+    bounds.center.x >= ABOUT_CORNER_CLEAR.minX
+    && bounds.center.x <= ABOUT_CORNER_CLEAR.maxX
+    && bounds.center.z >= ABOUT_CORNER_CLEAR.minZ
+    && bounds.center.z <= ABOUT_CORNER_CLEAR.maxZ;
+
   // Pack one row along one side of one road, advancing by each placed footprint.
   // `anchorFor` gives the near-face distance (from road edge) at each cursor; the
   // back row uses it to sit just behind whatever front building is ahead of it.
@@ -471,6 +487,7 @@ function computeCityLayout(seed: number): Placement[] {
         );
         if (made && candidateValid(made.bounds)
           && !restaurantFrontageBlocks(made.bounds)
+          && !aboutCornerBlocks(made.bounds)
           && made.bounds.height
             <= stuntHeightCap(made.bounds.center.x, made.bounds.center.z)) {
           out.push(made.placement);
