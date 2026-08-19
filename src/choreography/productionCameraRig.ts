@@ -207,10 +207,10 @@ export const PRODUCTION_CAMERA_KEYS: readonly ProductionCamKey[] =
     // Flattened reveal: camera holds a near-constant height (~9) and looks only
     // gently UP at the sign (target Y≈19, not 26-28) so the beat no longer cranes
     // drastically up-then-down. Position Y stays ~9-10 across the whole About beat.
-    key('about-rise', 'about', 0.166, [-60, 10, 52], [-60, 20, -74], 54, 'smooth'),
-    key('about-lock-in', 'about', 0.184, [-60, 9, 44], [-60, 19, -74], 54, 'hold'),
-    key('about-hold-center', 'about', 0.202, [-60, 9, 44], [-60, 19, -74], 54, 'hold'),
-    key('about-hold-exit', 'about', 0.216, [-60, 9, 46], [-60, 18, -74], 52, 'smooth'),
+    key('about-rise', 'about', 0.166, [-60, 10, 68], [-60, 20, -74], 54, 'smooth'),
+    key('about-lock-in', 'about', 0.184, [-60, 9, 62], [-60, 19, -74], 54, 'hold'),
+    key('about-hold-center', 'about', 0.202, [-60, 9, 62], [-60, 19, -74], 54, 'hold'),
+    key('about-hold-exit', 'about', 0.216, [-60, 9, 64], [-60, 18, -74], 52, 'smooth'),
     // Bridge the locked dead-end shot into the eastbound Shibuya road-follow.
     // Drop out of the up-tilted hold and settle straight into a LOW behind-the-
     // bike chase (chaseKey trails the route tangent), so instead of a parked

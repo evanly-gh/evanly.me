@@ -43,7 +43,10 @@ body,
 .scroll-sentinel {
   position: relative;
   width: 100%;
-  height: 1450vh;
+  /* Scroll-track length. Longer track = less story progress (and less bike
+     travel) per scroll-wheel tick, so the ride reads slower and the damped
+     camera never falls behind the bike on a fast flick. */
+  height: 2200vh;
 }
 
 .scroll-pin {

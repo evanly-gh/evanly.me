@@ -300,7 +300,11 @@ export class BikeTrailSampler {
 
     for (let index = 0; index < trailCount; index += 1) {
       const age = index / (trailCount - 1);
-      const distance = currentDistance - trailLength * age;
+      // Clamp to the route start: the trail exists only from where the bike began
+      // (distance 0) back from the head — never synthesized *before* the start.
+      // Otherwise a phantom ribbon sits on the road ahead of the merging bike and
+      // the bike looks like it re-attaches to a pre-existing trail.
+      const distance = Math.max(0, currentDistance - trailLength * age);
       if (index === 0 && currentState) {
         this.position.copy(currentState.pos);
         this.routeQuaternion.copy(currentState.quat);
@@ -324,11 +328,8 @@ export class BikeTrailSampler {
       this.posedQuaternion.copy(this.routeQuaternion)
         .multiply(this.leanQuaternion)
         .multiply(this.pitchQuaternion);
-      if (distance < 0) {
-        this.side.set(-distance, 0, 0)
-          .applyQuaternion(this.posedQuaternion);
-        this.rear.sub(this.side);
-      }
+      // No pre-start extension: samples before the route origin clamp to it, so
+      // the ribbon collapses to a point there instead of reaching onto the road.
       this.side.set(0, 0, TRAIL_HALF_WIDTH)
         .applyQuaternion(this.posedQuaternion);
       const offset = index * 6;
@@ -348,17 +349,16 @@ export class BikeTrailSampler {
     this.output.echoCount = echoCount;
     for (let index = 0; index < BIKE_ECHO_POOL_SIZE; index += 1) {
       const age = (index + 1) / (echoCount + 1);
-      const distance = currentDistance - echoSpacing * (index + 1);
+      const rawDistance = currentDistance - echoSpacing * (index + 1);
+      // Echoes before the route origin are hidden (see `visible` below) rather
+      // than synthesized backward onto the road ahead of the merging bike.
+      const distance = Math.max(0, rawDistance);
       this.sampleHistory(distance);
       this.leanQuaternion.setFromAxisAngle(this.axisX, this.sampledLean);
       this.pitchQuaternion.setFromAxisAngle(this.axisZ, this.sampledPitch);
       this.posedQuaternion.copy(this.routeQuaternion)
         .multiply(this.leanQuaternion)
         .multiply(this.pitchQuaternion);
-      if (distance < 0) {
-        this.side.set(distance, 0, 0).applyQuaternion(this.posedQuaternion);
-        this.position.add(this.side);
-      }
       this.side.set(0, BIKE_PITCH_PIVOT_Y, 0)
         .applyQuaternion(this.leanQuaternion)
         .applyQuaternion(this.routeQuaternion);
@@ -367,7 +367,7 @@ export class BikeTrailSampler {
       this.position.add(this.side).sub(this.rear);
       this.matrix.compose(this.position, this.posedQuaternion, this.scale)
         .toArray(this.output.echoMatrices, index * 16);
-      const visible = index < echoCount;
+      const visible = index < echoCount && rawDistance >= 0;
       const alpha = visible
         ? baseAlpha * THREE.MathUtils.lerp(1, 0.28, age)
         : 0;
