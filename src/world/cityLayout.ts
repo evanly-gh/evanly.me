@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import { makeRng } from '../assets/rng';
+import PRECOMPUTED_CITY_LAYOUT, {
+  PRECOMPUTED_CITY_LAYOUT_SEED,
+} from './cityLayout.generated';
 import {
   buildingClearsElevatedDeck,
   elevatedDeckBuildingClearance,
@@ -303,12 +306,26 @@ const cityLayoutCache = new Map<number, Placement[]>();
 export function buildCityLayout(seed = 20260720): Placement[] {
   const cached = cityLayoutCache.get(seed);
   if (cached) return cached;
-  const result = computeCityLayout(seed);
+  // Fast path (production): the default-seed layout is deterministic, so it's
+  // precomputed at build time (tools/generate-city-layout.mjs -> cityLayout.generated)
+  // and shipped as data. Returning it is instant vs. the ~6s of packing +
+  // clearance math computeCityLayout runs on the main thread — which was the whole
+  // blank-screen gap before the first 3D frame. Dev still computes so live layout
+  // edits are always reflected (regenerate with `npm run assets:layout`).
+  const isProd =
+    (import.meta as ImportMeta & { env?: { PROD?: boolean } }).env?.PROD === true;
+  const usePrecomputed =
+    seed === PRECOMPUTED_CITY_LAYOUT_SEED
+    && isProd
+    && PRECOMPUTED_CITY_LAYOUT.length > 0;
+  const result = usePrecomputed
+    ? (PRECOMPUTED_CITY_LAYOUT as unknown as Placement[])
+    : computeCityLayout(seed);
   cityLayoutCache.set(seed, result);
   return result;
 }
 
-function computeCityLayout(seed: number): Placement[] {
+export function computeCityLayout(seed: number): Placement[] {
   const rng = makeRng(seed);
   const out: Placement[] = [
     { ...ABOUT_HERO_BACKDROP_PLACEMENT },

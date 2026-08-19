@@ -13,7 +13,8 @@
     "assets:props": "node tools/process-props.mjs",
     "assets:moon": "node tools/process-moon.mjs",
     "assets:portrait": "node tools/process-about-portrait.mjs",
-    "assets:manifest": "node tools/generate-runtime-assets-manifest.mjs"
+    "assets:manifest": "node tools/generate-runtime-assets-manifest.mjs",
+    "assets:layout": "npx tsx tools/generate-city-layout.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
