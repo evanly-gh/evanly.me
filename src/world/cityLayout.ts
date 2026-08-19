@@ -250,12 +250,21 @@ const RESTAURANT_FRONTAGE_RADIUS = 26; // packer buildings inside this disc are 
 
 // ── About-corner camera keep-clear ──
 // The camera pans low out of the About hold (x≈-60, z≈62) diagonally down to the
-// boulevard (z≈0) as it hands off to the Shibuya chase. The packer used to drop
-// tall towers in this corner, so the low camera had to skim up and over their
-// roofs — an awkward vertical hitch mid-pan. Skip packer buildings whose centre
-// falls in this box so the sweep corridor stays open. (Role-tagged about-plaza
-// pieces are placed separately and are unaffected.)
-const ABOUT_CORNER_CLEAR = { minX: -40, maxX: 15, minZ: 8, maxZ: 52 };
+// boulevard (z≈0) and then trails the bike east as it hands off to the Shibuya
+// chase. The packer dropped tall towers in this corner, so the low camera had to
+// skim up and over their roofs — an awkward vertical hitch mid-pan. Skip packer
+// buildings whose centre falls in either box: the plaza (south) side the sweep
+// crosses, and the north side of the intersection the eastbound trail passes.
+// (Role-tagged about-plaza pieces are placed separately and are unaffected.)
+// Plaza (south) side the diagonal sweep crosses on its way down to the boulevard.
+const ABOUT_SWEEP_PLAZA = { minX: -40, maxX: 15, minZ: 8, maxZ: 52 };
+// Eastbound boulevard corridor (x range) near the beginning: the camera trails
+// the bike along the road centerline (z≈0) here. Any packer building whose
+// footprint reaches that centerline makes the runtime anti-clip ride the camera
+// up over its roof — a vertical hitch. We skip exactly those (oversized/encroaching
+// pieces); properly set-back buildings that line the road are untouched.
+const ABOUT_BOULEVARD = { minX: 6, maxX: 110 };
+const ABOUT_CENTERLINE_MARGIN = 6; // matches the runtime anti-clip footprint margin
 
 // ── Stunt visibility corridor ──
 // The hero "projects" camera sits west of the main road (x≈209) and looks east at
@@ -448,12 +457,31 @@ function computeCityLayout(seed: number): Placement[] {
       bounds.center.z - restaurantFrontage.z,
     ) < RESTAURANT_FRONTAGE_RADIUS;
 
-  // Keep the About→Shibuya camera sweep corridor clear of packer towers.
-  const aboutCornerBlocks = (bounds: OrientedBuildingBounds): boolean =>
-    bounds.center.x >= ABOUT_CORNER_CLEAR.minX
-    && bounds.center.x <= ABOUT_CORNER_CLEAR.maxX
-    && bounds.center.z >= ABOUT_CORNER_CLEAR.minZ
-    && bounds.center.z <= ABOUT_CORNER_CLEAR.maxZ;
+  // Keep the About→Shibuya camera path clear of towers that would spike it.
+  const aboutCornerBlocks = (bounds: OrientedBuildingBounds): boolean => {
+    // 1) Plaza box the diagonal sweep crosses.
+    if (
+      bounds.center.x >= ABOUT_SWEEP_PLAZA.minX
+      && bounds.center.x <= ABOUT_SWEEP_PLAZA.maxX
+      && bounds.center.z >= ABOUT_SWEEP_PLAZA.minZ
+      && bounds.center.z <= ABOUT_SWEEP_PLAZA.maxZ
+    ) return true;
+    // 2) Along the eastbound boulevard, skip any building whose footprint reaches
+    //    the camera's road centerline (z≈0). Mirrors the runtime anti-clip: place
+    //    the camera at (buildingCentreX, 0); if it lands inside the footprint
+    //    (+margin) the camera would ride up over the roof, so drop the building.
+    if (bounds.center.x >= ABOUT_BOULEVARD.minX && bounds.center.x <= ABOUT_BOULEVARD.maxX) {
+      const cos = Math.cos(bounds.rotationY ?? 0);
+      const sin = Math.sin(bounds.rotationY ?? 0);
+      const dz = -bounds.center.z; // camera at z=0
+      const localX = dz * sin;
+      const localZ = dz * cos;
+      const penX = bounds.halfX + ABOUT_CENTERLINE_MARGIN - Math.abs(localX);
+      const penZ = bounds.halfZ + ABOUT_CENTERLINE_MARGIN - Math.abs(localZ);
+      if (penX > 0 && penZ > 0) return true;
+    }
+    return false;
+  };
 
   // Pack one row along one side of one road, advancing by each placed footprint.
   // `anchorFor` gives the near-face distance (from road edge) at each cursor; the
