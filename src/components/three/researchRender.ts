@@ -45,7 +45,7 @@ export interface ResearchRenderInstance {
   id: string;
   parentId: string;
   matrix: THREE.Matrix4;
-  textureIndex?: 0 | 1;
+  textureIndex?: 0 | 1 | 2;
   screenToBackingFront?: number;
 }
 

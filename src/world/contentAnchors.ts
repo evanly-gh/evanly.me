@@ -3,15 +3,14 @@ import { MOON_POS } from './route';
 
 export type ContentAnchorKind =
   | 'about'
-  | 'project-main'
-  | 'project-small'
+  | 'project'
   | 'research'
   | 'finale';
 
 export type ResumeAnchorRef =
   | { readonly section: 'about' }
   | {
-      readonly section: 'projectsMain' | 'projectsSmall' | 'research';
+      readonly section: 'projects' | 'research';
       readonly index: number;
     };
 
@@ -52,67 +51,67 @@ export const CONTENT_ANCHORS: readonly ContentAnchor[] = deepFreeze([
     resumeRef: { section: 'about' },
   },
   {
-    id: 'project-main-ttt-e2e',
-    kind: 'project-main',
-    title: RESUME.projectsMain[0].title,
+    id: 'project-rememberme',
+    kind: 'project',
+    title: RESUME.projects[0].title,
     semanticT: 0.41,
     position: [270, 28, -114],
     cameraTargetHint: FIRST_FLIP_TARGET,
-    resumeRef: { section: 'projectsMain', index: 0 },
+    resumeRef: { section: 'projects', index: 0 },
   },
   {
-    id: 'project-main-remember-me',
-    kind: 'project-main',
-    title: RESUME.projectsMain[1].title,
+    id: 'project-openchinese',
+    kind: 'project',
+    title: RESUME.projects[1].title,
     semanticT: 0.41,
     position: [270, 28, -142],
     cameraTargetHint: FIRST_FLIP_TARGET,
-    resumeRef: { section: 'projectsMain', index: 1 },
+    resumeRef: { section: 'projects', index: 1 },
   },
   {
-    id: 'project-small-mandarin',
-    kind: 'project-small',
-    title: RESUME.projectsSmall[0].title,
+    id: 'project-rhetbench',
+    kind: 'project',
+    title: RESUME.projects[2].title,
     semanticT: 0.57,
     position: [270, 31, -270],
     cameraTargetHint: SECOND_FLIP_TARGET,
-    resumeRef: { section: 'projectsSmall', index: 0 },
+    resumeRef: { section: 'projects', index: 2 },
   },
   {
-    id: 'project-small-bellevue-hackathon',
-    kind: 'project-small',
-    title: RESUME.projectsSmall[1].title,
+    id: 'project-ttt-e2e',
+    kind: 'project',
+    title: RESUME.projects[3].title,
     semanticT: 0.57,
     position: [270, 35, -288],
     cameraTargetHint: SECOND_FLIP_TARGET,
-    resumeRef: { section: 'projectsSmall', index: 1 },
+    resumeRef: { section: 'projects', index: 3 },
   },
   {
-    id: 'project-small-dubhacks',
-    kind: 'project-small',
-    title: RESUME.projectsSmall[2].title,
-    semanticT: 0.57,
-    position: [270, 31, -306],
-    cameraTargetHint: SECOND_FLIP_TARGET,
-    resumeRef: { section: 'projectsSmall', index: 2 },
-  },
-  {
-    id: 'research-mobile-intelligence-lab',
+    id: 'research-board-1',
     kind: 'research',
     title: RESUME.research[0].title,
-    semanticT: 0.72,
+    semanticT: 0.712,
     position: [240, 28, -410],
     cameraTargetHint: [240, 68, -410],
     resumeRef: { section: 'research', index: 0 },
   },
   {
-    id: 'research-llm-hardware-benchmarking',
+    id: 'research-board-2',
     kind: 'research',
     title: RESUME.research[1].title,
-    semanticT: 0.79,
-    position: [240, 28, -525],
-    cameraTargetHint: [240, 76, -525],
+    semanticT: 0.76,
+    position: [240, 28, -522],
+    cameraTargetHint: [240, 76, -522],
     resumeRef: { section: 'research', index: 1 },
+  },
+  {
+    id: 'research-board-3',
+    kind: 'research',
+    title: RESUME.research[2].title,
+    semanticT: 0.82,
+    position: [240, 28, -690],
+    cameraTargetHint: [240, 76, -690],
+    resumeRef: { section: 'research', index: 2 },
   },
   {
     id: 'finale-moon',

@@ -15,7 +15,6 @@ export interface Project {
   title: string;
   stack: string;
   blurb: string;
-  displayBlurb: string;
   image: ImageSlot;
 }
 
@@ -36,9 +35,8 @@ export interface Resume {
     faceImage: ImageSlot;
     misc: [ImageSlot, ImageSlot];
   };
-  projectsMain: [Project, Project];
-  projectsSmall: [Project, Project, Project];
-  research: [Project, Project];
+  projects: [Project, Project, Project, Project];
+  research: [Project, Project, Project];
   education: {
     school: string;
     degrees: string[];
@@ -59,12 +57,16 @@ export const RESUME: Resume = {
 
   about: {
     paragraph:
-      'Evan Li is a Computer Science + Economics student in the Interdisciplinary ' +
-      'Honors Program at the University of Washington (GPA 3.9, expected June 2027). ' +
-      'His work centers on ML systems — model compression, on-device inference, and ' +
-      'test-time training — building research and product systems that stay fast ' +
-      'under tight memory budgets.',
-    heroTagline: ['CS + ECON @ UW', 'ML SYSTEMS · EDGE AI'],
+      'Evan Li is a CS + Economics student at the University of Washington ' +
+      '(Interdisciplinary Honors, 3.9 GPA, graduating June 2027). He builds ML ' +
+      'systems that stay fast under tight memory budgets — LLM inference ' +
+      'optimization, on-device model compression, and RL post-training. He ' +
+      'researches phone-sized language models at UW’s Mobile Intelligence Lab, ' +
+      'is a founding developer of KleoKlaw (an AI job-application platform serving ' +
+      '~100 users), and is CTO of UW’s Software Engineering Career Club. A ' +
+      'former national-championship debater, he likes turning hard research ideas ' +
+      'into systems that actually ship.',
+    heroTagline: ['CS + ECON @ UW', 'ML SYSTEMS · ON-DEVICE INFERENCE'],
     heroBlurb:
       'UW CS + Econ student building efficient ML for on-device systems.',
     faceImage: {
@@ -79,78 +81,85 @@ export const RESUME: Resume = {
     ]
   },
 
-  projectsMain: [
-    {
-      title: 'TTT-E2E',
-      stack: 'PyTorch, HF Transformers',
-      blurb:
-        'Dual-branch MAML-style test-time training lifts emotion-classification ' +
-        'accuracy 45% → 63% on ELSA, validated across a 4-method eval harness.',
-      displayBlurb:
-        'Test-time training raises ELSA emotion accuracy from 45% to 63%.',
-      image: { src: null, w: 1280, h: 720, label: 'TTT-E2E' }
-    },
+  projects: [
     {
       title: 'RememberMe',
-      stack: 'PyTorch, ResNet-50, FastAPI',
+      stack: 'PyTorch · ResNet-50 · FastAPI · pgvector',
       blurb:
-        'Team-lead project: +35% avg F1 over CLIP zero-shot across 25+ CelebA ' +
-        'attributes. 6-model pipeline scores 120+ attributes with pgvector semantic ' +
-        'search, cutting latency 5s → 2s under 2GB RAM.',
-      displayBlurb:
-        'Six-model attribute search lifts average F1 by 35% and cuts latency to 2s.',
-      image: { src: null, w: 1280, h: 720, label: 'REMEMBERME' }
-    }
-  ],
-
-  projectsSmall: [
-    {
-      title: 'Mandarin App',
-      stack: 'React Native, Supabase Edge, Gemini 2.0',
-      blurb:
-        'Mobile Mandarin tutor: JWT-gated Deno Edge proxy to Gemini 2.0 returns ' +
-        'structured JSON for inline grammar corrections.',
-      displayBlurb:
-        'JWT-gated Gemini feedback returns structured inline grammar corrections.',
-      image: { src: null, w: 800, h: 600, label: 'MANDARIN APP' }
+        'A mobile app for remembering the people you meet — capture a face and a ' +
+        'six-model computer-vision pipeline derives descriptive attributes, then ' +
+        'searches your contacts by memory with pgvector. As team lead I trained the ' +
+        'ResNet-50 attractiveness regressor to Pearson r ≈ 0.88 (near state of the ' +
+        'art) and published it to Hugging Face.',
+      image: { src: null, w: 984, h: 912, label: 'REMEMBERME' }
     },
     {
-      title: 'Bellevue College Hackathon',
-      stack: 'Hackathon',
-      blurb: '2nd place, 2024.',
-      displayBlurb: 'Second place at the 2024 Bellevue College Hackathon.',
-      image: { src: null, w: 800, h: 600, label: 'BELLEVUE HACKATHON' }
+      title: 'OpenChinese',
+      stack: 'React Native · Expo · Supabase · Gemini',
+      blurb:
+        'A shipped Chinese-learning app built on a from-scratch SM-2 ' +
+        'spaced-repetition engine with offline-first cloud sync. Its AI tutor ' +
+        'assembles each prompt live from your weakest cards and active grammar ' +
+        'through a JWT-gated Gemini edge function — real context engineering over ' +
+        '2,400 HSK cards, not a chatbot wrapper.',
+      image: { src: null, w: 1280, h: 714, label: 'OPENCHINESE' }
     },
     {
-      title: 'DubHacks 2025',
-      stack: 'Hackathon',
-      blurb: 'Growth Track competitor.',
-      displayBlurb: 'Growth Track competitor at DubHacks 2025.',
-      image: { src: null, w: 800, h: 600, label: 'DUBHACKS 2025' }
+      title: 'RhetBench',
+      stack: 'Python · FastAPI · LLM Evals',
+      blurb:
+        'A persuasion benchmark for LLM agents: the agent must shift a scripted ' +
+        'character’s hidden belief within 25 turns, inferring which of six argument ' +
+        'types actually moves them — theory-of-mind under partial observability on a ' +
+        'deterministic, fully replayable NPC state machine. Solo overall winner of ' +
+        'SWECCATHON 2026.',
+      image: { src: null, w: 940, h: 964, label: 'RHETBENCH' }
+    },
+    {
+      title: 'TTT-E2E',
+      stack: 'PyTorch · HF Transformers · MAML',
+      blurb:
+        'Second-order meta-learning (MAML) that adapts a language model at test ' +
+        'time, using a dual-branch trainable + frozen design. Evaluated across a ' +
+        'four-method harness — baseline, in-context learning, RAG, and test-time ' +
+        'training — to measure when on-the-fly adaptation actually beats retrieval.',
+      image: { src: null, w: 1280, h: 574, label: 'TTT-E2E' }
     }
   ],
 
   research: [
     {
-      title: 'Mobile Intelligence Lab, UW',
-      stack: 'microLLM · MAM Project',
+      title: 'SLM Factory',
+      stack: 'LangGraph · PEFT/LoRA · llama.cpp · vLLM',
       blurb:
-        'Model compression and on-device inference research for mobile/edge under ' +
-        'the MAM project, advised by Wen Cheng.',
-      displayBlurb:
-        'Mobile and edge model compression.',
-      image: { src: null, w: 1280, h: 720, label: 'MOBILE INTELLIGENCE LAB' }
+        'An agentic pipeline that autonomously fine-tunes a phone-sized language ' +
+        'model for any task — task analysis, data curation, and a closed-loop LoRA ' +
+        'search across an 18-variant Qwen3.5 pool under real RAM and quantization ' +
+        'limits. It lifted biomedical NER span-F1 from 0.03 to 0.86 and delivers a ' +
+        'fully optimized on-device model for about $5 and a day of compute.',
+      image: { src: null, w: 1280, h: 720, label: 'SLM FACTORY' }
     },
     {
-      title: 'LLM Hardware Benchmarking',
-      stack: 'GGUF · llama.cpp',
+      title: 'RL on HRM-Text',
+      stack: 'PyTorch · PEFT · RLVR (GRPO/DAPO)',
       blurb:
-        'Advised by Prof. Ranjay Krishna. Encoder/prefill/decode phase isolation with ' +
-        'a cold/warm/3-median protocol; GGUF Q4_K_M quantization cuts memory ~50% at ' +
-        'minimal perplexity cost.',
-      displayBlurb:
-        'GGUF prefill/decode benchmarks.',
-      image: { src: null, w: 1280, h: 720, label: 'LLM HW BENCHMARKING' }
+        'From-scratch RL post-training (SFT → DAPO) on a 1.1B double-recurrent ' +
+        'reasoning model that no existing RL library supports. I led the RL ' +
+        'workstream and hand-wrote both training loops, raising MATH pass@1 from ' +
+        '64.4% to 66.7% and characterizing how RL’s sharpening gains plateau at ' +
+        'small scale.',
+      image: { src: null, w: 1280, h: 720, label: 'RL ON HRM-TEXT' }
+    },
+    {
+      title: 'SD on Qwen',
+      stack: 'vLLM · CUDA · Prometheus · SLURM',
+      blurb:
+        'A rigorous speculative-decoding study on the Qwen3.5 family, sweeping ' +
+        'speculative depth and batch size on multi-GPU vLLM. It reached 2.88× ' +
+        'decode throughput (up to 2.95× on the MoE model) and found that thinking ' +
+        'mode roughly doubles the speedup, driven by longer chain-of-thought ' +
+        'outputs and KV-cache reuse.',
+      image: { src: null, w: 1280, h: 720, label: 'SD ON QWEN' }
     }
   ],
 

@@ -328,6 +328,48 @@ export function getAllAdPlacements(): AdPlacement[] {
     });
   }
 
+  // ---- Intro left curb (screen-left = −Z): the ride opens with a bare left
+  // side while the right side is packed. Mount a spread of cool-toned neon
+  // boards on the empty front-row south facades between the parked bike and the
+  // About plaza so the opening shot reads as a dense canyon on BOTH sides. These
+  // sit on real building faces (queried from the layout) and route through
+  // tryAdd, so they never overlap the procedurally-placed street boards. ----
+  const introLeftFill: Array<{ x: number; faceZ: number; h: number; halfT: number; image: string }> = [
+    { x: -488, faceZ: -17, h: 20, halfT: 10, image: 'aerix' },
+    { x: -444, faceZ: -17, h: 42, halfT: 9, image: 'cyber-brew' },
+    { x: -406, faceZ: -17, h: 57, halfT: 13, image: 'echo-wave' },
+    { x: -356, faceZ: -17, h: 20, halfT: 10, image: 'xenia' },
+    { x: -331, faceZ: -17, h: 57, halfT: 13, image: 'nightrun' },
+    { x: -304, faceZ: -17, h: 24, halfT: 6, image: 'neo-spark' },
+    { x: -259, faceZ: -17, h: 42, halfT: 9, image: 'neo-eats' },
+  ];
+  for (const f of introLeftFill) {
+    const def = AD_BILLBOARDS.find((d) => d.image === f.image) ?? AD_BILLBOARDS[0];
+    let hb = clamp(f.h * 0.42, 8, 18);
+    let w = hb * def.aspect;
+    const s = Math.min(1, (f.halfT * 2 - 1.5) / w, (f.h * 0.8) / hb);
+    w *= s;
+    hb *= s;
+    const y = clamp(f.h * 0.5, hb / 2 + 5, Math.max(hb / 2 + 5, f.h - hb / 2 - 2));
+    tryAdd({
+      id: `introfill-${f.x}`, def, mount: 'flat-wall', anchor: 'center',
+      position: [f.x, y, f.faceZ + 0.3], rotationY: 0,
+      fitBox: [w, hb],
+    });
+  }
+
+  // Recolor the single harsh-red board that sits directly over the intro title
+  // card to a cool blue ad — red read as jarring against the neon title. The
+  // city seed is deterministic, so the over-title board is a stable id; if it
+  // ever shifts, this simply no-ops rather than throwing.
+  const INTRO_RECOLOR: Record<string, string> = { 'st-st-122': 'cyber-brew' };
+  for (const p of out) {
+    const image = INTRO_RECOLOR[p.id];
+    if (!image) continue;
+    const def = AD_BILLBOARDS.find((d) => d.image === image);
+    if (def) p.def = def;
+  }
+
   cachedAll = out;
   return out;
 }

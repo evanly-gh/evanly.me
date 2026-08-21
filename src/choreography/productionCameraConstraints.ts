@@ -294,7 +294,7 @@ export const PRODUCTION_SHOT_EXPECTATIONS = Object.freeze([
   Object.freeze({
     id: 'projects-flip-1',
     semanticT: 0.41,
-    subjectIds: Object.freeze(['project-ttt-e2e', 'project-rememberme']),
+    subjectIds: Object.freeze(['project-rememberme', 'project-openchinese']),
     minimumBikeWidth: 40,
     minimumBikeHeight: 20,
   }),
@@ -309,9 +309,8 @@ export const PRODUCTION_SHOT_EXPECTATIONS = Object.freeze([
     id: 'projects-flip-2',
     semanticT: 0.59,
     subjectIds: Object.freeze([
-      'project-mandarin',
-      'project-bellevue',
-      'project-dubhacks',
+      'project-rhetbench',
+      'project-ttt-e2e',
     ]),
     minimumBikeWidth: 40,
     minimumBikeHeight: 20,
@@ -319,17 +318,14 @@ export const PRODUCTION_SHOT_EXPECTATIONS = Object.freeze([
   Object.freeze({
     id: 'research-midpoint',
     semanticT: 0.76,
-    subjectIds: Object.freeze([
-      'research-gateway-2:face-panel',
-      'research-gateway-2:facade-panel',
-    ]),
+    subjectIds: Object.freeze(['research-board-2']),
     minimumBikeWidth: 55,
     minimumBikeHeight: 32,
   }),
   Object.freeze({
     id: 'research-end',
     semanticT: 0.84,
-    subjectIds: Object.freeze(['research-end:facade-panel']),
+    subjectIds: Object.freeze(['research-board-3']),
     minimumBikeWidth: 55,
     minimumBikeHeight: 32,
   }),

@@ -126,7 +126,7 @@ import {
   styleRestaurantMaterial,
   styleShibuyaWallMaterial,
 } from './shibuyaMaterial';
-import { AdBillboard, PanelGlow } from './AdBillboard';
+import { AdBillboard } from './AdBillboard';
 import { getAllAdPlacements } from '../../world/adBillboardPlacement';
 import { createShibuyaPanelResources } from './shibuyaKit';
 import { createProjectPanelResources } from './stuntKit';
@@ -341,8 +341,12 @@ export function Signs() {
   );
 }
 
-/** Neon rim + halo glow at a section panel's world pose (w/h read from the
- *  screen matrix's scale), matching the ad-billboard look. */
+/** A very thin lit edge rim at a section panel's world pose (w/h read from the
+ *  screen matrix's scale). Deliberately NO additive halo panel behind the board
+ *  and NO thick neon border — the poster is the board; this is just a hairline
+ *  edge accent so it reads as a powered display. (The old PanelGlow drew a big
+ *  1.14×/1.5× additive glow panel + a thick emissive rim that bloom fattened
+ *  into a heavy frame.) */
 function GlowFrame({ matrix, color }: { matrix: THREE.Matrix4; color: string }) {
   const frame = useMemo(() => {
     const pos = new THREE.Vector3();
@@ -351,9 +355,31 @@ function GlowFrame({ matrix, color }: { matrix: THREE.Matrix4; color: string }) 
     matrix.decompose(pos, quat, scl);
     return { pos, quat, w: scl.x, h: scl.y };
   }, [matrix]);
+  const { w, h } = frame;
+  const t = Math.max(0.05, Math.min(w, h) * 0.004); // hairline bar thickness
+  const bars: Array<[number, number, number, number]> = [
+    [0, h / 2, w + t, t],
+    [0, -h / 2, w + t, t],
+    [-w / 2, 0, t, h + t],
+    [w / 2, 0, t, h + t],
+  ];
   return (
     <group position={frame.pos} quaternion={frame.quat}>
-      <PanelGlow w={frame.w} h={frame.h} color={color} />
+      <group position={[0, 0, 0.03]}>
+        {bars.map(([x, y, bw, bh], i) => (
+          <mesh key={i} position={[x, y, 0]}>
+            <boxGeometry args={[bw, bh, 0.1]} />
+            <meshStandardMaterial
+              color={color}
+              emissive={color}
+              emissiveIntensity={1.2}
+              toneMapped={false}
+              roughness={0.4}
+              metalness={0.2}
+            />
+          </mesh>
+        ))}
+      </group>
     </group>
   );
 }
@@ -513,7 +539,16 @@ export function ResearchGateways() {
             }}
             dispose={null}
           />
-          <GlowFrame matrix={instance.matrix} color={(instance.textureIndex ?? 0) === 0 ? '#2bfdf9' : '#ff3da6'} />
+          <GlowFrame
+            matrix={instance.matrix}
+            color={
+              (instance.textureIndex ?? 0) === 0
+                ? '#2bfdf9'
+                : (instance.textureIndex ?? 0) === 1
+                  ? '#ff3da6'
+                  : '#5cff9e'
+            }
+          />
         </Fragment>
       ))}
       {renderBoxes(

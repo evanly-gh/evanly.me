@@ -888,9 +888,9 @@ export function inspectStuntScene(
   const productionPose = buildProductionCameraRig().sample(semanticT);
   return {
     ready:
-      mountedScreens === 5
-      && mountedBackings === 5
-      && mountedAttachments === 20
+      mountedScreens === 4
+      && mountedBackings === 4
+      && mountedAttachments === 16
       && mountedEmitters === 0
       && mountedBeams === 0
       && mountedSupports === 0

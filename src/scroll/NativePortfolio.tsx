@@ -81,7 +81,7 @@ export function NativePortfolio({ mode }: { mode: NativePortfolioMode }) {
       <section id="projects" aria-labelledby="projects-heading">
         <h2 id="projects-heading">Projects</h2>
         <div className="native-card-grid">
-          {[...RESUME.projectsMain, ...RESUME.projectsSmall].map(projectCard)}
+          {RESUME.projects.map(projectCard)}
         </div>
       </section>
 

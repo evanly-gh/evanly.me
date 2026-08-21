@@ -1,7 +1,14 @@
 import type { Project } from '../content/resume';
 import { RESUME } from '../content/resume';
 import {
-  RESEARCH_GATEWAYS,
+  drawBrandLockup,
+  drawCornerBrackets,
+  drawCornerIndex,
+  drawHeroHalo,
+  drawNeonPlate,
+  drawTextBlock,
+} from '../content/billboardFrame';
+import {
   RESEARCH_WALLS,
   type ResearchVector,
 } from './researchLayout';
@@ -32,7 +39,7 @@ export interface ResearchPanel {
   id: string;
   gatewayId: string;
   parentId: string;
-  contentIndex: 0 | 1;
+  contentIndex: 0 | 1 | 2;
   mount: ResearchPanelMount;
   parentPosition: ResearchVector;
   parentRotationY: number;
@@ -97,7 +104,7 @@ function facadePanel(
   id: string,
   gatewayId: string,
   wall: typeof RESEARCH_WALLS[number],
-  contentIndex: 0 | 1,
+  contentIndex: 0 | 1 | 2,
   y: number,
   width: number,
   height: number,
@@ -132,79 +139,68 @@ function facadePanel(
   });
 }
 
-function gatewayPanels(contentIndex: 0 | 1): ResearchPanel[] {
-  const gateway = RESEARCH_GATEWAYS[contentIndex];
-  const frontWalls = RESEARCH_WALLS.filter((wall) =>
-    wall.row === 'front'
-    && Math.abs(wall.position[2] - gateway.center[2]) < 1e-6);
-  if (frontWalls.length !== 2) {
-    throw new Error(`Missing Research facade parents for ${gateway.id}`);
-  }
-  const parentPosition = gateway.center;
-  const parentRotationY = 0;
-  return [
-    panelFromParent({
-      id: `${gateway.id}:face-panel`,
-      gatewayId: gateway.id,
-      parentId: gateway.id,
-      contentIndex,
-      mount: 'gateway-face',
-      parentPosition,
-      parentRotationY,
-      localPosition: [
-        0,
-        gateway.undersideY + 5 - gateway.center[1],
-        gateway.beam.scale[2] / 2 + 0.2,
-      ],
-      localRotationY: 0,
-      width: Math.min(36, gateway.clearWidth - 4),
-      height: 9.5,
-    }),
-    ...frontWalls
-      .sort((left, right) => left.side - right.side)
-      .map((wall) => facadePanel(
-        wall.side === 1
-          ? `${gateway.id}:facade-panel`
-          : `${gateway.id}:west-facade-panel`,
-        gateway.id,
-        wall,
-        contentIndex,
-        18,
-        13,
-        22,
-      )),
-  ];
+// The research canyon reads as a signage district. The camera aims across the
+// street at the featured EAST wall, which carries the whole arrangement: one
+// extra-big board mounted high on a second-row tall tower listing a flagship
+// project (SLM Factory), with two smaller project boards on the short front-row
+// towers below/around it (RL on HRM-Text, then SD on Qwen). The WEST wall is
+// left bare — the camera never points that way, so boards there would be wasted.
+// The first board a rider meets is RL on HRM-Text (~z-538) — everything north of
+// it is left empty so the canyon "starts" there. Buildings/walls are untouched.
+type ResearchBoardRow = 'front' | 'back';
+
+interface ResearchBoardSpec {
+  id: string;
+  contentIndex: 0 | 1 | 2;
+  side: -1 | 1;
+  row: ResearchBoardRow;
+  targetZ: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
-function endPanels(): ResearchPanel[] {
-  return ([-1, 1] as const).map((side) => {
-    const parent = RESEARCH_WALLS
-      .filter((wall) => wall.row === 'back' && wall.side === side)
-      .sort((left, right) =>
-        Math.abs(left.position[2] - RESEARCH_ROUTE_END_Z)
-          - Math.abs(right.position[2] - RESEARCH_ROUTE_END_Z))[0];
-    if (!parent) throw new Error(`Missing Research end facade parent on ${side}`);
+const RESEARCH_BOARD_SPECS: readonly ResearchBoardSpec[] = [
+  // ── EAST wall (screen-right) — featured hero arrangement ──
+  // RL on HRM-Text: first board the rider meets; short-ish front tower.
+  { id: 'research-east-rl', contentIndex: 1, side: 1, row: 'front', targetZ: -538, y: 32, width: 58, height: 34 },
+  // SLM Factory: extra-big, high on the second-row 201 m tower behind the short
+  // front piece at z≈-570, so it clears the front row and dominates the frame.
+  { id: 'research-east-slm', contentIndex: 0, side: 1, row: 'back', targetZ: -571, y: 80, width: 96, height: 62 },
+  // SD on Qwen: second smaller front board, deeper down-canyon.
+  { id: 'research-east-sd', contentIndex: 2, side: 1, row: 'front', targetZ: -666, y: 38, width: 60, height: 36 },
+];
+
+function boardPanels(): ResearchPanel[] {
+  return RESEARCH_BOARD_SPECS.map((spec) => {
+    const candidates = RESEARCH_WALLS.filter(
+      (wall) => wall.row === spec.row && wall.side === spec.side,
+    );
+    if (candidates.length === 0) {
+      throw new Error(
+        `Missing Research ${spec.row}/${spec.side} walls for ${spec.id}`,
+      );
+    }
+    const wall = candidates.reduce((best, candidate) =>
+      Math.abs(candidate.position[2] - spec.targetZ)
+      < Math.abs(best.position[2] - spec.targetZ)
+        ? candidate
+        : best);
     return facadePanel(
-      side === 1
-        ? 'research-end:facade-panel'
-        : 'research-end:west-facade-panel',
-      'research-end',
-      parent,
-      side === 1 ? 1 : 0,
-      76,
-      28,
-      20,
+      spec.id,
+      spec.id,
+      wall,
+      spec.contentIndex,
+      spec.y,
+      spec.width,
+      spec.height,
     );
   });
 }
 
-const RESEARCH_ROUTE_END_Z = -740;
-
-export const RESEARCH_PANELS: readonly ResearchPanel[] = Object.freeze([
-  ...gatewayPanels(0),
-  ...gatewayPanels(1),
-  ...endPanels(),
-]);
+export const RESEARCH_PANELS: readonly ResearchPanel[] = Object.freeze(
+  boardPanels(),
+);
 
 export const RESEARCH_ART_MIN_WIDTH = 2048;
 export const RESEARCH_ART_MIN_HEIGHT = 1024;
@@ -336,7 +332,12 @@ export function buildResearchArtLayout(
     palette: {
       background: '#030811',
       surface: '#0a1623',
-      primary: panel.contentIndex === 0 ? '#2bfdf9' : '#ff3da6',
+      primary:
+        panel.contentIndex === 0
+          ? '#2bfdf9'
+          : panel.contentIndex === 1
+            ? '#ff3da6'
+            : '#5cff9e',
       secondary: '#ffc857',
       text: '#f7fbff',
       muted: '#b8c7d8',
@@ -407,35 +408,12 @@ export function measureResearchArtLineBoxes(
   });
 }
 
-/** Word-wrap `text` to fit `maxWidth` at the current context font, capped to
- *  `maxLines` (last line ellipsised if it overflows). Uniform — never squashed. */
-function wrapToWidth(
-  context: CanvasRenderingContext2D,
-  text: string,
-  maxWidth: number,
-  maxLines: number,
-): string[] {
-  const words = text.split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let line = '';
-  for (const word of words) {
-    const candidate = line ? `${line} ${word}` : word;
-    if (line && context.measureText(candidate).width > maxWidth) {
-      lines.push(line);
-      line = word;
-      if (lines.length === maxLines) break;
-    } else {
-      line = candidate;
-    }
-  }
-  if (line && lines.length < maxLines) lines.push(line);
-  return lines;
-}
-
 /**
- * Neon research panel. Aspect-correct (canvas matches the panel plane), text is
- * wrapped uniformly (no horizontal squash) and shrunk to fit, with a neon glow
- * on the frame + text to match the ad-billboard look.
+ * Neon research billboard. Aspect-correct (canvas matches the panel plane),
+ * using the shared cyberpunk ad-plate template: double neon frame, corner
+ * brackets, a right-side hero halo, a top-right index chip (the eyebrow), a
+ * left-hand text column (title / stack / blurb, all shrink-to-fit), and a
+ * bottom-left brand lockup.
  */
 export function renderResearchArt(
   context: CanvasRenderingContext2D,
@@ -444,65 +422,53 @@ export function renderResearchArt(
   const { width: W, height: H } = art.size;
   const P = art.palette;
 
-  context.fillStyle = P.background;
-  context.fillRect(0, 0, W, H);
-  const m = Math.round(Math.min(W, H) * 0.05);
-  context.fillStyle = P.surface;
-  context.fillRect(m, m, W - 2 * m, H - 2 * m);
-  // Glowing neon frame.
-  context.save();
-  context.strokeStyle = P.primary;
-  context.shadowColor = P.primary;
-  context.shadowBlur = Math.round(H * 0.02);
-  context.lineWidth = Math.max(4, Math.round(H * 0.009));
-  context.strokeRect(m, m, W - 2 * m, H - 2 * m);
-  context.restore();
+  const { inset } = drawNeonPlate(context, W, H, P);
+  drawHeroHalo(context, W, H, P.primary);
+  drawCornerBrackets(context, W, H, inset, P.primary);
+  drawCornerIndex(context, W, H, inset, art.copy.eyebrow, P.primary);
 
-  const padX = m + Math.round(W * 0.035);
+  const padX = inset + Math.round(W * 0.035);
   const maxW = W - 2 * padX;
-  const fontFor = (px: number, weight: string, mono: boolean) =>
-    `${weight} ${Math.round(px)}px ${mono ? 'ui-monospace, monospace' : 'Inter, system-ui, sans-serif'}`;
-  context.textBaseline = 'top';
-  let y = m + Math.round(H * 0.06);
+  let y = inset + Math.round(H * 0.13);
 
-  // A text block: shrinks its font until every wrapped line fits maxW, then
-  // draws with a coloured glow. Advances the vertical cursor.
-  const block = (
-    text: string,
-    sizePx: number,
-    color: string,
-    weight: string,
-    mono: boolean,
-    maxLines: number,
-    glow: number,
-  ): void => {
-    if (!text) return;
-    let fs = sizePx;
-    let lines: string[] = [];
-    for (let i = 0; i < 6; i += 1) {
-      context.font = fontFor(fs, weight, mono);
-      lines = wrapToWidth(context, text, maxW, maxLines);
-      const widest = Math.max(...lines.map((l) => context.measureText(l).width), 1);
-      if (widest <= maxW) break;
-      fs *= maxW / widest; // shrink uniformly to fit
-    }
-    context.font = fontFor(fs, weight, mono);
-    context.save();
-    context.fillStyle = color;
-    context.shadowColor = color;
-    context.shadowBlur = glow;
-    const lh = fs * 1.14;
-    for (const l of lines) {
-      context.fillText(l, padX, y);
-      y += lh;
-    }
-    context.restore();
-    y += fs * 0.35; // gap after block
-  };
-
-  block(art.copy.eyebrow, H * 0.045, P.primary, '700', true, 1, H * 0.02);
-  block(art.copy.title, H * 0.11, P.text, '800', false, 3, H * 0.03);
+  y = drawTextBlock(context, {
+    text: art.copy.title,
+    x: padX,
+    y,
+    maxWidth: maxW,
+    maxLines: 3,
+    sizePx: H * 0.11,
+    color: P.text,
+    weight: '800',
+    mono: false,
+    glow: H * 0.03,
+  });
   y += H * 0.01;
-  block(art.copy.stack, H * 0.055, P.secondary, '700', true, 2, H * 0.018);
-  block(art.copy.blurb, H * 0.052, P.muted, '600', false, 6, H * 0.012);
+  y = drawTextBlock(context, {
+    text: art.copy.stack,
+    x: padX,
+    y,
+    maxWidth: maxW,
+    maxLines: 2,
+    sizePx: H * 0.055,
+    color: P.secondary,
+    weight: '700',
+    mono: true,
+    glow: H * 0.018,
+  });
+  drawTextBlock(context, {
+    text: art.copy.blurb,
+    x: padX,
+    y,
+    maxWidth: maxW,
+    maxLines: 8,
+    sizePx: H * 0.05,
+    color: P.muted,
+    weight: '600',
+    mono: false,
+    glow: H * 0.012,
+    maxHeight: (H - inset - Math.round(H * 0.11)) - y,
+  });
+
+  drawBrandLockup(context, W, H, inset, 'EVAN LI // RESEARCH', P.primary, P.text);
 }

@@ -2,7 +2,7 @@ import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { calculateRenderedScale } from '../../world/buildingCatalog';
+import { calculateRenderedScale, BUILDING_CATALOG } from '../../world/buildingCatalog';
 import {
   buildModelSpatialBuckets,
   buildSpatialChunks,
@@ -411,6 +411,18 @@ function InstancedMergedChunk({
   );
 }
 
+// The two most triangle-dense city models cost far more than they're worth for a
+// scroll-past background: LG_C_Main is 256K tris (×19 placements) and BuildingC
+// is 113K (×30). Substitute lighter look-alikes — a tall tower and a small
+// building — scaled to fill each original's bounding box (see InstancedFile) so
+// the native-scale layout is unchanged and nothing overlaps. Removes ~5.8M
+// triangles from the heavy intro/about shots. Delete this map to restore the
+// original models.
+const HEAVY_MODEL_SWAPS: Record<string, string> = {
+  'neocity/KB3D_NEC_BldgLG_C_Main.glb': 'neocity/KB3D_NEC_BldgLG_B_Main.glb',
+  'neocity/KB3D_NEC_BldgLG_A_BuildingC.glb': 'neocity/KB3D_NEC_BldgLG_A_BuildingA.glb',
+};
+
 function InstancedFile({
   file,
   items,
@@ -426,7 +438,8 @@ function InstancedFile({
   instanceColor?: InstancedColorResolver;
   inspectionGroupName?: string;
 }) {
-  const { scene } = useGLTF('/models/' + file);
+  const renderFile = HEAVY_MODEL_SWAPS[file] ?? file;
+  const { scene } = useGLTF('/models/' + renderFile);
   const { sourceParts, footRadius, height } = useMemo(() => {
     scene.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(scene);
@@ -435,7 +448,25 @@ function InstancedFile({
     const cx = (box.min.x + box.max.x) / 2;
     const cz = (box.min.z + box.max.z) / 2;
     const ground = new THREE.Matrix4().makeTranslation(-cx, -box.min.y, -cz);
-    const sizeX = box.max.x - box.min.x, sizeZ = box.max.z - box.min.z;
+    // Heavy-model substitution: non-uniformly rescale the (lighter) substitute to
+    // the ORIGINAL model's bounding box so it fills exactly the slot the layout
+    // packed. Placements render at native scale, so the box must match or the
+    // swapped building would resize and overlap its neighbours.
+    let sizeX = box.max.x - box.min.x;
+    let sizeY = box.max.y - box.min.y;
+    let sizeZ = box.max.z - box.min.z;
+    let prescale: THREE.Matrix4 | null = null;
+    if (renderFile !== file) {
+      const orig = BUILDING_CATALOG.get(file)?.size;
+      if (orig) {
+        prescale = new THREE.Matrix4().makeScale(
+          orig.x / (sizeX || 1),
+          orig.y / (sizeY || 1),
+          orig.z / (sizeZ || 1),
+        );
+        sizeX = orig.x; sizeY = orig.y; sizeZ = orig.z;
+      }
+    }
     const radius = 0.5 * Math.hypot(sizeX, sizeZ) || 1;
     const out: {
       geometry: THREE.BufferGeometry;
@@ -450,6 +481,7 @@ function InstancedFile({
         ground,
         m.matrixWorld,
       );
+      if (prescale) local.premultiply(prescale);
       if (Array.isArray(m.material)) {
         for (const group of m.geometry.groups) {
           const sourceMaterial = m.material[group.materialIndex ?? 0];
@@ -472,9 +504,9 @@ function InstancedFile({
     return {
       sourceParts: out,
       footRadius: radius,
-      height: box.max.y - box.min.y || 1,
+      height: sizeY || 1,
     };
-  }, [scene]);
+  }, [scene, file, renderFile]);
 
   const owned = useCommittedThreeResource(
     `instanced:${file}`,

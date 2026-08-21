@@ -1,4 +1,13 @@
 import { RESUME, type ImageSlot } from './resume';
+import {
+  type BillboardPalette,
+  drawBrandLockup,
+  drawCornerBrackets,
+  drawCornerIndex,
+  drawHeroHalo,
+  drawTextBlock,
+  withAlpha,
+} from './billboardFrame';
 
 export const ABOUT_PORTRAIT_FALLBACK_SRC =
   '/images/about/about-portrait-placeholder.webp';
@@ -60,6 +69,9 @@ export function resolveAboutPortraitSrc(
   return slot.src?.trim() || ABOUT_PORTRAIT_FALLBACK_SRC;
 }
 
+// Approximate char-based wrap used only for readability metrics (line counts).
+// The actual on-canvas text is measured + shrink-to-fit at render time via the
+// shared billboardFrame helpers, so this never needs to throw on long copy.
 function wrapWordsByCharacters(
   text: string,
   maximumCharacters: number,
@@ -72,14 +84,10 @@ function wrapWordsByCharacters(
     if (line && candidate.length > maximumCharacters) {
       lines.push(line);
       line = word;
+      if (lines.length === maximumLines) break;
     } else line = candidate;
   }
-  if (line) lines.push(line);
-  if (lines.length > maximumLines) {
-    throw new Error(
-      `About copy needs ${lines.length} lines; maximum is ${maximumLines}`,
-    );
-  }
+  if (line && lines.length < maximumLines) lines.push(line);
   return lines;
 }
 
@@ -87,26 +95,41 @@ export function buildAboutArtLayout(
   portraitSrc = resolveAboutPortraitSrc(),
 ): AboutArtLayout {
   const isPlaceholder = portraitSrc === ABOUT_PORTRAIT_FALLBACK_SRC;
+  const { width: W, height: H } = ABOUT_ART_SIZE;
+  // Reference layout: a left-hand text column and the portrait as a right-side
+  // hero. Portrait region matches the placeholder aspect (1024x1536 ≈ 0.667).
+  const portraitW = 880;
+  const portraitH = 1410;
+  const portraitX = W - portraitW - 110;
+  const portraitY = Math.round((H - portraitH) / 2);
+  const colX = 150;
+  const colW = portraitX - colX - 110;
   return {
     size: ABOUT_ART_SIZE,
     pixelsPerMetre: ABOUT_ART_SIZE.width / ABOUT_SCREEN_WIDTH_METRES,
     regions: [
-      { id: 'background', x: 0, y: 0, width: 3072, height: 2048 },
-      { id: 'portrait', x: 80, y: 80, width: 1000, height: 1580 },
+      { id: 'background', x: 0, y: 0, width: W, height: H },
+      { id: 'portrait', x: portraitX, y: portraitY, width: portraitW, height: portraitH },
       ...(isPlaceholder
-        ? [{ id: 'portrait-badge' as const, x: 120, y: 1280, width: 920, height: 340 }]
+        ? [{
+          id: 'portrait-badge' as const,
+          x: portraitX + Math.round((portraitW - 620) / 2),
+          y: portraitY + Math.round(portraitH / 2) - 170,
+          width: 620,
+          height: 340,
+        }]
         : []),
-      { id: 'name', x: 1160, y: 90, width: 1832, height: 360 },
-      { id: 'tagline', x: 1160, y: 500, width: 1832, height: 430 },
-      { id: 'bio', x: 1160, y: 980, width: 1832, height: 520 },
-      { id: 'contact', x: 80, y: 1740, width: 2912, height: 228 },
+      { id: 'name', x: colX, y: 200, width: colW, height: 280 },
+      { id: 'tagline', x: colX, y: 480, width: colW, height: 260 },
+      { id: 'bio', x: colX, y: 660, width: colW, height: 1120 },
+      { id: 'contact', x: colX, y: 1790, width: colW, height: 150 },
     ],
     typography: {
-      name: 320,
-      tagline: 190,
-      bio: 190,
-      contact: 185,
-      badge: 155,
+      name: 300,
+      tagline: 150,
+      bio: 150,
+      contact: 120,
+      badge: 130,
     },
     portrait: {
       src: portraitSrc,
@@ -116,7 +139,7 @@ export function buildAboutArtLayout(
     copy: {
       name: RESUME.name,
       taglineLines: [...RESUME.about.heroTagline],
-      bioLines: wrapWordsByCharacters(RESUME.about.heroBlurb, 22, 3),
+      bioLines: wrapWordsByCharacters(RESUME.about.paragraph, 46, 10),
       footerLines: [RESUME.contact.email],
       email: RESUME.contact.email,
     },
@@ -187,6 +210,15 @@ export function measureAboutArtReadability(
   };
 }
 
+const ABOUT_PALETTE: BillboardPalette = {
+  background: '#05091a',
+  surface: '#071326',
+  primary: '#2bfdf9',
+  secondary: '#ff3da6',
+  text: '#f4f8ff',
+  muted: '#cad6e8',
+};
+
 export function renderAboutArt(
   context: CanvasRenderingContext2D,
   portrait: CanvasImageSource,
@@ -199,15 +231,32 @@ export function renderAboutArt(
   const name = region('name');
   const tagline = region('tagline');
   const bio = region('bio');
-  const contact = region('contact');
+  const { width: W, height: H } = layout.size;
+  const P = ABOUT_PALETTE;
 
-  const gradient = context.createLinearGradient(0, 0, layout.size.width, layout.size.height);
+  // Base plate: diagonal gradient background + double neon frame / brackets.
+  const gradient = context.createLinearGradient(0, 0, W, H);
   gradient.addColorStop(0, '#05091a');
   gradient.addColorStop(0.58, '#071326');
   gradient.addColorStop(1, '#17051c');
   context.fillStyle = gradient;
-  context.fillRect(0, 0, layout.size.width, layout.size.height);
+  context.fillRect(0, 0, W, H);
+  const inset = Math.round(Math.min(W, H) * 0.026);
+  context.save();
+  context.strokeStyle = withAlpha(P.primary, 0.5);
+  context.lineWidth = Math.max(2, Math.round(H * 0.003));
+  context.strokeRect(inset * 0.55, inset * 0.55, W - inset * 1.1, H - inset * 1.1);
+  context.strokeStyle = P.primary;
+  context.shadowColor = P.primary;
+  context.shadowBlur = Math.round(H * 0.01);
+  context.lineWidth = Math.max(3, Math.round(H * 0.006));
+  context.strokeRect(inset, inset, W - inset * 2, H - inset * 2);
+  context.restore();
+  drawCornerBrackets(context, W, H, inset, P.primary);
+  drawCornerIndex(context, W, H, inset, 'ABOUT', P.primary);
 
+  // Right-side hero: portrait with a neon halo + frame.
+  drawHeroHalo(context, W, H, P.primary);
   context.save();
   context.beginPath();
   context.rect(
@@ -225,22 +274,25 @@ export function renderAboutArt(
     portraitRegion.height,
   );
   context.restore();
-
-  context.strokeStyle = '#2bfdf9';
-  context.lineWidth = 12;
+  context.save();
+  context.strokeStyle = P.primary;
+  context.shadowColor = P.primary;
+  context.shadowBlur = Math.round(H * 0.008);
+  context.lineWidth = 10;
   context.strokeRect(
     portraitRegion.x,
     portraitRegion.y,
     portraitRegion.width,
     portraitRegion.height,
   );
+  context.restore();
   if (badge && layout.portrait.isPlaceholder) {
     context.fillStyle = 'rgba(4, 7, 17, 0.88)';
     context.fillRect(badge.x, badge.y, badge.width, badge.height);
-    context.strokeStyle = '#ff3da6';
+    context.strokeStyle = P.secondary;
     context.lineWidth = 14;
     context.strokeRect(badge.x, badge.y, badge.width, badge.height);
-    context.fillStyle = '#f4f8ff';
+    context.fillStyle = P.text;
     context.textAlign = 'center';
     context.textBaseline = 'top';
     context.font = `800 ${layout.typography.badge}px ui-monospace, SFMono-Regular, Consolas, monospace`;
@@ -248,39 +300,62 @@ export function renderAboutArt(
       context.fillText(
         line,
         badge.x + badge.width / 2,
-        badge.y + 24 + index * 154,
+        badge.y + 40 + index * (layout.typography.badge + 24),
         badge.width - 48,
       );
     });
     context.textAlign = 'start';
   }
-  context.fillStyle = '#ff3da6';
-  context.fillRect(name.x, name.y - 20, 220, 12);
 
-  context.textBaseline = 'top';
-  context.fillStyle = '#f4f8ff';
-  context.font = `800 ${layout.typography.name}px Inter, Arial, sans-serif`;
-  context.fillText(layout.copy.name, name.x, name.y, name.width);
+  // Left text column — accent tick, name, tagline, bio paragraph (shrink-to-fit).
+  context.save();
+  context.fillStyle = P.secondary;
+  context.shadowColor = P.secondary;
+  context.shadowBlur = Math.round(H * 0.015);
+  context.fillRect(name.x, name.y - 34, 240, 14);
+  context.restore();
 
-  context.fillStyle = '#2bfdf9';
-  context.font = `700 ${layout.typography.tagline}px Inter, Arial, sans-serif`;
-  layout.copy.taglineLines.forEach((line, index) => {
-    context.fillText(line, tagline.x, tagline.y + index * 220, tagline.width);
+  let y = name.y;
+  y = drawTextBlock(context, {
+    text: layout.copy.name,
+    x: name.x,
+    y,
+    maxWidth: name.width,
+    maxLines: 1,
+    sizePx: layout.typography.name,
+    color: P.text,
+    weight: '800',
+    mono: false,
+    glow: H * 0.02,
+  });
+  y = Math.max(y, tagline.y);
+  y = drawTextBlock(context, {
+    text: layout.copy.taglineLines.join('  ·  '),
+    x: tagline.x,
+    y,
+    maxWidth: tagline.width,
+    maxLines: 2,
+    sizePx: layout.typography.tagline,
+    color: P.primary,
+    weight: '700',
+    mono: false,
+    glow: H * 0.015,
+  });
+  y = Math.max(y, bio.y);
+  drawTextBlock(context, {
+    text: RESUME.about.paragraph,
+    x: bio.x,
+    y,
+    maxWidth: bio.width,
+    maxLines: 15,
+    sizePx: layout.typography.bio,
+    color: P.muted,
+    weight: '600',
+    mono: false,
+    glow: H * 0.008,
+    lineHeightScale: 1.18,
+    maxHeight: (H - inset - Math.round(H * 0.055)) - y,
   });
 
-  context.fillStyle = '#cad6e8';
-  context.font = `600 ${layout.typography.bio}px Inter, Arial, sans-serif`;
-  layout.copy.bioLines.forEach((line, index) => {
-    context.fillText(line, bio.x, bio.y + index * 220, bio.width);
-  });
-
-  context.fillStyle = '#f4f8ff';
-  context.font = `600 ${layout.typography.contact}px ui-monospace, SFMono-Regular, Consolas, monospace`;
-  layout.copy.footerLines.forEach((line, index) => {
-    context.fillText(line, contact.x, contact.y + index * 190, contact.width);
-  });
-
-  context.strokeStyle = '#ff3da6';
-  context.lineWidth = 8;
-  context.strokeRect(34, 34, layout.size.width - 68, layout.size.height - 68);
+  drawBrandLockup(context, W, H, inset, layout.copy.email, P.primary, P.text);
 }

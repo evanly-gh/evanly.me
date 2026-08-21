@@ -132,7 +132,8 @@ export const STUNT_KEEP_CLEAR: Readonly<StuntProtectedRect> = Object.freeze({
   x0: STUNT_KEEP_CLEAR_X0,
   x1: 340,
   // Extended south to -345 so no roadside building lands in front of the last
-  // backdrop panel (project-dubhacks on stunt-backdrop-8 at z≈-334).
+  // backdrop panel (project-ttt-e2e on stunt-backdrop-7 at z≈-298) or the
+  // backdrop wall behind it.
   z0: -345,
   z1: -55,
 });

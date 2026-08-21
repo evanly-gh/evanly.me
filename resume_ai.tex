@@ -1,0 +1,108 @@
+\documentclass[letterpaper,10pt]{article}
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\input{glyphtounicode}
+
+\pagestyle{fancy}\fancyhf{}\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}\renewcommand{\footrulewidth}{0pt}
+\addtolength{\oddsidemargin}{-0.55in}\addtolength{\evensidemargin}{-0.55in}
+\addtolength{\textwidth}{1.1in}\addtolength{\topmargin}{-.55in}\addtolength{\textheight}{1.2in}
+\urlstyle{same}\raggedbottom\raggedright\setlength{\tabcolsep}{0in}
+\titleformat{\section}{\vspace{-6pt}\scshape\raggedright\large}{}{0em}{}[\color{black}\titlerule \vspace{-6pt}]
+\pdfgentounicode=1
+\newcommand{\resumeItem}[1]{\item\small{{#1 \vspace{-4pt}}}}
+\newcommand{\resumeSubheading}[4]{\vspace{-2pt}\item\begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}\textbf{#1} & #2 \\\textit{\small#3} & \textit{\small #4} \\\end{tabular*}\vspace{-7pt}}
+\newcommand{\resumeProjectHeading}[2]{\item\begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}\small#1 & #2 \\\end{tabular*}\vspace{-7pt}}
+\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-7pt}}
+
+\begin{document}
+\begin{center}
+    \textbf{\Huge \scshape Evan Li} \\ \vspace{2pt}
+    \href{mailto:evanly@uw.edu}{\underline{evanly@uw.edu}} $|$
+    \href{https://www.linkedin.com/in/evanhly/}{\underline{linkedin.com/in/evanhly}} $|$
+    \href{https://github.com/evanly-gh}{\underline{github.com/evanly-gh}} $|$
+    \href{https://evanly-me.vercel.app/}{\underline{Portfolio Website}}
+\end{center}
+
+\section{Education}
+\resumeSubHeadingListStart
+  \resumeSubheading{University of Washington}{Seattle, WA}{B.S. Computer Science \& B.S. Economics, Interdisciplinary Honors}{Expected June 2027}
+  \resumeItemListStart
+    \resumeItem{GPA: 3.9 $|$ Coursework: Deep Learning, Machine Learning, Natural Language Processing (NLP), Data Structures \& Parallelism, Mobile AI Capstone}
+  \resumeItemListEnd
+\resumeSubHeadingListEnd
+
+\section{Research \& Experience}
+\resumeSubHeadingListStart
+  \resumeSubheading{AI Research Intern}{Spring 2026 -- Present}{Mobile Intelligence Lab, University of Washington $|$ Advised by Prof. Shyam Gollakota \& PhD student Wen Cheng}{Seattle, WA}
+  \resumeItemListStart
+    \resumeItem{Built \textbf{SLM Factory}, an \textbf{agentic LLM fine-tuning pipeline} (LangGraph) that automates a closed-loop \textbf{Parameter-Efficient Fine-Tuning (PEFT/LoRA)} search (task analysis, data curation, and model selection) over an 18-variant Qwen3.5 model pool under on-device \textbf{RAM and quantization constraints}.}
+    \resumeItem{Fine-tuned quantized phone-sized models from near-zero baselines, raising \textbf{BC5CDR biomedical NER span-F1 from 0.03 to 0.86} and \textbf{GSM8K math from 0.67 to 0.83}, with \textbf{quantization-honest GGUF (4-bit) evaluation} on the real artifacts models run on-device.}
+    \resumeItem{Engineered \textbf{durable multi-day training infrastructure} on \textbf{SLURM} (2$\times$ L40S GPUs, checkpoint/requeue, locked cost ledger) that produces a fully optimized fine-tuned model for about \textbf{\$5 and one day of compute}; targeting \textbf{MLSys, MobiCom 2027, and MobiSys} submissions.}
+  \resumeItemListEnd
+
+  \resumeProjectHeading{\textbf{Founding Developer, KleoKlaw}}{Mar 2026 -- Present}
+  \resumeItemListStart
+    \resumeItem{\textbf{KleoKlaw} is a multi-tenant AI job-application platform that auto-submits tailored applications via an SMS chatbot.}
+    \resumeItem{Led \textbf{full-stack development} on a \textbf{4-person founding team}, building the entire \textbf{applicant-tracking-system (ATS) automation engine} (\textbf{Python/FastAPI}, \textbf{Playwright}) that has submitted \textbf{1,000+ real job applications} across \textbf{150,000+ postings} for $\sim$100 users.}
+    \resumeItem{Built a \textbf{fault-tolerant PostgreSQL task queue} and per-user \textbf{encrypted credential vault} (PyNaCl), and fixed a bottleneck that had stalled processing at \textbf{166,000 backlogged jobs} (only $\sim$80 had gone through), restoring job matching across 4 platforms (Greenhouse, Workday, Lever, Ashby).}
+  \resumeItemListEnd
+\resumeSubHeadingListEnd
+
+\section{Projects}
+\resumeSubHeadingListStart
+
+  \resumeProjectHeading
+    {\textbf{Speculative Decoding on Qwen3.5} $|$ \emph{PyTorch, vLLM, CUDA $|$ Advised by Prof. Ranjay Krishna}}{Spring 2026}
+  \resumeItemListStart
+    \resumeItem{Accelerated \textbf{LLM inference} via \textbf{speculative decoding} to \textbf{2.88$\times$ decode throughput} (up to \textbf{2.95$\times$} on MoE 35B-A3B) on the Qwen3.5 family, sweeping speculative depth ($k$=1--6) and batch size (1--16) on \textbf{2$\times$ L40S} GPUs via native \textbf{MTP self-speculation} ($k$=4 optimal).}
+    \resumeItem{Discovered that speculative decoding roughly \textbf{doubles its speedup under thinking mode} (up to \textbf{5.9$\times$} at batch 16 vs.\ 2.95$\times$ standard), driven by longer chain-of-thought outputs and KV-cache reuse, using an \textbf{inference-benchmarking harness} (\textbf{vLLM} + \textbf{Prometheus}); presented at the UW CSE end-of-year showcase.}
+  \resumeItemListEnd
+
+  \resumeProjectHeading
+    {\textbf{RL Post-Training of HRM-Text (RLVR)} $|$ \emph{PyTorch, HuggingFace, PEFT, RLVR (GRPO/DAPO)}}{Spring 2026}
+  \resumeItemListStart
+    \resumeItem{Applied \textbf{RL post-training with verifiable rewards (RLVR)} to a \textbf{1.1B double-recurrent PrefixLM}, raising \textbf{MATH pass@1 from 64.4\% to 66.7\%}; led the RL workstream (5-person team), hand-implementing \textbf{SFT + policy optimization (GRPO/DAPO)} on \textbf{2$\times$ H200} GPUs for a model unsupported by existing RL libraries.}
+    \resumeItem{Owned all GPU training, scripts, and data curation; showed that difficulty-matched prompts yielded roughly \textbf{4$\times$ the useful learning signal}, and characterized RL's pass@1 to pass@k sharpening ceiling at 1B scale.}
+  \resumeItemListEnd
+
+  \resumeProjectHeading
+    {\textbf{RememberMe: CV Pipeline \& Beauty Regressor} $|$ \emph{PyTorch, ResNet-50, FastAPI, pgvector}}{Sept 2025 -- Present}
+  \resumeItemListStart
+    \resumeItem{As \textbf{Team Lead} (Husky Coding Project, UW RSO), trained a \textbf{ResNet-50} facial-attractiveness regressor on \textbf{SCUT-FBP5500} to \textbf{MAE $\leq$ 0.27, Pearson $r \approx 0.88$} (near SOTA) with \textbf{distributed training} (PyTorch DDP, \textbf{4$\times$ RTX 6000}), and shipped a \textbf{6-model computer-vision pipeline} with \textbf{pgvector semantic search}; model published to Hugging Face.}
+  \resumeItemListEnd
+
+\resumeSubHeadingListEnd
+
+\section{Technical Skills}
+\begin{itemize}[leftmargin=0.15in, label={}]
+  \small{\item{
+    \textbf{Languages}{: Python, TypeScript, JavaScript, Java, C/C++, SQL} \\
+    \textbf{ML / AI}{: PyTorch, Hugging Face Transformers, vLLM, PEFT/LoRA, RAG, scikit-learn, OpenCV, MediaPipe} \\
+    \textbf{ML Techniques}{: SFT, RL post-training (RLVR/GRPO/DAPO), speculative decoding, GGUF quantization, evals} \\
+    \textbf{Infrastructure / MLOps}{: SLURM, CUDA/GPU, Docker, CI/CD, FastAPI, Postgres/pgvector, llama.cpp, AWS, Git} \\
+    \textbf{Agentic Tooling}{: LangGraph, Cursor, Claude Code, Codex, GitHub Copilot, MCP}
+  }}
+\end{itemize}
+
+\section{Leadership \& Awards}
+\resumeItemListStart
+  \resumeItem{\textbf{Chief Technical Officer}, SWECC (Software Engineering Career Club, UW), Spring 2026 -- Present: lead the club's open-source software projects and technical infrastructure.}
+  \resumeItem{\textbf{NCFCA National Championship} (national speech \& debate league, 3,000+ students): \textbf{2nd place} in Lincoln-Douglas value debate and \textbf{2nd place} in Team Policy debate, 2023--2024.}
+  \resumeItem{\textbf{SWECCATHON 2026}: Overall Winner \& Real-World Application Track (solo); 2nd place, Bellevue College Hackathon 2024; DubHacks 2025 $|$ Interdisciplinary Honors; Dean's List (Autumn 2025, Winter 2026, Spring 2026).}
+\resumeItemListEnd
+
+\end{document}

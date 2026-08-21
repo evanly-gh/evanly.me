@@ -42,11 +42,15 @@ const cameraLift = (t: number): number => THREE.MathUtils.lerp(
   (t - RESEARCH_ROUTE.startT) / (RESEARCH_ROUTE.endT - RESEARCH_ROUTE.startT),
 );
 
+// Offset from the route toward the west side of the canyon. Kept at 16 so the
+// camera sits comfortably inside the street (route centre x240) and never nears
+// the west curb — going wider tripped the auto no-clip guard, which lifted the
+// camera up over the buildings instead of holding the street-level shot.
 const CAMERA_ROUTE_OFFSET = 16;
 const MERGE_CAMERA_ROUTE_OFFSET = 16;
+// Aim across the street at the featured EAST wall (positive lateral bias) with a
+// moderate forward throw, so the right-hand billboards fill the frame.
 const CAMERA_FORWARD_LOOK = 32;
-// Pan further toward the research billboard wall (+binormal / building side) so
-// the facades fill the frame instead of the empty canal side on the left.
 const CAMERA_TARGET_LATERAL = 33;
 
 function cameraKey(t: number): CamKey {
@@ -338,23 +342,19 @@ export function measureResearchLayerFraming(
 }
 
 export function activeResearchPanelIds(semanticT: number): string[] {
-  if (semanticT >= 0.81) {
-    return RESEARCH_PANELS
-      .filter(({ gatewayId }) => gatewayId === 'research-end')
-      .map(({ id }) => id);
+  // Three billboards line the canyon; the "active" one for occlusion/moon-
+  // competition checks is whichever board the camera is nearest to along z.
+  const routeZ = sampleRoute(semanticT).pos.z;
+  let best: ResearchPanel | undefined;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const panel of RESEARCH_PANELS) {
+    const distance = Math.abs(panel.position[2] - routeZ);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = panel;
+    }
   }
-  const gatewayNumber = Math.abs(semanticT - RESEARCH_CAMERA_TIMES.gateway1)
-    <= Math.abs(semanticT - RESEARCH_CAMERA_TIMES.gateway2) ? 1 : 2;
-  const gatewayPanels = RESEARCH_PANELS
-    .filter(({ gatewayId }) => gatewayId === `research-gateway-${gatewayNumber}`)
-    .map(({ id }) => id);
-  if (gatewayNumber === 1) return gatewayPanels;
-  return [
-    ...gatewayPanels,
-    ...RESEARCH_PANELS
-      .filter(({ gatewayId }) => gatewayId === 'research-end')
-      .map(({ id }) => id),
-  ];
+  return best ? [best.id] : [];
 }
 
 export interface ResearchMoonCompetition {

@@ -1,5 +1,13 @@
 import type { ImageSlot, Project } from '../content/resume';
 import { RESUME } from '../content/resume';
+import {
+  drawBrandLockup,
+  drawCornerBrackets,
+  drawCornerIndex,
+  drawHeroHalo,
+  drawNeonPlate,
+  drawTextBlock,
+} from '../content/billboardFrame';
 import { buildingPlacementBounds } from './buildingCatalog';
 import {
   STUNT_BACKDROP,
@@ -84,81 +92,69 @@ const panelDefinition = (
   protectedRadius,
 });
 
+// Exactly four project billboards, one per RESUME.projects entry, mounted flat on
+// the west facades of the backdrop wall the hero camera flies past. Each is ~equal
+// area (~1,500) but a distinct aspect so the four read as a unique set. flip-1 =
+// RememberMe + OpenChinese (first flight), flip-2 = RhetBench + TTT-E2E (second).
 const STUNT_PROJECT_PANEL_DEFINITIONS = Object.freeze([
   panelDefinition(
-    'project-ttt-e2e',
+    'project-rememberme',
     'flip-1',
     'stunt-backdrop-2',
     5,
-    30,
-    12,
-    50,
-    30,
-    RESUME.projectsMain[0],
-    'facade-hero',
+    26,
+    16,
+    40,
+    37,
+    RESUME.projects[0],
+    'facade-portrait',
     'facade',
     'cyan-noir',
     'clean-cyan-frame',
     1,
   ),
   panelDefinition(
-    'project-rememberme',
+    'project-openchinese',
     'flip-1',
     'stunt-backdrop-3',
     5,
-    22,
-    3,
-    32,
-    34,
-    RESUME.projectsMain[1],
-    'facade-portrait',
+    24,
+    -2,
+    52,
+    29,
+    RESUME.projects[1],
+    'facade-hero',
     'facade',
     'amber-editorial',
     'clean-amber-frame',
     1,
   ),
   panelDefinition(
-    'project-mandarin',
+    'project-rhetbench',
     'flip-2',
     'stunt-backdrop-6',
     5,
-    44,
-    3,
     28,
-    26,
-    RESUME.projectsSmall[0],
+    15,
+    38,
+    39,
+    RESUME.projects[2],
     'floating-hologram',
     'facade',
     'violet-holo',
     'clean-violet-frame',
-    7.8,
+    1,
   ),
   panelDefinition(
-    'project-bellevue',
+    'project-ttt-e2e',
     'flip-2',
     'stunt-backdrop-7',
     5,
-    31,
-    10.5,
-    34,
-    20,
-    RESUME.projectsSmall[1],
-    'scaffold-hung',
-    'facade',
-    'hazard-paper',
-    'clean-lime-frame',
-    1.2,
-  ),
-  panelDefinition(
-    'project-dubhacks',
-    'flip-2',
-    'stunt-backdrop-8',
-    5,
-    18,
-    10,
-    40,
-    16,
-    RESUME.projectsSmall[2],
+    25,
+    6,
+    58,
+    26,
+    RESUME.projects[3],
     'facade-ribbon',
     'facade',
     'magenta-ribbon',
@@ -204,7 +200,7 @@ export function buildStuntProjectPanels(
       height: definition.height,
       title: definition.project.title,
       stack: definition.project.stack,
-      blurb: definition.project.displayBlurb,
+      blurb: definition.project.blurb,
       image: definition.project.image,
       format: definition.format,
       mount: definition.mount,
@@ -289,10 +285,10 @@ const artTypography = (
 };
 
 const ART_PROFILES = Object.freeze({
+  // OpenChinese — 52x29 panel (aspect 1.793); amber editorial.
   'facade-hero': Object.freeze({
-    // width matched to the 50x30 panel aspect (1.667) so text isn't stretched
-    size: Object.freeze({ width: 1280, height: 768 }),
-    typography: artTypography(768, 0.145, 0.085, 0.075),
+    size: Object.freeze({ width: 1280, height: 714 }),
+    typography: artTypography(714, 0.145, 0.085, 0.075),
     palette: Object.freeze({
       background: '#02070d',
       surface: '#071827',
@@ -302,10 +298,10 @@ const ART_PROFILES = Object.freeze({
       muted: '#b8d7df',
     }),
   }),
+  // RememberMe — 40x37 panel (aspect 1.081); near-square amber/cyan.
   'facade-portrait': Object.freeze({
-    // width matched to the 32x34 panel aspect (0.94) so text isn't stretched
-    size: Object.freeze({ width: 964, height: 1024 }),
-    typography: artTypography(1024, 0.14),
+    size: Object.freeze({ width: 984, height: 912 }),
+    typography: artTypography(912, 0.14),
     palette: Object.freeze({
       background: '#120b04',
       surface: '#271709',
@@ -315,10 +311,10 @@ const ART_PROFILES = Object.freeze({
       muted: '#e3c99c',
     }),
   }),
+  // RhetBench — 38x39 panel (aspect 0.974); portrait violet holo.
   'floating-hologram': Object.freeze({
-    // width matched to the 28x26 panel aspect (1.08) so text isn't stretched
-    size: Object.freeze({ width: 965, height: 896 }),
-    typography: artTypography(896, 0.142, 0.085, 0.09),
+    size: Object.freeze({ width: 940, height: 964 }),
+    typography: artTypography(964, 0.142, 0.085, 0.09),
     palette: Object.freeze({
       background: '#09051a',
       surface: '#15113d',
@@ -328,8 +324,8 @@ const ART_PROFILES = Object.freeze({
       muted: '#c9c0ef',
     }),
   }),
+  // Unused spare profile (kept for the format union); lime scaffold look.
   'scaffold-hung': Object.freeze({
-    // width matched to the 34x20 panel aspect (1.7) so text isn't stretched
     size: Object.freeze({ width: 1197, height: 704 }),
     typography: artTypography(704, 0.145, 0.085, 0.08),
     palette: Object.freeze({
@@ -341,10 +337,10 @@ const ART_PROFILES = Object.freeze({
       muted: '#d6dab9',
     }),
   }),
+  // TTT-E2E — 58x26 panel (aspect 2.231); wide magenta ribbon.
   'facade-ribbon': Object.freeze({
-    // width matched to the 40x16 panel aspect (2.5) so text isn't stretched
-    size: Object.freeze({ width: 1020, height: 408 }),
-    typography: artTypography(408, 0.18, 0.155, 0.16),
+    size: Object.freeze({ width: 1280, height: 574 }),
+    typography: artTypography(574, 0.15, 0.09, 0.075),
     palette: Object.freeze({
       background: '#13030e',
       surface: '#28081f',
@@ -462,97 +458,67 @@ export function buildProjectArtLayout(
   };
 }
 
-function wrapLines(
-  context: CanvasRenderingContext2D,
-  copy: string,
-  maximumWidth: number,
-  maximumLines: number,
-): string[] {
-  const words = copy.split(/\s+/);
-  const lines: string[] = [];
-  let line = '';
-  for (const word of words) {
-    const candidate = line ? `${line} ${word}` : word;
-    if (line && context.measureText(candidate).width > maximumWidth) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = candidate;
-    }
-  }
-  if (line) lines.push(line);
-  if (lines.length > maximumLines) {
-    throw new Error(
-      `Project copy requires ${lines.length} lines; maximum is ${maximumLines}`,
-    );
-  }
-  return lines;
-}
-
+/**
+ * Neon project billboard, drawn with the shared cyberpunk ad-plate template so
+ * it matches the research canyon and About poster: double neon frame, corner
+ * brackets, right-side hero halo, a top-right index chip (the eyebrow), a
+ * left-hand text column (title / stack / blurb, all shrink-to-fit — never
+ * throwing on long copy), and a bottom-left brand lockup.
+ */
 export function renderProjectArt(
   context: CanvasRenderingContext2D,
   art: ProjectArtLayout,
 ): void {
-  const { width, height } = art.size;
-  const region = (id: ProjectArtRegion['id']) =>
-    art.regions.find((candidate) => candidate.id === id)!;
-  const inset = Math.max(24, Math.round(Math.min(width, height) * 0.035));
-  context.fillStyle = art.palette.background;
-  context.fillRect(0, 0, width, height);
-  context.fillStyle = art.palette.surface;
-  context.fillRect(inset, inset, width - inset * 2, height - inset * 2);
-  context.textBaseline = 'top';
+  const { width: W, height: H } = art.size;
+  const P = art.palette;
 
-  const eyebrow = region('eyebrow');
-  context.fillStyle = art.palette.primary;
-  context.font = art.typography.eyebrow.font;
-  context.fillText(art.copy.eyebrow, eyebrow.x, eyebrow.y);
+  const { inset } = drawNeonPlate(context, W, H, P);
+  drawHeroHalo(context, W, H, P.primary);
+  drawCornerBrackets(context, W, H, inset, P.primary);
+  drawCornerIndex(context, W, H, inset, art.copy.eyebrow, P.primary);
 
-  const title = region('title');
-  context.fillStyle = art.palette.text;
-  context.font = art.typography.title.font;
-  for (const [index, line] of wrapLines(
-    context,
-    art.copy.title,
-    title.width,
-    art.typography.title.maximumLines,
-  ).entries()) {
-    context.fillText(
-      line,
-      title.x,
-      title.y + index * art.typography.title.lineHeight,
-    );
-  }
+  const padX = inset + Math.round(W * 0.04);
+  const maxW = W - 2 * padX;
+  let y = inset + Math.round(H * 0.13);
 
-  const stack = region('stack');
-  context.fillStyle = art.palette.secondary;
-  context.font = art.typography.stack.font;
-  for (const [index, line] of wrapLines(
-    context,
-    art.copy.stack,
-    stack.width,
-    art.typography.stack.maximumLines,
-  ).entries()) {
-    context.fillText(
-      line,
-      stack.x,
-      stack.y + index * art.typography.stack.lineHeight,
-    );
-  }
+  y = drawTextBlock(context, {
+    text: art.copy.title,
+    x: padX,
+    y,
+    maxWidth: maxW,
+    maxLines: 2,
+    sizePx: H * 0.13,
+    color: P.text,
+    weight: '800',
+    mono: false,
+    glow: H * 0.03,
+  });
+  y += H * 0.015;
+  y = drawTextBlock(context, {
+    text: art.copy.stack,
+    x: padX,
+    y,
+    maxWidth: maxW,
+    maxLines: 2,
+    sizePx: H * 0.06,
+    color: P.secondary,
+    weight: '700',
+    mono: true,
+    glow: H * 0.018,
+  });
+  drawTextBlock(context, {
+    text: art.copy.blurb,
+    x: padX,
+    y,
+    maxWidth: maxW,
+    maxLines: 9,
+    sizePx: H * 0.055,
+    color: P.muted,
+    weight: '600',
+    mono: false,
+    glow: H * 0.012,
+    maxHeight: (H - inset - Math.round(H * 0.12)) - y,
+  });
 
-  const blurb = region('blurb');
-  context.fillStyle = art.palette.muted;
-  context.font = art.typography.blurb.font;
-  for (const [index, line] of wrapLines(
-    context,
-    art.copy.blurb,
-    blurb.width,
-    art.typography.blurb.maximumLines,
-  ).entries()) {
-    context.fillText(
-      line,
-      blurb.x,
-      blurb.y + index * art.typography.blurb.lineHeight,
-    );
-  }
+  drawBrandLockup(context, W, H, inset, 'EVAN LI // PROJECT', P.primary, P.text);
 }
