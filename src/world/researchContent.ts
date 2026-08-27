@@ -7,6 +7,7 @@ import {
   drawHeroHalo,
   drawNeonPlate,
   drawTextBlock,
+  withAlpha,
 } from '../content/billboardFrame';
 import {
   RESEARCH_WALLS,
@@ -34,12 +35,16 @@ export const RESEARCH_CONTENT_RECORDS: readonly ResearchContentRecord[] =
   Object.freeze(RESUME.research.map(contentRecord));
 
 export type ResearchPanelMount = 'gateway-face' | 'tower-facade';
+// A board is either a compact text CONTENT card (bottom row) or a big IMAGE hero
+// board (second row of tall towers). Image boards currently draw a placeholder.
+export type ResearchPanelKind = 'content' | 'image';
 
 export interface ResearchPanel {
   id: string;
   gatewayId: string;
   parentId: string;
   contentIndex: 0 | 1 | 2;
+  kind: ResearchPanelKind;
   mount: ResearchPanelMount;
   parentPosition: ResearchVector;
   parentRotationY: number;
@@ -105,6 +110,7 @@ function facadePanel(
   gatewayId: string,
   wall: typeof RESEARCH_WALLS[number],
   contentIndex: 0 | 1 | 2,
+  kind: ResearchPanelKind,
   y: number,
   width: number,
   height: number,
@@ -125,6 +131,7 @@ function facadePanel(
     gatewayId,
     parentId: wall.id,
     contentIndex,
+    kind,
     mount: 'tower-facade',
     parentPosition: wall.position,
     parentRotationY: wall.rotationY,
@@ -139,19 +146,29 @@ function facadePanel(
   });
 }
 
-// The research canyon reads as a signage district. The camera aims across the
-// street at the featured EAST wall, which carries the whole arrangement: one
-// extra-big board mounted high on a second-row tall tower listing a flagship
-// project (SLM Factory), with two smaller project boards on the short front-row
-// towers below/around it (RL on HRM-Text, then SD on Qwen). The WEST wall is
-// left bare — the camera never points that way, so boards there would be wasted.
-// The first board a rider meets is RL on HRM-Text (~z-538) — everything north of
-// it is left empty so the canyon "starts" there. Buildings/walls are untouched.
+// The research canyon reads as a signage district. All three real projects live
+// on the EAST wall (screen-right), which the camera aims across the street at.
+// The WEST wall (screen-left) is dressed with ORDINARY city ad billboards (see
+// adBillboardPlacement's research-canyon west pass) so the left of frame isn't
+// bare — it is deliberately NOT a copy of the real research boards.
+//
+// The east arrangement is two rows:
+//   • BOTTOM ROW — three large, readable CONTENT cards spread across the whole
+//     length of the canyon (mouth → deep end) so a fresh card faces the rider at
+//     each stage of the ride. One per project, in project order (SLM, RL, SD).
+//   • SECOND ROW — three smaller IMAGE hero boards mounted mid-high on the
+//     tallest back-row towers, one per project, each roughly BEHIND its content
+//     card. Kept modest (and lower) so the first one isn't cropped off the top of
+//     the frame as the rider scrolls into the canyon. Image art is a placeholder.
+// Content card N and image board N share a contentIndex (and therefore a glow
+// colour) and sit at nearly the same z, so each project's card + hero read as a
+// stacked pair. Walls are untouched.
 type ResearchBoardRow = 'front' | 'back';
 
 interface ResearchBoardSpec {
   id: string;
   contentIndex: 0 | 1 | 2;
+  kind: ResearchPanelKind;
   side: -1 | 1;
   row: ResearchBoardRow;
   targetZ: number;
@@ -161,14 +178,20 @@ interface ResearchBoardSpec {
 }
 
 const RESEARCH_BOARD_SPECS: readonly ResearchBoardSpec[] = [
-  // ── EAST wall (screen-right) — featured hero arrangement ──
-  // RL on HRM-Text: first board the rider meets; short-ish front tower.
-  { id: 'research-east-rl', contentIndex: 1, side: 1, row: 'front', targetZ: -538, y: 32, width: 58, height: 34 },
-  // SLM Factory: extra-big, high on the second-row 201 m tower behind the short
-  // front piece at z≈-570, so it clears the front row and dominates the frame.
-  { id: 'research-east-slm', contentIndex: 0, side: 1, row: 'back', targetZ: -571, y: 80, width: 96, height: 62 },
-  // SD on Qwen: second smaller front board, deeper down-canyon.
-  { id: 'research-east-sd', contentIndex: 2, side: 1, row: 'front', targetZ: -666, y: 38, width: 60, height: 36 },
+  // ── Bottom row: three large CONTENT cards spread the full length of the
+  //    canyon (front towers near the mouth, middle, and deep end). ──
+  // SLM (project 0) is pushed a couple of towers DEEPER (−442 → −474) so the
+  // first card doesn't greet the rider right at the canyon mouth.
+  { id: 'research-content-0', contentIndex: 0, kind: 'content', side: 1, row: 'front', targetZ: -474, y: 24, width: 60, height: 38 },
+  { id: 'research-content-1', contentIndex: 1, kind: 'content', side: 1, row: 'front', targetZ: -558, y: 24, width: 60, height: 38 },
+  { id: 'research-content-2', contentIndex: 2, kind: 'content', side: 1, row: 'front', targetZ: -666, y: 24, width: 60, height: 38 },
+  // ── Second row: three IMAGE (placeholder) boards mounted HIGH on the tallest
+  //    back-row towers, one per project, each just behind its content card.
+  //    Raised + enlarged (they were hard to read from across the canyon); the
+  //    SLM board also rides deeper (−458 → −490) to stay paired with its card. ──
+  { id: 'research-image-0', contentIndex: 0, kind: 'image', side: 1, row: 'back', targetZ: -490, y: 112, width: 80, height: 42 },
+  { id: 'research-image-1', contentIndex: 1, kind: 'image', side: 1, row: 'back', targetZ: -571, y: 112, width: 80, height: 42 },
+  { id: 'research-image-2', contentIndex: 2, kind: 'image', side: 1, row: 'back', targetZ: -665, y: 112, width: 80, height: 42 },
 ];
 
 function boardPanels(): ResearchPanel[] {
@@ -191,6 +214,7 @@ function boardPanels(): ResearchPanel[] {
       spec.id,
       wall,
       spec.contentIndex,
+      spec.kind,
       spec.y,
       spec.width,
       spec.height,
@@ -468,6 +492,83 @@ export function renderResearchArt(
     mono: false,
     glow: H * 0.012,
     maxHeight: (H - inset - Math.round(H * 0.11)) - y,
+  });
+
+  drawBrandLockup(context, W, H, inset, 'EVAN LI // RESEARCH', P.primary, P.text);
+}
+
+/**
+ * Placeholder hero-image board for the second-row (tall tower) research boards.
+ * Uses the same neon plate / halo / brackets / brand lockup as the content
+ * cards so the two rows read as one system, but the centre is a labelled image
+ * placeholder (diagonal hatch + framed drop zone + project title) instead of the
+ * text column. Swap this for a real CanvasTexture/loaded image later — keep the
+ * signature so researchKit's synchronous canvas pipeline is unchanged.
+ */
+export function renderResearchPlaceholderImage(
+  context: CanvasRenderingContext2D,
+  art: ResearchArtLayout,
+): void {
+  const { width: W, height: H } = art.size;
+  const P = art.palette;
+
+  const { inset } = drawNeonPlate(context, W, H, P);
+  drawHeroHalo(context, W, H, P.primary);
+  drawCornerBrackets(context, W, H, inset, P.primary);
+  drawCornerIndex(context, W, H, inset, art.copy.eyebrow, P.primary);
+
+  // Framed image drop-zone in the centre.
+  const pad = inset + Math.round(Math.min(W, H) * 0.05);
+  const zoneX = pad;
+  const zoneY = pad;
+  const zoneW = W - 2 * pad;
+  const zoneH = H - 2 * pad - Math.round(H * 0.12); // leave room for the lockup
+  context.save();
+  context.strokeStyle = withAlpha(P.primary, 0.55);
+  context.lineWidth = Math.max(2, Math.round(Math.min(W, H) * 0.004));
+  context.setLineDash([Math.round(W * 0.02), Math.round(W * 0.012)]);
+  context.strokeRect(zoneX, zoneY, zoneW, zoneH);
+  context.setLineDash([]);
+
+  // Diagonal hatch fill so it clearly reads as an empty image slot.
+  context.beginPath();
+  context.rect(zoneX, zoneY, zoneW, zoneH);
+  context.clip();
+  context.strokeStyle = withAlpha(P.primary, 0.14);
+  context.lineWidth = Math.max(1, Math.round(Math.min(W, H) * 0.003));
+  const step = Math.round(Math.min(W, H) * 0.06);
+  for (let x = zoneX - zoneH; x < zoneX + zoneW; x += step) {
+    context.beginPath();
+    context.moveTo(x, zoneY + zoneH);
+    context.lineTo(x + zoneH, zoneY);
+    context.stroke();
+  }
+  context.restore();
+
+  // Centre label: project title + "IMAGE PLACEHOLDER".
+  drawTextBlock(context, {
+    text: art.copy.title,
+    x: zoneX + Math.round(zoneW * 0.06),
+    y: zoneY + Math.round(zoneH * 0.34),
+    maxWidth: zoneW * 0.88,
+    maxLines: 2,
+    sizePx: H * 0.14,
+    color: P.text,
+    weight: '800',
+    mono: false,
+    glow: H * 0.03,
+  });
+  drawTextBlock(context, {
+    text: 'IMAGE PLACEHOLDER',
+    x: zoneX + Math.round(zoneW * 0.06),
+    y: zoneY + Math.round(zoneH * 0.62),
+    maxWidth: zoneW * 0.88,
+    maxLines: 1,
+    sizePx: H * 0.06,
+    color: P.primary,
+    weight: '700',
+    mono: true,
+    glow: H * 0.018,
   });
 
   drawBrandLockup(context, W, H, inset, 'EVAN LI // RESEARCH', P.primary, P.text);

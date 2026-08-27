@@ -16,18 +16,40 @@ import { useCommittedThreeResource } from './useCommittedThreeResources';
 
 const TRAIL_VERTEX_SHADER = `
   attribute float trailAlpha;
+  attribute float trailAge;
   varying float vAlpha;
+  varying float vAge;
   void main() {
     vAlpha = trailAlpha;
+    vAge = trailAge;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
 
+// Sandevistan colour cascade: the trail's colour cycles through a cyberpunk
+// palette (cyan → magenta → violet → cyan) several times along its length, so
+// distinct bands stripe the ribbon. Because vAge is tied to how far a point sits
+// behind the moving head, a fixed world point's phase drifts as the bike
+// advances — the bands appear to flow backward down the trail, no time uniform
+// needed.
 const TRAIL_FRAGMENT_SHADER = `
   varying float vAlpha;
+  varying float vAge;
+  const float TRAIL_COLOR_CYCLES = 3.0;
+  vec3 cyberpunkBand(float phase) {
+    vec3 cyan = vec3(0.0, 0.92, 1.0);
+    vec3 magenta = vec3(1.0, 0.12, 0.80);
+    vec3 violet = vec3(0.55, 0.22, 1.0);
+    if (phase < 0.3333) {
+      return mix(cyan, magenta, phase / 0.3333);
+    } else if (phase < 0.6666) {
+      return mix(magenta, violet, (phase - 0.3333) / 0.3333);
+    }
+    return mix(violet, cyan, (phase - 0.6666) / 0.3334);
+  }
   void main() {
-    vec3 tronCyan = vec3(0.0, 0.86, 1.0);
-    gl_FragColor = vec4(tronCyan, vAlpha);
+    float phase = fract(vAge * TRAIL_COLOR_CYCLES);
+    gl_FragColor = vec4(cyberpunkBand(phase), vAlpha);
   }
 `;
 
@@ -57,6 +79,7 @@ interface BikeTrailsResources {
   echoes: THREE.InstancedMesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
   trailPositions: THREE.BufferAttribute;
   trailAlpha: THREE.BufferAttribute;
+  trailAge: THREE.BufferAttribute;
   echoAlpha: THREE.InstancedBufferAttribute;
   matrix: THREE.Matrix4;
 }
@@ -83,6 +106,10 @@ function createTrailGeometry(): THREE.BufferGeometry {
     new Float32Array(BIKE_TRAIL_MAX_SAMPLES * 2),
     1,
   ).setUsage(THREE.DynamicDrawUsage);
+  const age = new THREE.BufferAttribute(
+    new Float32Array(BIKE_TRAIL_MAX_SAMPLES * 2),
+    1,
+  ).setUsage(THREE.DynamicDrawUsage);
   const indices = new Uint16Array((BIKE_TRAIL_MAX_SAMPLES - 1) * 6);
   for (let index = 0; index < BIKE_TRAIL_MAX_SAMPLES - 1; index += 1) {
     const vertex = index * 2;
@@ -96,6 +123,7 @@ function createTrailGeometry(): THREE.BufferGeometry {
   }
   geometry.setAttribute('position', positions);
   geometry.setAttribute('trailAlpha', alpha);
+  geometry.setAttribute('trailAge', age);
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.setDrawRange(0, 0);
   return geometry;
@@ -131,19 +159,24 @@ export function applyBikeTrailsProgress(
   );
   const positionArray = resources.trailPositions.array as Float32Array;
   const alphaArray = resources.trailAlpha.array as Float32Array;
+  const ageArray = resources.trailAge.array as Float32Array;
   const activePositionCount = sample.trailCount * 6;
   for (let index = 0; index < activePositionCount; index += 1) {
     positionArray[index] = sample.trailPositions[index];
   }
   for (let index = 0; index < sample.trailCount; index += 1) {
-    const opacity = Math.pow(1 - sample.trailAges[index], 1.35)
+    const age = sample.trailAges[index];
+    const opacity = Math.pow(1 - age, 1.35)
       * 0.72
       * THREE.MathUtils.clamp(finaleFade, 0, 1);
     alphaArray[index * 2] = opacity;
     alphaArray[index * 2 + 1] = opacity;
+    ageArray[index * 2] = age;
+    ageArray[index * 2 + 1] = age;
   }
   resources.trailPositions.needsUpdate = true;
   resources.trailAlpha.needsUpdate = true;
+  resources.trailAge.needsUpdate = true;
   resources.ribbon.geometry.setDrawRange(0, (sample.trailCount - 1) * 6);
 
   const colorArray = resources.echoes.instanceColor?.array as Float32Array;
@@ -220,6 +253,9 @@ export const BikeTrails = forwardRef<BikeTrailsHandle, {
         ) as THREE.BufferAttribute,
         trailAlpha: ribbonGeometry.getAttribute(
           'trailAlpha',
+        ) as THREE.BufferAttribute,
+        trailAge: ribbonGeometry.getAttribute(
+          'trailAge',
         ) as THREE.BufferAttribute,
         echoAlpha,
         matrix: new THREE.Matrix4(),

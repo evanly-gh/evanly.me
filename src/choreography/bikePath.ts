@@ -108,13 +108,14 @@ function computeLean(t: number): number {
 }
 
 function flipPitch(t: number, flip: Readonly<StuntFlipTiming>): number {
-  if (t < flip.lip || t > flip.landing) return 0;
-  if (t <= flip.apex) {
-    return smoothstep((t - flip.lip) / (flip.apex - flip.lip)) * Math.PI;
-  }
-  return Math.PI + smoothstep(
-    (t - flip.apex) / (flip.landing - flip.apex),
-  ) * Math.PI;
+  if (t <= flip.lip || t >= flip.landing) return 0;
+  // Constant angular velocity across the whole airborne arc (0→2π mapped
+  // linearly over lip→landing). A real flip conserves angular momentum, so it
+  // spins at a steady rate — the old apex-anchored smoothstep pair whipped
+  // through the first half, decelerated to a dead stop at the apex, then
+  // crawled through the second half. `apex` is still used for the crouch tuck.
+  const span = flip.landing - flip.lip;
+  return ((t - flip.lip) / span) * Math.PI * 2;
 }
 
 export function bikeFlipPitchAt(t: number): number {

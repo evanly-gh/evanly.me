@@ -76,6 +76,31 @@ const RESEARCH_GATEWAY_POOL: FrontPiece[] = [
 ];
 const GATEWAY_FRONT_INDICES = new Set([2, 9]); // FRONT_Z index → z -410 / -522
 
+// The wide SLM content card (research-content-0, z≈-474, 60 m wide) is mounted
+// flush on east front tower index 6 but spans its neighbours. Towers whose
+// road-facing face lines up with the card poke through / occlude it, so the
+// flanking east front towers get recessed into the alley behind the card plane —
+// this is the "move the building back" fix, staggering them deeper rather than
+// leaving the sign clipped. Keyed by FRONT_Z index; east (side 1) row only.
+const RESEARCH_FRONT_RECESS: Readonly<Record<number, number>> = {
+  4: 14,
+  5: 20,
+  7: 14,
+};
+
+// ── Back-row canyon-mouth skip (east) ──
+// The canyon road curves at its mouth, so semanticTAtZ()+roadFrame() shuffle the
+// two northernmost back-east towers' world positions inward and camera-side of the
+// tall "SLM Factory" image board mounted on back-east #3 (x≈320, z≈-477). At the
+// hero projects camera (x≈224, z≈-411) their tall west faces poked to x≈283–295,
+// right in front of and clipping the board's right edge. Recessing them east just
+// shoved the clip onto the next tower, so instead we drop these two mouth towers
+// entirely — the board (and the resback ads on the deeper towers) then read clean.
+// The east front row (research-front-east-5..8, x≈267–289) still walls the canyon
+// mouth at eye level, so only the high back-row silhouette opens up here. Keyed by
+// buildBackWallSpecs index; east (side 1) row only.
+const RESEARCH_BACK_SKIP: ReadonlySet<number> = new Set([0, 1]);
+
 const researchFamilyOf = (file: string): string =>
   file.replace(/^.*\//, '').replace(/\.glb$/, '')
     .replace(/^KB3D_NEC_Bldg/, '').replace(/_H\d+$/, '');
@@ -195,9 +220,13 @@ function wallAt(
       ? row === 'front' ? 22 : 6
       : row === 'front' ? 5 : 0
     : 0;
+  // Recess specific east front towers so the SLM content card isn't clipped.
+  const frontRecess = row === 'front' && side > 0
+    ? RESEARCH_FRONT_RECESS[index] ?? 0
+    : 0;
   const center = frame.pos.clone().addScaledVector(
     frame.binormal,
-    side * (lateral + landingTransitionClearance),
+    side * (lateral + landingTransitionClearance + frontRecess),
   );
   return Object.freeze({
     id: `research-${row}-${side < 0 ? 'west' : 'east'}-${index + 1}`,
@@ -220,9 +249,18 @@ export const RESEARCH_WALLS: readonly ResearchWallPlacement[] = Object.freeze(
   ([-1, 1] as const).flatMap((side) => {
     const frontFiles = chooseFrontFiles(makeRng(0x5e7ec7 ^ (side < 0 ? 0x11 : 0x22)));
     return [
-      ...FRONT_Z.map((z, index) => wallAt('front', side, z, index, frontFiles[index])),
-      ...buildBackWallSpecs(side).map(({ file, z }, index) =>
-        wallAt('back', side, z, index, file)),
+      // West front index 0 is skipped: the landing→merge road frame is still
+      // diagonal there, so this first WEST tower resolved onto the road centerline
+      // (~x243, right in the street) before the canyon proper. West wall #2 (z-374)
+      // already walls the mouth off-road, so we simply start the west row there.
+      ...FRONT_Z.flatMap((z, index) =>
+        (side === -1 && index === 0)
+          ? []
+          : [wallAt('front', side, z, index, frontFiles[index])]),
+      ...buildBackWallSpecs(side).flatMap(({ file, z }, index) =>
+        (side === 1 && RESEARCH_BACK_SKIP.has(index))
+          ? []
+          : [wallAt('back', side, z, index, file)]),
     ];
   }),
 );

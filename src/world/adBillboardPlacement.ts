@@ -274,9 +274,12 @@ export function getAllAdPlacements(): AdPlacement[] {
     tryAdd(faceBillboard(`about-${i}`, faceX, faceZ, [0, 1], halfT, b.height));
   });
 
-  // ---- Projects: unused stunt backdrops (1/4/5), facing the hero camera (-X) ----
+  // ---- Projects: unused stunt backdrop 1 (before the first ramp), facing the
+  // hero camera (-X). Backdrops 4 & 5 (between the two flip scenes) used to carry
+  // generic ads too, but they cluttered the mid-scene scaffold traverse, so they
+  // were removed — that empty space is now filled elsewhere (research back wall). ----
   for (const pl of STUNT_BACKDROP) {
-    if (!/backdrop-(1|4|5)$/.test(pl.id ?? '')) continue;
+    if (!/backdrop-1$/.test(pl.id ?? '')) continue;
     const b = buildingPlacementBounds(pl);
     const halfT = projectedFootprintHalfExtent(b, { x: 0, z: 1 });
     const faceX = 300; // west facade
@@ -284,9 +287,13 @@ export function getAllAdPlacements(): AdPlacement[] {
     tryAdd(faceBillboard(`proj-${pl.id}`, faceX, faceZ, [-1, 0], halfT, b.height));
   }
 
-  // ---- Research: empty front walls (skip the two gateway rows + the far end) ----
+  // ---- Research: empty WEST front walls (skip the two gateway rows + the far
+  // end). The EAST (right) wall is reserved for the real research content cards —
+  // generic ads there read as "miscellaneous non-section" clutter, so they're
+  // skipped; the west wall carries the ordinary city ads (see reswest pass). ----
   for (const pl of RESEARCH_WALLS) {
     if (pl.layoutRole !== 'research-front') continue;
+    if (pl.side > 0) continue; // east wall = research content only, no generic ads
     const z = pl.position[2];
     if (Math.abs(z + 410) < 10 || Math.abs(z + 522) < 10 || z < -590) continue; // gateway/end panels
     if ((hash(pl.id ?? `${z}`) & 1) === 0) continue; // ~half of them, spaced
@@ -297,6 +304,36 @@ export function getAllAdPlacements(): AdPlacement[] {
     const halfT = projectedFootprintHalfExtent(b, { x: 0, z: 1 });
     tryAdd(faceBillboard(`res-${pl.id}`, b.center.x + side * halfN, b.center.z, n, halfT, Math.max(b.height, 30)));
   }
+
+  // ---- Research canyon WEST wall: ordinary city ad billboards facing the canyon.
+  // The featured research content lives on the EAST wall (researchContent). The
+  // left side of the ride was bare, so dress the west front towers with generic
+  // neon ads (like the rest of the city) on their canyon-facing (+x) faces, NOT
+  // copies of the research boards. Spaced out via a hash gate; tryAdd prevents
+  // overlaps. ----
+  for (const pl of RESEARCH_WALLS) {
+    if (pl.layoutRole !== 'research-front' || pl.side !== -1) continue;
+    const z = pl.position[2];
+    if (z < -600) continue; // stop before the canyon opens onto the bridge
+    if (hash(`${pl.id}:reswest`) % 3 === 0) continue; // ~2/3 kept, spaced apart
+    const b = buildingPlacementBounds(pl);
+    const halfN = projectedFootprintHalfExtent(b, { x: 1, z: 0 });
+    const halfT = projectedFootprintHalfExtent(b, { x: 0, z: 1 });
+    const n: [number, number] = [1, 0]; // canyon-facing (+x), toward the ride
+    tryAdd(faceBillboard(
+      `reswest-${pl.id}`,
+      b.center.x + halfN,
+      b.center.z,
+      n,
+      halfT,
+      Math.max(b.height, 30),
+    ));
+  }
+
+  // NOTE: The research canyon BACK-wall multicolour "hero" ads were removed at the
+  // owner's request — they read as generic city clutter interleaved with the real
+  // research content/image boards. The tall back towers now stand bare behind the
+  // boards; the west-wall ambient neon (reswest pass above) still dresses the ride.
 
   // ---- Shibuya side-street fillers: billboards on the crossing-facing facade ----
   for (const pl of SHIBUYA_FILLER_PLACEMENTS) {
@@ -314,9 +351,12 @@ export function getAllAdPlacements(): AdPlacement[] {
 
   // ---- Bridge onramp: two long horizontal roadside ads (replace the removed
   // overhead gateway signs). Landscape art, flanking the road just before water. ----
+  // NOTE: the east onramp board (waveform) was removed — at the canyon's deep end
+  // it stacked directly below the "RL on HRM-Text" research content card (both on
+  // the east side, z ≈ −558/−572) and read as generic clutter inside the research
+  // scene. The west board stays to keep the onramp entrance dressed.
   const onramp: Array<{ id: string; image: string; x: number; rotationY: number }> = [
     { id: 'onramp-w', image: 'xenia', x: 220, rotationY: Math.PI / 2 },
-    { id: 'onramp-e', image: 'waveform', x: 260, rotationY: -Math.PI / 2 },
   ];
   for (const o of onramp) {
     const def = AD_BILLBOARDS.find((d) => d.image === o.image) ?? AD_BILLBOARDS[0];
@@ -358,16 +398,27 @@ export function getAllAdPlacements(): AdPlacement[] {
     });
   }
 
-  // Recolor the single harsh-red board that sits directly over the intro title
-  // card to a cool blue ad — red read as jarring against the neon title. The
-  // city seed is deterministic, so the over-title board is a stable id; if it
-  // ever shifts, this simply no-ops rather than throwing.
-  const INTRO_RECOLOR: Record<string, string> = { 'st-st-122': 'cyber-brew' };
+  // Targeted de-reddening of the opening stretch: the intro had a few red boards
+  // that read as too warm against the neon title. Rather than recolour the whole
+  // runway (which flattened the variety), we swap just those few specific boards
+  // to cool-toned generic ads. The city seed is deterministic, so these ids are
+  // stable; if one ever shifts this simply no-ops rather than throwing. Height is
+  // preserved and width re-derived from the replacement aspect so art isn't
+  // stretched.
+  const INTRO_RECOLOR: Record<string, string> = {
+    'st-st-122': 'cyber-brew', // over-title board → cool blue
+    'st-st-178': 'echo-wave',  // red diamond (canyon-left) → purple
+    'st-st-157': 'aerix',      // red diamond → cyan
+    'st-st-133': 'evocore',    // red ryujin-ramen → green
+  };
   for (const p of out) {
     const image = INTRO_RECOLOR[p.id];
     if (!image) continue;
     const def = AD_BILLBOARDS.find((d) => d.image === image);
-    if (def) p.def = def;
+    if (!def) continue;
+    const height = p.fitBox[1];
+    p.def = def;
+    p.fitBox = [height * def.aspect, height];
   }
 
   cachedAll = out;

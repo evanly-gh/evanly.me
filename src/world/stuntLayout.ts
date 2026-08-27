@@ -76,6 +76,10 @@ export const STUNT_BACKDROP: readonly StuntBackdropPlacement[] = Object.freeze([
   backdrop('stunt-backdrop-6', 'KB3D_NEC_BldgLG_B_Main', 27.2865, -254.929),
   backdrop('stunt-backdrop-7', 'KB3D_NEC_BldgLG_C_Main', 17.6135, -298.5465),
   backdrop('stunt-backdrop-8', 'KB3D_NEC_BldgLG_A_Main', 14.932, -333.972),
+  // Continue the east wall south past the landing so the pocket between the
+  // backdrop (ends z-334) and the research canyon front row (begins z-378) isn't
+  // a bare void on the rider's right after the second flip. Same facade x=300.
+  backdrop('stunt-backdrop-9', 'KB3D_NEC_BldgLG_C_Main', 17.6135, -363),
 ]);
 
 // Second, deeper row of tall/varied towers behind the backdrop wall. Purely for

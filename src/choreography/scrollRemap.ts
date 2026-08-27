@@ -12,7 +12,13 @@ export interface ScrollRemapKey {
 export type SemanticInterval = readonly [number, number];
 
 const ORDINARY_WEIGHT = 1;
-export const FLIP_APEX_SCROLL_WEIGHT = 3.5;
+// Per-scroll pacing of the flip apex. This used to be 3.5 — a deliberate 3.5×
+// slow-motion dwell over the middle of each flip — but that made the jump read as
+// non-uniform under the finger: the bike advanced normally, crawled at the apex,
+// then sped back up. Set to 1 so the whole airborne arc (position AND the linear
+// flip rotation) advances at a constant rate per scroll. Bump toward ~1.5 if a
+// hint of apex drama is wanted back.
+export const FLIP_APEX_SCROLL_WEIGHT = 1;
 export const FLIP_APEX_DWELL_FRACTION = 0.4;
 
 export type ScrollZoneMap = Readonly<

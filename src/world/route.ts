@@ -169,6 +169,20 @@ class RouteSegmentCurve extends THREE.Curve<THREE.Vector3> {
 
 export const GROUND_ROUTE_END_T = 0.84;
 
+// Semantic-t where the ground route reaches the research straight (z=-375). The
+// forward z(t) mapping below MUST stay identical to researchLayout's semanticTAtZ
+// inverse (which hardcodes this seam), or the canyon walls/gateways lose their
+// exact-z anchoring.
+const RESEARCH_STRAIGHT_START_T = 0.7;
+// The bike lands the 2nd jump at groundResume (t=0.69) still in the x=264 stunt
+// corridor, and has to slide onto the x=240 research road. Completing that whole
+// sideways slide by t=0.70 (the old seam) crammed a 24 m lateral move into a tiny
+// window, so the bike darted onto the street far faster than it travels anywhere
+// else. Easing ONLY the lateral slide out to this later t (still before gateway 1's
+// z-anchor at t≈0.713) spreads it over ~2× the forward distance so the bike drifts
+// onto the road at the canyon's pace. z(t) is untouched, so the walls stay put.
+const RESEARCH_MERGE_END_T = 0.712;
+
 /**
  * Ground projection of the complete bike centerline through Shibuya, the
  * x=264 stunt corridor, and its smooth return to PROJECTS_MAIN_ROAD.
@@ -488,25 +502,38 @@ function sampleSemanticTrajectoryPoint(
       optionalTarget,
     );
   }
-  if (t >= STUNT_ROUTE.groundResume.t && t <= 0.7) {
-    const fraction = (t - STUNT_ROUTE.groundResume.t)
-      / (0.7 - STUNT_ROUTE.groundResume.t);
+  // Ground merge → research canyon. Forward z(t) keeps the ORIGINAL piecewise
+  // mapping (groundResume→-375 up to the straight seam, then -375→-740) so the
+  // canyon walls stay anchored; only the lateral x-slide is stretched out to
+  // RESEARCH_MERGE_END_T so the bike eases onto the road instead of darting.
+  if (t >= STUNT_ROUTE.groundResume.t && t <= GROUND_ROUTE_END_T) {
+    const z = t <= RESEARCH_STRAIGHT_START_T
+      ? THREE.MathUtils.lerp(
+          STUNT_ROUTE.groundResume.position[2],
+          -375,
+          (t - STUNT_ROUTE.groundResume.t)
+            / (RESEARCH_STRAIGHT_START_T - STUNT_ROUTE.groundResume.t),
+        )
+      : THREE.MathUtils.lerp(
+          -375,
+          -740,
+          (t - RESEARCH_STRAIGHT_START_T)
+            / (GROUND_ROUTE_END_T - RESEARCH_STRAIGHT_START_T),
+        );
+    const mergeFraction = THREE.MathUtils.clamp(
+      (t - STUNT_ROUTE.groundResume.t)
+        / (RESEARCH_MERGE_END_T - STUNT_ROUTE.groundResume.t),
+      0,
+      1,
+    );
     return optionalTarget.set(
       THREE.MathUtils.lerp(
         STUNT_CENTER_X,
         PROJECTS_MAIN_ROAD.centerX,
-        smoothMergeFraction(fraction),
+        smoothMergeFraction(mergeFraction),
       ),
       0,
-      THREE.MathUtils.lerp(STUNT_ROUTE.groundResume.position[2], -375, fraction),
-    );
-  }
-  if (t >= 0.7 && t <= GROUND_ROUTE_END_T) {
-    const fraction = (t - 0.7) / (GROUND_ROUTE_END_T - 0.7);
-    return optionalTarget.set(
-      PROJECTS_MAIN_ROAD.centerX,
-      0,
-      THREE.MathUtils.lerp(-375, -740, fraction),
+      z,
     );
   }
   if (
@@ -602,18 +629,25 @@ function sampleSemanticTangent(
       optionalTarget,
     );
   }
-  if (t >= STUNT_ROUTE.groundResume.t && t <= 0.7) {
-    const fraction = (t - STUNT_ROUTE.groundResume.t)
-      / (0.7 - STUNT_ROUTE.groundResume.t);
-    return optionalTarget.set(
-      (PROJECTS_MAIN_ROAD.centerX - STUNT_CENTER_X)
-        * smoothMergeDerivative(fraction),
+  // Heading for the ground merge → canyon run: the actual dx/dt, dz/dt of the
+  // point function above, so the bike faces the way it travels as it eases onto
+  // the road (and settles to straight −Z once the lateral slide completes).
+  if (t >= STUNT_ROUTE.groundResume.t && t <= GROUND_ROUTE_END_T) {
+    const forwardRate = t <= RESEARCH_STRAIGHT_START_T
+      ? (-375 - STUNT_ROUTE.groundResume.position[2])
+        / (RESEARCH_STRAIGHT_START_T - STUNT_ROUTE.groundResume.t)
+      : (-740 - -375) / (GROUND_ROUTE_END_T - RESEARCH_STRAIGHT_START_T);
+    const mergeSpan = RESEARCH_MERGE_END_T - STUNT_ROUTE.groundResume.t;
+    const mergeFraction = THREE.MathUtils.clamp(
+      (t - STUNT_ROUTE.groundResume.t) / mergeSpan,
       0,
-      -15,
-    ).normalize();
-  }
-  if (t >= 0.7 && t <= GROUND_ROUTE_END_T) {
-    return optionalTarget.set(0, 0, -1);
+      1,
+    );
+    const lateralRate = mergeFraction >= 1
+      ? 0
+      : (PROJECTS_MAIN_ROAD.centerX - STUNT_CENTER_X)
+        * smoothMergeDerivative(mergeFraction) / mergeSpan;
+    return optionalTarget.set(lateralRate, 0, forwardRate).normalize();
   }
   if (
     t >= STUNT_ROUTE.scaffoldLanding.t

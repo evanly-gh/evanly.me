@@ -44,6 +44,12 @@ import {
 
 const ADAPTER_ORDER = ['bike', 'camera', 'content', 'fx'] as const;
 const FRAME_SAMPLE_LIMIT = 600;
+// Second-stage damp rate for the bike *and* its trail (they share one smoothed
+// progress so the ribbon stays glued to the bike). Sits between the old bike
+// rate (6.5 — too laggy under the finger) and the trail's old no-second-stage
+// snappiness: ~0.09 s settle, snappier than the camera's 6.5 so the bike leads
+// the frame slightly instead of dragging behind the scroll.
+const BIKE_SMOOTH_RATE = 11;
 // Mouse look-around peek (radians) layered on top of the scripted camera each
 // frame, for a game-like interactive feel.
 const PARALLAX_YAW = 0.05;
@@ -194,6 +200,13 @@ export function ProductionDirector({
   const smoothRawRef = useRef(0);
   const progressInitedRef = useRef(false);
   const lastAppliedRawRef = useRef(-1);
+  // Second-stage smoothing for the bike. The camera critically-damps its pose
+  // toward the scroll-driven target every frame; the bike used to consume the
+  // (single-stage-smoothed) progress one-to-one, so it read choppier than the
+  // view. Damp the bike's *progress* the same way so both glide together.
+  const bikeTargetSemanticRef = useRef(0);
+  const bikeSmoothSemanticRef = useRef(0);
+  const bikeInitedRef = useRef(false);
   const frameSamplesRef = useRef<number[]>([]);
   const bikePath = useMemo(() => new BikePath(), []);
 
@@ -223,7 +236,10 @@ export function ProductionDirector({
     }
     const bike: ProgressAdapter = {
       setProgress: (semanticT) => {
-        bikeRef.current?.setProgress(semanticT);
+        // Record the bike's target progress; the per-frame damp (in useFrame)
+        // eases the bike toward it so it moves as smoothly as the damped camera
+        // rather than snapping to each discrete scroll tick.
+        bikeTargetSemanticRef.current = semanticT;
       },
     };
     const cameraAdapter: ProgressAdapter = {
@@ -244,7 +260,9 @@ export function ProductionDirector({
     };
     const fx: ProgressAdapter = {
       setProgress: (semanticT) => {
-        bikeRef.current?.setTrailFx(semanticT);
+        // NOTE: the trail is *not* driven here — it's driven from the bike's
+        // damped progress in useFrame (below) so it tracks the bike exactly
+        // instead of the raw scroll-remap. Only scene-wide fx state lives here.
         scene.userData.fxProgress = semanticT;
       },
     };
@@ -355,6 +373,32 @@ export function ProductionDirector({
       lastAppliedRawRef.current = smoothRawRef.current;
     }
     lastVersionRef.current = snapshot.version;
+
+    // Second-stage bike smoothing. Damping the bike's *progress* — not its world
+    // position — keeps it glued to the route spline (no corner-cutting) while
+    // turning discrete scroll ticks into a continuous glide. The trail is driven
+    // from the SAME smoothed value on the SAME frame (right after the bike pose
+    // is applied, so it reads the fresh bike state), so the ribbon never drifts
+    // off the bike the way it did when the trail followed the raw scroll-remap.
+    if (!bikeInitedRef.current) {
+      bikeSmoothSemanticRef.current = bikeTargetSemanticRef.current;
+      bikeInitedRef.current = true;
+    } else {
+      bikeSmoothSemanticRef.current = THREE.MathUtils.damp(
+        bikeSmoothSemanticRef.current,
+        bikeTargetSemanticRef.current,
+        BIKE_SMOOTH_RATE,
+        delta,
+      );
+      if (
+        Math.abs(bikeSmoothSemanticRef.current - bikeTargetSemanticRef.current)
+        < 1e-6
+      ) {
+        bikeSmoothSemanticRef.current = bikeTargetSemanticRef.current;
+      }
+    }
+    bikeRef.current?.setProgress(bikeSmoothSemanticRef.current);
+    bikeRef.current?.setTrailFx(bikeSmoothSemanticRef.current);
 
     // Critically-damp the camera toward the scroll-driven pose every frame. This
     // is what makes transitions seamless: the per-key rig stops (velocity → 0) at

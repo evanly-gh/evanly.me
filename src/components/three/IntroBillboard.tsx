@@ -64,11 +64,6 @@ function buildTitleTexture(): THREE.CanvasTexture {
   drawChroma('EVAN LI //', 60, 210, 118);
   drawChroma('PORTFOLIO CITY', 60, 306, 118);
 
-  // Subtitle.
-  ctx.fillStyle = '#9ce8ff';
-  ctx.font = '700 30px "Arial Narrow", "Bahnschrift", Impact, sans-serif';
-  ctx.fillText('A   T H R E E . J S   R I D E', 62, 352);
-
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 4;

@@ -15,13 +15,16 @@ import {
 } from '../world/route';
 import { finaleSubjectOpacityAt } from '../world/finaleRender';
 
-export const BIKE_TRAIL_MAX_SAMPLES = 96;
+export const BIKE_TRAIL_MAX_SAMPLES = 128;
 export const BIKE_ECHO_POOL_SIZE = 10;
 
 const TRAIL_STEP_METERS = 0.42;
 const TRAIL_HALF_WIDTH = 0.14;
-const MIN_TRAIL_LENGTH = 12;
-const MAX_TRAIL_LENGTH = 40;
+// Trail length roughly doubled from the original 12–40 so the sandevistan ribbon
+// streaks well behind the bike; the colour cycle along it (see the ribbon shader)
+// needs the extra length to read as alternating bands rather than one smear.
+const MIN_TRAIL_LENGTH = 22;
+const MAX_TRAIL_LENGTH = 74;
 const HISTORY_DISTANCE_QUANTUM = 0.5;
 const DEFAULT_BIKE_PATH = new BikePath();
 export const BIKE_TRAIL_HISTORY_BIN_COUNT =
@@ -169,6 +172,9 @@ function writeEchoColor(
   alpha: number,
 ): void {
   const offset = index * 4;
+  // Sandevistan afterimage sweep: each older silhouette (higher age) steps
+  // further along a cyberpunk cyan → magenta → violet gradient, so the frozen
+  // snapshots behind the bike read as one flowing colour cascade.
   let startR: number;
   let startG: number;
   let startB: number;
@@ -176,30 +182,22 @@ function writeEchoColor(
   let endG: number;
   let endB: number;
   let fraction: number;
-  if (age < 0.38) {
-    startR = 0.08;
-    startG = 0.68;
-    startB = 0.48;
-    endR = 0.43;
-    endG = 0.16;
-    endB = 0.69;
-    fraction = age / 0.38;
-  } else if (age < 0.72) {
-    startR = 0.43;
-    startG = 0.16;
-    startB = 0.69;
-    endR = 0.72;
-    endG = 0.1;
-    endB = 0.5;
-    fraction = (age - 0.38) / 0.34;
+  if (age < 0.5) {
+    startR = 0.0;
+    startG = 0.92;
+    startB = 1.0;
+    endR = 1.0;
+    endG = 0.12;
+    endB = 0.8;
+    fraction = age / 0.5;
   } else {
-    startR = 0.72;
-    startG = 0.1;
-    startB = 0.5;
-    endR = 0.85;
-    endG = 0.38;
-    endB = 0.08;
-    fraction = (age - 0.72) / 0.28;
+    startR = 1.0;
+    startG = 0.12;
+    startB = 0.8;
+    endR = 0.55;
+    endG = 0.22;
+    endB = 1.0;
+    fraction = (age - 0.5) / 0.5;
   }
   target[offset] = THREE.MathUtils.lerp(startR, endR, fraction);
   target[offset + 1] = THREE.MathUtils.lerp(startG, endG, fraction);
@@ -287,7 +285,7 @@ export class BikeTrailSampler {
     const physicalSpeed = speedProbeEnd - speedProbeStart;
     const boost = boostAt(progress);
     const trailLength = THREE.MathUtils.clamp(
-      12 + physicalSpeed * 0.8 + boost * 28,
+      22 + physicalSpeed * 0.9 + boost * 34,
       MIN_TRAIL_LENGTH,
       MAX_TRAIL_LENGTH,
     );

@@ -4,6 +4,7 @@ import {
   RESEARCH_PANELS,
   buildResearchArtLayout,
   renderResearchArt,
+  renderResearchPlaceholderImage,
 } from '../../world/researchContent';
 import { RESEARCH_PANEL_RENDER_CONFIG } from './researchRender';
 import type {
@@ -44,7 +45,11 @@ export function createResearchResources(
     canvas.height = art.size.height;
     const context = canvas.getContext('2d');
     if (!context) throw new Error(`Research art canvas unavailable: ${panel.id}`);
-    renderResearchArt(context, art);
+    if (panel.kind === 'image') {
+      renderResearchPlaceholderImage(context, art);
+    } else {
+      renderResearchArt(context, art);
+    }
     const texture = own(new THREE.CanvasTexture(canvas));
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = 8;

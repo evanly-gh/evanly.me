@@ -6,7 +6,6 @@ import {
   measureResearchMoonCompetition,
 } from '../../world/researchCamera';
 import { RESEARCH_PANELS } from '../../world/researchContent';
-import { RESEARCH_GATEWAYS } from '../../world/researchLayout';
 import { buildResearchOcclusionReport } from '../../world/researchOcclusion';
 
 export const RESEARCH_PANEL_RENDER_CONFIG = {
@@ -85,18 +84,13 @@ function panelLocalMatrix(
 }
 
 export function buildResearchRenderAssembly(): ResearchRenderAssembly {
-  // Overhead gateway members (the beam spanning the road + horizontal ties) and
-  // the gateway-face panels were removed: they hung over the road and briefly
-  // blocked the whole view as the bike rode onto the bridge. The vertical
-  // supports (posts flanking the road) stay, and the research content still shows
-  // on the side tower-facade panels.
+  // The entire gateway structure was removed: the overhead beam spanning the road
+  // + horizontal ties briefly blocked the whole view onto the bridge, and the
+  // vertical side posts flanking the road clipped into the front-row buildings.
+  // Nothing structural is emitted anymore — the research content shows purely on
+  // the side tower-facade panels.
   const beams: ResearchRenderInstance[] = [];
-  const supports = RESEARCH_GATEWAYS.flatMap((gateway) =>
-    gateway.supports.map((support) => ({
-      id: support.id,
-      parentId: support.buildingId,
-      matrix: matrix(support.center, 0, support.scale),
-    })));
+  const supports: ResearchRenderInstance[] = [];
   const ties: ResearchRenderInstance[] = [];
   const panels = RESEARCH_PANELS.filter((panel) => panel.mount !== 'gateway-face');
   const screens = panels.map((panel) => ({

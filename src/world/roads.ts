@@ -135,9 +135,11 @@ const SHIBUYA_TURN_KEEP_CLEAR: Rect = { x0: 200, x1: 300, z0: -58, z1: -20 };
 // After the 2nd jump the bike touches down at (285,-348) and merges diagonally
 // onto the main road (x=240) by z=-375. That band sits in a gap the stunt
 // keep-clears leave open (they stop at z=-345) and north of the research walls
-// (which begin at z=-378) — so the roadside packer dropped a tower right on the
-// landing→merge diagonal and the bike phased through it. Close the gap.
-const STUNT_LANDING_KEEP_CLEAR: Rect = { x0: 240, x1: 300, z0: -380, z1: -345 };
+// (which begin at z=-378). The roadside packer dropped towers right on the
+// landing→merge diagonal (bike phased through them) AND just west of the road
+// edge at x≈210-223 where they read as sitting in the street. Widen the rect
+// west to x=200 so the whole landing pocket — both shoulders — stays clear.
+const STUNT_LANDING_KEEP_CLEAR: Rect = { x0: 200, x1: 300, z0: -380, z1: -345 };
 export const KEEP_CLEAR: Rect[] = [
   PROJECTS_MAIN_ROAD_KEEP_CLEAR,
   STUNT_KEEP_CLEAR,
