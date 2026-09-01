@@ -1,6 +1,7 @@
 import type { ImageSlot, Project } from '../content/resume';
 import { RESUME } from '../content/resume';
 import {
+  BILLBOARD_TITLE_FILL as TITLE_FILL,
   drawBrandLockup,
   drawCornerBrackets,
   drawCornerIndex,
@@ -488,7 +489,8 @@ export function renderProjectArt(
     maxWidth: maxW,
     maxLines: 2,
     sizePx: H * 0.13,
-    color: P.text,
+    // Dimmed off pure-white so bloom doesn't blow the big title into a harsh halo.
+    color: TITLE_FILL,
     weight: '800',
     mono: false,
     glow: H * 0.03,

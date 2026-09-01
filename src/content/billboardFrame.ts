@@ -194,9 +194,16 @@ export function wrapToWidth(
   return lines;
 }
 
-/** Neon glow can be at most this fraction of the rendered font size. Tuned to
- *  the readable look of the TTT-E2E ribbon: legible letters, soft halo. */
-const GLOW_TO_FONT_RATIO = 0.16;
+/** Neon glow can be at most this fraction of the rendered font size. Because the
+ *  cap scales with font size, the large billboard TITLES get the biggest halo and
+ *  read harshest once the scene bloom pass amplifies them — lowering this ratio
+ *  softens the titles most while barely touching small stack/blurb copy. */
+const GLOW_TO_FONT_RATIO = 0.1;
+
+/** Fill for large billboard titles. Held just off pure-white so the ~1.45x screen
+ *  boost (MeshBasicMaterial, toneMapped off) doesn't drive them far past the bloom
+ *  threshold and blow the big letters out into a harsh halo. */
+export const BILLBOARD_TITLE_FILL = '#d3dfef';
 
 export interface TextBlockOptions {
   text: string;

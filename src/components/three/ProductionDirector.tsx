@@ -50,6 +50,30 @@ const FRAME_SAMPLE_LIMIT = 600;
 // snappiness: ~0.09 s settle, snappier than the camera's 6.5 so the bike leads
 // the frame slightly instead of dragging behind the scroll.
 const BIKE_SMOOTH_RATE = 11;
+// The research canyon is a "snap on the bike" tracking shot. The side camera
+// already dollies at a fixed offset from the bike, so the bike is geometrically
+// pinned in frame — the only thing that lets it drift is the scroll-damping lag
+// (smoothRaw@3.6 → bike@11 → camera@6.5). Inside this range we ramp all three
+// damp stages up toward near-1:1 so the bike, and the camera locked to it, move
+// strictly with the scroll with no perceptible delay. Feathered at the edges so
+// entering/leaving the canyon eases from damped to locked instead of popping.
+const RESEARCH_LOCK_START = 0.716;
+const RESEARCH_LOCK_END = 0.83;
+const RESEARCH_LOCK_FEATHER = 0.01;
+const RESEARCH_LOCK_RAW_RATE = 26;
+const RESEARCH_LOCK_BIKE_RATE = 45;
+const RESEARCH_LOCK_CAM_RATE = 45;
+
+function researchLockAmount(semanticT: number): number {
+  const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+  const smooth = (value: number) => {
+    const c = clamp01(value);
+    return c * c * (3 - 2 * c);
+  };
+  const enter = smooth((semanticT - RESEARCH_LOCK_START) / RESEARCH_LOCK_FEATHER);
+  const exit = smooth((RESEARCH_LOCK_END - semanticT) / RESEARCH_LOCK_FEATHER);
+  return Math.min(enter, exit);
+}
 // Mouse look-around peek (radians) layered on top of the scripted camera each
 // frame, for a game-like interactive feel.
 const PARALLAX_YAW = 0.05;
@@ -358,12 +382,18 @@ export function ProductionDirector({
 
     const snapshot = store.read();
     const targetRaw = snapshot.raw;
+    // Lock factor for the research canyon (1 = strictly track scroll, no delay).
+    // Uses last frame's semantic — one-frame latency at the boundary is invisible.
+    const researchLock = researchLockAmount(semanticRef.current);
     if (!progressInitedRef.current) {
       smoothRawRef.current = targetRaw;
       progressInitedRef.current = true;
     } else {
-      // ~0.3 s ease so a big per-tick jump glides in smoothly instead of snapping.
-      smoothRawRef.current = THREE.MathUtils.damp(smoothRawRef.current, targetRaw, 3.6, delta);
+      // ~0.3 s ease so a big per-tick jump glides in smoothly instead of snapping;
+      // ramped toward near-1:1 inside the research canyon so the bike snaps to the
+      // scroll there.
+      const rawRate = THREE.MathUtils.lerp(3.6, RESEARCH_LOCK_RAW_RATE, researchLock);
+      smoothRawRef.current = THREE.MathUtils.damp(smoothRawRef.current, targetRaw, rawRate, delta);
       if (Math.abs(smoothRawRef.current - targetRaw) < 1e-5) smoothRawRef.current = targetRaw;
     }
     // Drive bike + camera-target from the smoothed progress every frame it moves.
@@ -387,7 +417,7 @@ export function ProductionDirector({
       bikeSmoothSemanticRef.current = THREE.MathUtils.damp(
         bikeSmoothSemanticRef.current,
         bikeTargetSemanticRef.current,
-        BIKE_SMOOTH_RATE,
+        THREE.MathUtils.lerp(BIKE_SMOOTH_RATE, RESEARCH_LOCK_BIKE_RATE, researchLock),
         delta,
       );
       if (
@@ -412,7 +442,9 @@ export function ProductionDirector({
         camera.fov = desiredFovRef.current;
         camInitedRef.current = true;
       } else {
-        const L = 6.5; // damping rate (~0.15 s settle)
+        // Damping rate (~0.15 s settle); ramped up in the research canyon so the
+        // camera stays locked to the (near-1:1) bike and the shot reads as pinned.
+        const L = THREE.MathUtils.lerp(6.5, RESEARCH_LOCK_CAM_RATE, researchLock);
         const p = camera.position;
         const dp = desiredPosRef.current;
         p.x = THREE.MathUtils.damp(p.x, dp.x, L, delta);
@@ -485,7 +517,7 @@ export function ProductionDirector({
           ? measureBikeFraming(bikeObject, camera, size)
           : undefined;
         const ribbon = scene.getObjectByName('bike-tron-ribbon');
-        const echoes = scene.getObjectByName('bike-sandevistan-echoes');
+        const echoes = scene.getObjectByName('bike-afterimages');
         const echoMesh = echoes instanceof THREE.InstancedMesh
           ? echoes
           : undefined;
@@ -606,7 +638,7 @@ export function ProductionDirector({
         measureMountedSceneSubjects(scene, camera, size, subjectIds),
       setTrailsEnabledForMeasurement: (enabled: boolean) => {
         const ribbon = scene.getObjectByName('bike-tron-ribbon');
-        const echoes = scene.getObjectByName('bike-sandevistan-echoes');
+        const echoes = scene.getObjectByName('bike-afterimages');
         if (ribbon) ribbon.visible = enabled;
         if (echoes) echoes.visible = enabled;
       },

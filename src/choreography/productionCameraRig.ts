@@ -100,11 +100,21 @@ function chaseKey(
   fov: number,
   mode: CamKey['mode'] = 'smooth',
   section: ProductionCameraSection = 'intro',
+  // Screen-right shoulder offset. A pure behind-the-bike chase (lateral 0) frames
+  // the trail edge-on, so it reads as a flat line you can't parse. A positive value
+  // slides the camera to the rider's right (camera screen-right = forward × up) so
+  // the ribbon is seen at an angle and its shape/depth reads. Only the camera moves,
+  // not the target, so the aim stays on the bike — an over-the-shoulder angle.
+  lateral = 0,
 ): ProductionCamKey {
   const route = sampleRoute(t);
   const forward = route.tangent.clone().setY(0).normalize();
+  const right = new THREE.Vector3()
+    .crossVectors(forward, new THREE.Vector3(0, 1, 0))
+    .normalize();
   const position = route.pos.clone()
     .addScaledVector(forward, -distance)
+    .addScaledVector(right, lateral)
     .setY(route.pos.y + height);
   const target = route.pos.clone()
     .addScaledVector(forward, CHASE_LOOK_AHEAD)
@@ -120,43 +130,48 @@ function chaseKey(
   );
 }
 
-const FINALE_START_T = 0.89;
-const FINALE_HANDOFF_END_T = 0.891;
+// Where the finale rise takes over from the keyed camera. From here on there is NO
+// keyed bridge-pan sweep and NO back-then-forward dolly — the camera simply cranes
+// UP and forward into the moon in one continuous motion, moon locked in frame.
+// Held at 0.885 (not 0.85/0.87) so the keyed lead-in has the whole ramp climb to
+// swing the aim from the research side-view around to the straight-on moon look
+// GRADUALLY (see the eased research-bridge swing keys) instead of snapping. Paired
+// with LIFT_SEMANTIC_WEIGHT in scrollRemap, which gives this same t-window heavy
+// scroll dwell so the swing reads as a slow sweep under the finger, not a snap.
+const FINALE_RISE_START_T = 0.885;
+const FINALE_RISE_END_T = 1;
+
+// Anchor sits right where the ramp/research camera already is as the bike rolls onto
+// the ramp (~(224, 2, −724), the research-end chase pose) — NOT parked ~170m back at
+// Z −555 like before, which teleported the camera backward the instant the bike hit
+// the ramp ("launches the camera back"). From here the crane holds its ground plane
+// position and just rises: Y 9 → 112, with Z drifting only a few metres, so the finale
+// reads purely as "crane straight up" while the bike rides away toward the moon.
+const FINALE_RISE_START = new THREE.Vector3(226, 9, -718);
+const FINALE_RISE_END = new THREE.Vector3(238, 112, -712);
 
 function rawFinaleCameraPoseAt(t: number): CamKey {
-  const fraction = THREE.MathUtils.clamp((t - 0.89) / 0.11, 0, 1);
+  const fraction = THREE.MathUtils.clamp(
+    (t - FINALE_RISE_START_T) / (FINALE_RISE_END_T - FINALE_RISE_START_T),
+    0,
+    1,
+  );
   const eased = fraction * fraction * (3 - 2 * fraction);
-  // The finale holds on the moon the whole way out — the camera pulls back along
-  // the bridge but keeps the moon locked in frame (no tilt-up). The outro banner
-  // fades in over this held moon shot.
-  const route = sampleRoute(t);
-  const forward = route.tangent.clone().setY(0).normalize();
-  const position = route.pos.clone()
-    .addScaledVector(forward, -THREE.MathUtils.lerp(160, 240, fraction))
-    .setY(30);
+  const position = FINALE_RISE_START.clone().lerp(FINALE_RISE_END, eased);
   const target = MOON_POS.clone();
   return {
     t,
     position,
     target,
-    fov: THREE.MathUtils.lerp(50, 46, eased),
+    fov: THREE.MathUtils.lerp(50, 44, eased),
     mode: 'dolly',
   };
 }
 
+// The anchor already matches the keyed pose at the handoff, so no cross-fade blend
+// is needed — the raw rise IS the continuous move.
 function finaleCameraPoseAt(t: number): CamKey {
-  const pose = rawFinaleCameraPoseAt(t);
-  if (t <= FINALE_START_T || t >= FINALE_HANDOFF_END_T) return pose;
-  const start = rawFinaleCameraPoseAt(FINALE_START_T);
-  const fraction = (t - FINALE_START_T)
-    / (FINALE_HANDOFF_END_T - FINALE_START_T);
-  const eased = fraction * fraction * (3 - 2 * fraction);
-  return {
-    ...pose,
-    position: start.position.clone().lerp(pose.position, eased),
-    target: start.target.clone().lerp(pose.target, eased),
-    fov: THREE.MathUtils.lerp(start.fov, pose.fov, eased),
-  };
+  return rawFinaleCameraPoseAt(t);
 }
 
 function finaleChaseKey(
@@ -191,10 +206,15 @@ export const PRODUCTION_CAMERA_KEYS: readonly ProductionCamKey[] =
     // Default chase: behind the bike, low + gentle, pointing down the street to
     // capture the city (not the tarmac). Distances/heights converge to a steady
     // ~28-back / 10-up follow so the opening settles into the persistent look.
-    chaseKey('intro-start', 0, 34, 16, 50),
-    chaseKey('intro-crane-descent', 0.045, 32, 13, 46),
-    chaseKey('intro-follow-acquire', 0.09, 30, 11, 42),
-    chaseKey('intro-handoff', 0.115, 28, 10, 38),
+    // Chase sits off the rider's RIGHT shoulder (lateral ~11) rather than dead
+    // astern, so the tron ribbon behind the bike is seen at an angle and reads as a
+    // ribbon with depth instead of a single flat line. The offset tapers back to
+    // centre across the two About-approach keys below so there's no lateral pop as
+    // the ride hands off to the fixed About hero shot.
+    chaseKey('intro-start', 0, 34, 16, 50, 'smooth', 'intro', 11),
+    chaseKey('intro-crane-descent', 0.045, 32, 13, 46, 'smooth', 'intro', 12),
+    chaseKey('intro-follow-acquire', 0.09, 30, 11, 42, 'smooth', 'intro', 12),
+    chaseKey('intro-handoff', 0.115, 28, 10, 38, 'smooth', 'intro', 11),
     // About reveal: a LOW, near-ground hero shot on the cross-street axis looking
     // UP at the towering About sign + flanking buildings, with the bike crossing
     // the lower frame. Trail the bike in low first (kept framed), then settle into
@@ -202,8 +222,8 @@ export const PRODUCTION_CAMERA_KEYS: readonly ProductionCamKey[] =
     // Held at height 10 (matching intro-handoff and the trail) — the old height 12
     // here was a local bump that read as an awkward elevation spike right as the
     // ride entered the About beat, then dropped into the Y≈7-9 hold.
-    chaseKey('intro-about-approach', 0.128, 26, 10, 42, 'smooth', 'about'),
-    chaseKey('intro-about-trail', 0.15, 22, 10, 46, 'smooth', 'about'),
+    chaseKey('intro-about-approach', 0.128, 26, 10, 42, 'smooth', 'about', 7),
+    chaseKey('intro-about-trail', 0.15, 22, 10, 46, 'smooth', 'about', 3),
     // Flattened reveal: camera holds a near-constant height (~9) and looks only
     // gently UP at the sign (target Y≈19, not 26-28) so the beat no longer cranes
     // drastically up-then-down. Position Y stays ~9-10 across the whole About beat.
@@ -271,36 +291,80 @@ export const PRODUCTION_CAMERA_KEYS: readonly ProductionCamKey[] =
       projectsLandingSource.fov,
       'smooth',
     ),
-    // Descent transition: CHASE the bike down its own path (behind it, on the
-    // same x=285 service-alley line it lands on, then following it as it merges
-    // to x=240). Trailing on the bike's side keeps a clear line of sight — the
-    // old dolly crossed to x=240 while the bike was airborne over x=285, letting
-    // an east-side building block the view.
-    // Tight, aggressive follow (shorter distance than the intro chase) so the
-    // swing from the side hero-cam to behind-the-bike keeps the rider dead-centre
-    // and never lets a fast scroll lose it. Paired with the extra descend scroll
-    // dwell (scrollRemap DESCEND_SEMANTIC_INTERVAL) so this plays as a slow sweep.
-    chaseKey('projects-research-1', 0.65, 19, 12, 54, 'smooth', 'descend'),
-    chaseKey('projects-research-2', 0.663, 21, 11, 56, 'smooth', 'descend'),
-    chaseKey('projects-research-3', 0.676, 23, 10, 58, 'smooth', 'descend'),
-    chaseKey('projects-research-4', 0.688, 25, 10, 60, 'smooth', 'descend'),
+    // Linger on the side of the street after the second-jump landing: hold the
+    // hero side-cam a few beats longer so the rest of the jump / roll-out reads
+    // before the camera swings in behind the bike. Same side framing as the
+    // landing key, held static while the bike rolls through the lower frame — the
+    // chase used to snap in behind at t=0.65, cutting the jump payoff short.
+    key(
+      'projects-land-hold-1',
+      'descend',
+      0.65,
+      [
+        STUNT_CAMERA_SIDE.productionX,
+        projectsLandingSource.position.y,
+        projectsLandingSource.position.z,
+      ],
+      [
+        STUNT_CENTER_X,
+        projectsLandingSource.target.y,
+        projectsLandingSource.target.z,
+      ],
+      projectsLandingSource.fov,
+      'smooth',
+    ),
+    key(
+      'projects-land-hold-2',
+      'descend',
+      0.66,
+      [
+        STUNT_CAMERA_SIDE.productionX,
+        projectsLandingSource.position.y,
+        projectsLandingSource.position.z,
+      ],
+      [
+        STUNT_CENTER_X,
+        projectsLandingSource.target.y,
+        projectsLandingSource.target.z,
+      ],
+      projectsLandingSource.fov,
+      'smooth',
+    ),
+    key(
+      'projects-land-hold-3',
+      'descend',
+      0.668,
+      [
+        STUNT_CAMERA_SIDE.productionX,
+        projectsLandingSource.position.y,
+        projectsLandingSource.position.z,
+      ],
+      [
+        STUNT_CENTER_X,
+        projectsLandingSource.target.y,
+        projectsLandingSource.target.z,
+      ],
+      projectsLandingSource.fov,
+      'smooth',
+    ),
+    // Now swing in behind the bike and CHASE it down its own path (behind it, on
+    // the same x=285 service-alley line it lands on, then following it as it
+    // merges to x=240). The swing + descent is compressed into the remaining
+    // descend window so it still hands off to the canyon dolly at t=0.712, but it
+    // starts later now that the side hold runs to ~0.668. Paired with the extra
+    // descend scroll dwell (scrollRemap DESCEND_SEMANTIC_INTERVAL) so the whole
+    // move still plays as a deliberate sweep, not a whip.
+    chaseKey('projects-research-1', 0.674, 19, 12, 54, 'smooth', 'descend'),
+    chaseKey('projects-research-2', 0.682, 21, 11, 56, 'smooth', 'descend'),
+    chaseKey('projects-research-3', 0.689, 23, 10, 58, 'smooth', 'descend'),
+    chaseKey('projects-research-4', 0.695, 25, 10, 60, 'smooth', 'descend'),
     // Keep chasing the bike THROUGH the landing merge onto the main road (it
-    // reaches x=240 at t=0.70) before revealing the canyon. Previously the camera
-    // whip-cut to the x=240 research-entry at t=0.69 while the bike was still
-    // airborne over x=285 — a ~45m lateral jump the eye read as a hard cut. Now it
-    // trails the rider down the merge diagonal so the swing to the canyon axis is
-    // a continuation, not a jump.
-    chaseKey('projects-research-5', 0.694, 23, 9, 58, 'smooth', 'descend'),
-    chaseKey('projects-research-6', 0.7, 21, 8, 59, 'smooth', 'descend'),
-    // Keep TRAILING the bike as it enters the canyon mouth, then ease the chase
-    // down + wide into the low up-the-canyon framing. The old absolute
-    // research-entry frames leaped the camera ~30m down-canyon (ahead of the
-    // rider) in a blink and whipped the FOV 54→66 across three fast cuts — that
-    // "rushing ahead / rapid angle switch" right after the second-jump landing.
-    // Now the camera stays behind the bike the whole descent, only lowering and
-    // widening gently, and hands off to the canyon dolly (research-21) from a
-    // pose that's already low + behind — one continuous move, not three cuts.
-    chaseKey('projects-research-7', 0.705, 20, 7, 60, 'smooth', 'descend'),
+    // reaches x=240 at t=0.70) before revealing the canyon, then ease the chase
+    // down + wide into the low up-the-canyon framing and hand off to the canyon
+    // dolly (research-21) from a pose that's already low + behind.
+    chaseKey('projects-research-5', 0.7, 23, 9, 58, 'smooth', 'descend'),
+    chaseKey('projects-research-6', 0.704, 21, 8, 59, 'smooth', 'descend'),
+    chaseKey('projects-research-7', 0.707, 20, 7, 60, 'smooth', 'descend'),
     chaseKey('research-entry', 0.709, 18, 5, 61, 'smooth', 'research'),
     chaseKey('research-entry-align', 0.711, 16, 4, 62, 'smooth', 'research'),
     ...RESEARCH_CAMERA_KEYS
@@ -317,6 +381,13 @@ export const PRODUCTION_CAMERA_KEYS: readonly ProductionCamKey[] =
                   : `research-${index + 1}`,
             'research',
           )),
+    // Ramp lead-in. The camera holds the research SIDE view through t=0.84 (the last
+    // research key), then swings its aim around to the straight-on moon look in ONE
+    // eased 'smooth' segment spanning the whole ramp climb (0.842 → FINALE_RISE_START_T
+    // 0.885). smoothstep eases the aim OUT of the static side hold and back INTO a
+    // standstill exactly as the moon-locked finale override takes over, and scrollRemap's
+    // LIFT_SEMANTIC_WEIGHT gives this window heavy finger dwell — together they turn the
+    // old sudden side→forward snap into a slow, readable sweep.
     key(
       'research-bridge-buffer',
       'lift',
@@ -324,32 +395,17 @@ export const PRODUCTION_CAMERA_KEYS: readonly ProductionCamKey[] =
       researchEndSource.position.toArray(),
       researchEndSource.target.toArray(),
       researchEndSource.fov,
-      'dolly',
+      'smooth',
     ),
+    // Position + aim MUST equal the finale override at t = FINALE_RISE_START_T so
+    // super.sample() and the override meet with no jump: FINALE_RISE_START looking at
+    // the moon. This is the end of the eased swing and the start of the crane rise.
     key(
       'research-bridge-pan-1',
       'lift',
-      0.85,
-      [228, 8, -555],
-      [268, 28, -635],
-      50,
-      'dolly',
-    ),
-    key(
-      'research-bridge-pan-2',
-      'lift',
-      0.865,
-      [232, 16, -530],
-      [252, 46, -650],
-      50,
-      'dolly',
-    ),
-    key(
-      'research-bridge-pan-3',
-      'lift',
-      0.88,
-      [237, 25, -500],
-      [240, 65, -900],
+      FINALE_RISE_START_T,
+      FINALE_RISE_START.toArray(),
+      MOON_POS.toArray(),
       50,
       'dolly',
     ),
@@ -389,8 +445,10 @@ export const PRODUCTION_CAMERA_KEYS: readonly ProductionCamKey[] =
 export function buildProductionCameraRig(): CameraRig {
   return new class extends CameraRig {
     override sample(t: number): CamPose {
-      if (t < 0.89) return super.sample(t);
-      return finaleCameraPoseAt(THREE.MathUtils.clamp(t, 0.89, 1));
+      if (t < FINALE_RISE_START_T) return super.sample(t);
+      return finaleCameraPoseAt(
+        THREE.MathUtils.clamp(t, FINALE_RISE_START_T, 1),
+      );
     }
   }(PRODUCTION_CAMERA_KEYS);
 }

@@ -179,22 +179,42 @@ export function HudNav({
 }) {
   const [active, setActive] = useState(items[0]?.id ?? '');
   useEffect(() => {
-    if (!animate || typeof IntersectionObserver === 'undefined') return undefined;
-    const elements = items
-      .map((item) => document.getElementById(item.id))
-      .filter((element): element is HTMLElement => element !== null);
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
-        const top = visible[0]?.target as HTMLElement | undefined;
-        if (top) setActive(top.id);
-      },
-      { rootMargin: '-45% 0px -45% 0px', threshold: [0, 0.25, 0.5, 1] },
-    );
-    elements.forEach((element) => observer.observe(element));
-    return () => observer.disconnect();
+    if (!animate || typeof window === 'undefined') return undefined;
+    // Reference-line scroll-spy: the active section is the LAST one whose top has
+    // crossed a line ~30% down the viewport. A center-band / intersection-ratio
+    // spy silently mis-fires for sections shorter than the band (e.g. About,
+    // Contact), lighting up the following section instead — this is size-agnostic.
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const marker = window.innerHeight * 0.3;
+      let current = items[0]?.id ?? '';
+      for (const item of items) {
+        const element = document.getElementById(item.id);
+        if (element && element.getBoundingClientRect().top - marker <= 0) {
+          current = item.id;
+        }
+      }
+      // At the very bottom of the page a short final section may never reach the
+      // marker line, so pin the last item once the page is scrolled to the end.
+      const scrollBottom = window.scrollY + window.innerHeight;
+      const docHeight = document.documentElement.scrollHeight;
+      if (scrollBottom >= docHeight - 2 && items.length > 0) {
+        current = items[items.length - 1].id;
+      }
+      setActive(current);
+    };
+    const onScroll = () => {
+      if (frame === 0) frame = window.requestAnimationFrame(update);
+    };
+    update();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
+    return () => {
+      if (frame !== 0) window.cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
   }, [items, animate]);
   return (
     <nav className="np-hudnav" aria-label="Portfolio sections">

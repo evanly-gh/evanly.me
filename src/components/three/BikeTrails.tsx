@@ -6,9 +6,12 @@ import {
 } from 'react';
 import * as THREE from 'three';
 import {
-  BIKE_ECHO_POOL_SIZE,
   BIKE_TRAIL_MAX_SAMPLES,
+  bikeAfterimageDistanceAt,
+  buildBikeAfterimageField,
   createBikeTrailSampler,
+  writeAfterimageAlphas,
+  type BikeAfterimageField,
   type BikeTrailSampler,
 } from '../../choreography/bikeTrail';
 import type { BikeState } from '../../choreography/bikePath';
@@ -53,7 +56,9 @@ const TRAIL_FRAGMENT_SHADER = `
   }
 `;
 
-const ECHO_VERTEX_SHADER = `
+// Afterimage silhouettes carry a static per-instance colour (baked gradient) and
+// a dynamic per-instance alpha (revealed sequentially as the bike passes each).
+const AFTERIMAGE_VERTEX_SHADER = `
   attribute float instanceAlpha;
   varying vec3 vColor;
   varying float vAlpha;
@@ -65,10 +70,11 @@ const ECHO_VERTEX_SHADER = `
   }
 `;
 
-const ECHO_FRAGMENT_SHADER = `
+const AFTERIMAGE_FRAGMENT_SHADER = `
   varying vec3 vColor;
   varying float vAlpha;
   void main() {
+    if (vAlpha <= 0.001) discard;
     gl_FragColor = vec4(vColor, vAlpha);
   }
 `;
@@ -76,12 +82,12 @@ const ECHO_FRAGMENT_SHADER = `
 interface BikeTrailsResources {
   sampler: BikeTrailSampler;
   ribbon: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
-  echoes: THREE.InstancedMesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  afterimages: THREE.InstancedMesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  afterimageField: BikeAfterimageField;
   trailPositions: THREE.BufferAttribute;
   trailAlpha: THREE.BufferAttribute;
   trailAge: THREE.BufferAttribute;
-  echoAlpha: THREE.InstancedBufferAttribute;
-  matrix: THREE.Matrix4;
+  afterimageAlpha: THREE.InstancedBufferAttribute;
 }
 
 export interface BikeTrailsHandle {
@@ -92,7 +98,7 @@ export interface BikeTrailsHandle {
   ): void;
   objects(): {
     ribbon: THREE.Mesh;
-    echoes: THREE.InstancedMesh;
+    afterimages: THREE.InstancedMesh;
   } | null;
 }
 
@@ -179,24 +185,15 @@ export function applyBikeTrailsProgress(
   resources.trailAge.needsUpdate = true;
   resources.ribbon.geometry.setDrawRange(0, (sample.trailCount - 1) * 6);
 
-  const colorArray = resources.echoes.instanceColor?.array as Float32Array;
-  const echoAlphaArray = resources.echoAlpha.array as Float32Array;
-  for (let index = 0; index < BIKE_ECHO_POOL_SIZE; index += 1) {
-    resources.matrix.fromArray(sample.echoMatrices, index * 16);
-    resources.echoes.setMatrixAt(index, resources.matrix);
-    const colorOffset = index * 4;
-    const instanceOffset = index * 3;
-    colorArray[instanceOffset] = sample.echoColors[colorOffset];
-    colorArray[instanceOffset + 1] = sample.echoColors[colorOffset + 1];
-    colorArray[instanceOffset + 2] = sample.echoColors[colorOffset + 2];
-    echoAlphaArray[index] = sample.echoColors[colorOffset + 3];
-  }
-  resources.echoes.count = sample.echoCount;
-  resources.echoes.instanceMatrix.needsUpdate = true;
-  if (resources.echoes.instanceColor) {
-    resources.echoes.instanceColor.needsUpdate = true;
-  }
-  resources.echoAlpha.needsUpdate = true;
+  // Reveal tracks the bike's CURRENT distance (not a latched maximum): silhouettes
+  // ahead of the bike fade in as it passes, and conceal again on reverse scroll.
+  writeAfterimageAlphas(
+    resources.afterimageField,
+    bikeAfterimageDistanceAt(semanticT),
+    finaleFade,
+    resources.afterimageAlpha.array as Float32Array,
+  );
+  resources.afterimageAlpha.needsUpdate = true;
 }
 
 export const BikeTrails = forwardRef<BikeTrailsHandle, {
@@ -219,35 +216,43 @@ export const BikeTrails = forwardRef<BikeTrailsHandle, {
       ribbon.frustumCulled = false;
       ribbon.renderOrder = 30;
 
-      const echoGeometry = own(ghostGeometry.clone());
-      const echoAlpha = new THREE.InstancedBufferAttribute(
-        new Float32Array(BIKE_ECHO_POOL_SIZE),
+      // Frozen silhouettes for the whole route. Transforms + colours are baked
+      // once here; only per-instance alpha changes per frame (reveal + fade).
+      const afterimageField = buildBikeAfterimageField();
+      const afterimageGeometry = own(ghostGeometry.clone());
+      const afterimageAlpha = new THREE.InstancedBufferAttribute(
+        new Float32Array(afterimageField.count),
         1,
       ).setUsage(THREE.DynamicDrawUsage);
-      echoGeometry.setAttribute('instanceAlpha', echoAlpha);
-      const echoMaterial = own(createShaderMaterial(
-        ECHO_VERTEX_SHADER,
-        ECHO_FRAGMENT_SHADER,
+      afterimageGeometry.setAttribute('instanceAlpha', afterimageAlpha);
+      const afterimageMaterial = own(createShaderMaterial(
+        AFTERIMAGE_VERTEX_SHADER,
+        AFTERIMAGE_FRAGMENT_SHADER,
         THREE.AdditiveBlending,
       ));
-      const echoes = own(new THREE.InstancedMesh(
-        echoGeometry,
-        echoMaterial,
-        BIKE_ECHO_POOL_SIZE,
+      const afterimages = own(new THREE.InstancedMesh(
+        afterimageGeometry,
+        afterimageMaterial,
+        afterimageField.count,
       ));
-      echoes.name = 'bike-sandevistan-echoes';
-      echoes.frustumCulled = false;
-      echoes.renderOrder = 29;
-      echoes.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      echoes.instanceColor = new THREE.InstancedBufferAttribute(
-        new Float32Array(BIKE_ECHO_POOL_SIZE * 3),
+      afterimages.name = 'bike-afterimages';
+      afterimages.frustumCulled = false;
+      afterimages.renderOrder = 29;
+      afterimages.count = afterimageField.count;
+      afterimages.instanceMatrix.array.set(afterimageField.matrices);
+      afterimages.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+      afterimages.instanceMatrix.needsUpdate = true;
+      afterimages.instanceColor = new THREE.InstancedBufferAttribute(
+        Float32Array.from(afterimageField.colors),
         3,
-      ).setUsage(THREE.DynamicDrawUsage);
+      );
+      afterimages.instanceColor.needsUpdate = true;
 
       const value: BikeTrailsResources = {
         sampler: createBikeTrailSampler(),
         ribbon,
-        echoes,
+        afterimages,
+        afterimageField,
         trailPositions: ribbonGeometry.getAttribute(
           'position',
         ) as THREE.BufferAttribute,
@@ -257,17 +262,16 @@ export const BikeTrails = forwardRef<BikeTrailsHandle, {
         trailAge: ribbonGeometry.getAttribute(
           'trailAge',
         ) as THREE.BufferAttribute,
-        echoAlpha,
-        matrix: new THREE.Matrix4(),
+        afterimageAlpha,
       };
       return {
         value,
         resources: [
           ribbonGeometry,
           ribbonMaterial,
-          echoGeometry,
-          echoMaterial,
-          echoes,
+          afterimageGeometry,
+          afterimageMaterial,
+          afterimages,
         ],
       };
     },
@@ -297,7 +301,7 @@ export const BikeTrails = forwardRef<BikeTrailsHandle, {
     objects: () => resourcesRef.current
       ? {
           ribbon: resourcesRef.current.ribbon,
-          echoes: resourcesRef.current.echoes,
+          afterimages: resourcesRef.current.afterimages,
         }
       : null,
   }), []);
@@ -321,7 +325,7 @@ export const BikeTrails = forwardRef<BikeTrailsHandle, {
   return (
     <group name="bike-trails">
       <primitive object={resources.ribbon} dispose={null} />
-      <primitive object={resources.echoes} dispose={null} />
+      <primitive object={resources.afterimages} dispose={null} />
     </group>
   );
 });

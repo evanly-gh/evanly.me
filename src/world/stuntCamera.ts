@@ -87,13 +87,18 @@ export const STUNT_CAMERA_KEYS: readonly CamKey[] = Object.freeze([
     58,
     'hold',
   ),
+  // Hold the SAME fov (58) as the flip-2 apex through the descent + landing so the
+  // framing stays locked as the bike drops past the TTT-E2E board — the default 46
+  // here used to narrow the lens (a zoom-in) right after the apex. The camera only
+  // "pulls away" later, when the chase swings in behind the bike (projects-research).
   cameraKey(
     STUNT_ROUTE.descentTop.t,
     29,
     STUNT_ROUTE.flip2Apex.position[1],
     STUNT_ROUTE.flip2Apex.position[2],
+    58,
   ),
-  cameraKey(STUNT_ROUTE.groundResume.t, 28, 23),
+  cameraKey(STUNT_ROUTE.groundResume.t, 28, 23, undefined, 58),
 ]);
 
 export function buildStuntCameraRig(): CameraRig {

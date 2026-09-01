@@ -16,15 +16,15 @@ import {
 import { finaleSubjectOpacityAt } from '../world/finaleRender';
 
 export const BIKE_TRAIL_MAX_SAMPLES = 128;
-export const BIKE_ECHO_POOL_SIZE = 10;
 
 const TRAIL_STEP_METERS = 0.42;
 const TRAIL_HALF_WIDTH = 0.14;
-// Trail length roughly doubled from the original 12–40 so the sandevistan ribbon
-// streaks well behind the bike; the colour cycle along it (see the ribbon shader)
-// needs the extra length to read as alternating bands rather than one smear.
-const MIN_TRAIL_LENGTH = 22;
-const MAX_TRAIL_LENGTH = 74;
+// The live ribbon is now just a SHORT streak right behind the bike — the long
+// sandevistan smear was replaced by the persistent afterimage field (frozen
+// silhouettes revealed along the whole route; see buildBikeAfterimageField). Kept
+// short so it reads as a bright motion streak, not a trail the bike drags along.
+const MIN_TRAIL_LENGTH = 6;
+const MAX_TRAIL_LENGTH = 16;
 const HISTORY_DISTANCE_QUANTUM = 0.5;
 const DEFAULT_BIKE_PATH = new BikePath();
 export const BIKE_TRAIL_HISTORY_BIN_COUNT =
@@ -34,6 +34,30 @@ export const BIKE_TRAIL_HISTORY_BYTES =
   BIKE_TRAIL_HISTORY_BIN_COUNT
   * HISTORY_VALUES_PER_BIN
   * Float64Array.BYTES_PER_ELEMENT;
+
+// Persistent afterimage field: frozen bike silhouettes placed every
+// BIKE_AFTERIMAGE_SPACING metres along the ENTIRE route, invisible until the bike
+// reaches each spot, then revealed and LEFT in place (the reveal distance is
+// latched to the max reached, so a silhouette never disappears once passed). Each
+// silhouette steps through an alternating cyberpunk gradient by index. ~640 ghost
+// instances (~300 tris each) ≈ 190k tris in a single instanced draw — cheap
+// against the scene's triangle budget.
+export const BIKE_AFTERIMAGE_SPACING = 3.4;
+export const BIKE_AFTERIMAGE_MAX = 640;
+const AFTERIMAGE_FEATHER_METERS = 2.6;
+const AFTERIMAGE_BASE_ALPHA = 0.4;
+// Silhouettes step through this five-shade spectrum (green → blue → indigo →
+// purple → magenta, then wrap), one full loop every AFTERIMAGE_COLOR_CYCLE
+// silhouettes, so the frozen field flows through the whole spectrum instead of
+// just ping-ponging cyan↔pink.
+const AFTERIMAGE_PALETTE: ReadonlyArray<readonly [number, number, number]> = [
+  [0.20, 1.00, 0.45], // green
+  [0.05, 0.60, 1.00], // blue
+  [0.32, 0.26, 1.00], // indigo
+  [0.62, 0.20, 1.00], // purple
+  [1.00, 0.20, 0.78], // magenta
+];
+const AFTERIMAGE_COLOR_CYCLE = 22;
 
 interface BikeTrailHistory {
   readonly semantic: Float64Array;
@@ -123,14 +147,6 @@ export interface BikeTrailSample {
   trailPositions: Float32Array;
   trailAges: Float32Array;
   trailDistances: Float32Array;
-  echoCount: number;
-  echoMatrices: Float32Array;
-  echoColors: Float32Array;
-  echoAges: Float32Array;
-  echoDistances: Float32Array;
-  echoSemantic: Float32Array;
-  echoLeans: Float32Array;
-  echoPitches: Float32Array;
 }
 
 function clamp01(value: number): number {
@@ -165,50 +181,130 @@ function boostAt(semanticT: number): number {
   );
 }
 
-function writeEchoColor(
+// ---------------------------------------------------------------------------
+// Persistent afterimage field
+// ---------------------------------------------------------------------------
+
+export interface BikeAfterimageField {
+  /** Number of frozen silhouettes placed along the route. */
+  readonly count: number;
+  /** count * 16 — static local transform of each silhouette. */
+  readonly matrices: Float32Array;
+  /** count * 3 — static cyberpunk gradient colour of each silhouette. */
+  readonly colors: Float32Array;
+  /** count — route arc-distance at which each silhouette sits. */
+  readonly distances: Float32Array;
+}
+
+function writeAfterimageColor(
   target: Float32Array,
   index: number,
-  age: number,
-  alpha: number,
+  colorIndex: number,
 ): void {
-  const offset = index * 4;
-  // Sandevistan afterimage sweep: each older silhouette (higher age) steps
-  // further along a cyberpunk cyan → magenta → violet gradient, so the frozen
-  // snapshots behind the bike read as one flowing colour cascade.
-  let startR: number;
-  let startG: number;
-  let startB: number;
-  let endR: number;
-  let endG: number;
-  let endB: number;
-  let fraction: number;
-  if (age < 0.5) {
-    startR = 0.0;
-    startG = 0.92;
-    startB = 1.0;
-    endR = 1.0;
-    endG = 0.12;
-    endB = 0.8;
-    fraction = age / 0.5;
-  } else {
-    startR = 1.0;
-    startG = 0.12;
-    startB = 0.8;
-    endR = 0.55;
-    endG = 0.22;
-    endB = 1.0;
-    fraction = (age - 0.5) / 0.5;
-  }
-  target[offset] = THREE.MathUtils.lerp(startR, endR, fraction);
-  target[offset + 1] = THREE.MathUtils.lerp(startG, endG, fraction);
-  target[offset + 2] = THREE.MathUtils.lerp(startB, endB, fraction);
-  target[offset + 3] = alpha;
+  const offset = index * 3;
+  // Walk the palette continuously: phase 0..1 spans all five shades and wraps, so
+  // consecutive silhouettes flow green → blue → indigo → purple → magenta → green.
+  const phase = (colorIndex % AFTERIMAGE_COLOR_CYCLE) / AFTERIMAGE_COLOR_CYCLE;
+  const scaled = phase * AFTERIMAGE_PALETTE.length;
+  const startIndex = Math.floor(scaled) % AFTERIMAGE_PALETTE.length;
+  const endIndex = (startIndex + 1) % AFTERIMAGE_PALETTE.length;
+  const fraction = scaled - Math.floor(scaled);
+  const start = AFTERIMAGE_PALETTE[startIndex];
+  const end = AFTERIMAGE_PALETTE[endIndex];
+  target[offset] = THREE.MathUtils.lerp(start[0], end[0], fraction);
+  target[offset + 1] = THREE.MathUtils.lerp(start[1], end[1], fraction);
+  target[offset + 2] = THREE.MathUtils.lerp(start[2], end[2], fraction);
 }
 
 /**
- * Fixed-pool sampler for the ridden ribbon and historical bike silhouettes.
- * Expensive BikePath evaluation is captured once; update() only mutates typed
- * arrays and scratch Three values retained by this instance.
+ * Precompute the frozen silhouette transforms + colours for the whole route.
+ * Called once; the result is static (only per-instance alpha changes at runtime).
+ */
+export function buildBikeAfterimageField(
+  path: BikePath = DEFAULT_BIKE_PATH,
+): BikeAfterimageField {
+  const history = bikeTrailHistoryFor(path);
+  const total = routeDistanceAt(1);
+  const count = Math.min(
+    BIKE_AFTERIMAGE_MAX,
+    Math.max(1, Math.floor(total / BIKE_AFTERIMAGE_SPACING) + 1),
+  );
+  const matrices = new Float32Array(count * 16);
+  const colors = new Float32Array(count * 3);
+  const distances = new Float32Array(count);
+
+  const position = new THREE.Vector3();
+  const routeQuaternion = new THREE.Quaternion();
+  const leanQuaternion = new THREE.Quaternion();
+  const pitchQuaternion = new THREE.Quaternion();
+  const posedQuaternion = new THREE.Quaternion();
+  const lift = new THREE.Vector3();
+  const rear = new THREE.Vector3();
+  const matrix = new THREE.Matrix4();
+  const scale = new THREE.Vector3(1, 1, 1);
+  const axisX = new THREE.Vector3(1, 0, 0);
+  const axisZ = new THREE.Vector3(0, 0, 1);
+
+  for (let index = 0; index < count; index += 1) {
+    const distance = Math.min(total, index * BIKE_AFTERIMAGE_SPACING);
+    const slot = Math.min(
+      BIKE_TRAIL_HISTORY_BIN_COUNT - 1,
+      Math.round(distance / HISTORY_DISTANCE_QUANTUM),
+    );
+    position.fromArray(history.positions, slot * 3);
+    routeQuaternion.fromArray(history.quaternions, slot * 4);
+    const lean = history.leans[slot];
+    const pitch = history.pitches[slot];
+    leanQuaternion.setFromAxisAngle(axisX, lean);
+    pitchQuaternion.setFromAxisAngle(axisZ, pitch);
+    posedQuaternion.copy(routeQuaternion)
+      .multiply(leanQuaternion)
+      .multiply(pitchQuaternion);
+    // Same pivot alignment the old moving echoes used, so the posed silhouette
+    // sits on the bike's centre rather than floating off it.
+    lift.set(0, BIKE_PITCH_PIVOT_Y, 0)
+      .applyQuaternion(leanQuaternion)
+      .applyQuaternion(routeQuaternion);
+    rear.set(0, BIKE_PITCH_PIVOT_Y, 0).applyQuaternion(posedQuaternion);
+    position.add(lift).sub(rear);
+    matrix.compose(position, posedQuaternion, scale)
+      .toArray(matrices, index * 16);
+    writeAfterimageColor(colors, index, index);
+    distances[index] = distance;
+  }
+  return Object.freeze({ count, matrices, colors, distances });
+}
+
+/**
+ * Fill `out` (length >= field.count) with each silhouette's alpha for the given
+ * revealed distance. Because `revealedDistance` is latched to the max reached, an
+ * alpha only ever rises: a silhouette fades in as the bike passes it and then
+ * stays. `globalFade` folds in the finale fade-out.
+ */
+export function writeAfterimageAlphas(
+  field: BikeAfterimageField,
+  revealedDistance: number,
+  globalFade: number,
+  out: Float32Array,
+): void {
+  const fade = clamp01(globalFade);
+  for (let index = 0; index < field.count; index += 1) {
+    const reveal = clamp01(
+      (revealedDistance - field.distances[index]) / AFTERIMAGE_FEATHER_METERS,
+    );
+    out[index] = reveal * AFTERIMAGE_BASE_ALPHA * fade;
+  }
+}
+
+/** Route arc-distance the bike has reached at the given semantic progress. */
+export function bikeAfterimageDistanceAt(semanticT: number): number {
+  return routeDistanceAt(clamp01(semanticT));
+}
+
+/**
+ * Fixed-pool sampler for the short ridden ribbon. Expensive BikePath evaluation is
+ * captured once (shared history); update() only mutates typed arrays and scratch
+ * Three values retained by this instance.
  */
 export class BikeTrailSampler {
   private readonly output: BikeTrailSample = {
@@ -217,14 +313,6 @@ export class BikeTrailSampler {
     trailPositions: new Float32Array(BIKE_TRAIL_MAX_SAMPLES * 6),
     trailAges: new Float32Array(BIKE_TRAIL_MAX_SAMPLES),
     trailDistances: new Float32Array(BIKE_TRAIL_MAX_SAMPLES),
-    echoCount: 6,
-    echoMatrices: new Float32Array(BIKE_ECHO_POOL_SIZE * 16),
-    echoColors: new Float32Array(BIKE_ECHO_POOL_SIZE * 4),
-    echoAges: new Float32Array(BIKE_ECHO_POOL_SIZE),
-    echoDistances: new Float32Array(BIKE_ECHO_POOL_SIZE),
-    echoSemantic: new Float32Array(BIKE_ECHO_POOL_SIZE),
-    echoLeans: new Float32Array(BIKE_ECHO_POOL_SIZE),
-    echoPitches: new Float32Array(BIKE_ECHO_POOL_SIZE),
   };
 
   private readonly position = new THREE.Vector3();
@@ -236,11 +324,8 @@ export class BikeTrailSampler {
   private readonly rear = new THREE.Vector3();
   private readonly rimBuffer = new Float64Array(BIKE_WHEEL_RIM_POINT_COUNT * 3);
   private readonly rimScratch = createBikeWheelRimTransformScratch();
-  private readonly matrix = new THREE.Matrix4();
-  private readonly scale = new THREE.Vector3(1, 1, 1);
   private readonly axisX = new THREE.Vector3(1, 0, 0);
   private readonly axisZ = new THREE.Vector3(0, 0, 1);
-  private sampledSemantic = 0;
   private sampledLean = 0;
   private sampledPitch = 0;
   private readonly history: BikeTrailHistory;
@@ -264,7 +349,6 @@ export class BikeTrailSampler {
       this.history.quaternions,
       quaternionOffset,
     );
-    this.sampledSemantic = this.history.semantic[slot];
     this.sampledLean = this.history.leans[slot];
     this.sampledPitch = this.history.pitches[slot];
   }
@@ -278,14 +362,13 @@ export class BikeTrailSampler {
       throw new Error('Bike trail progress and finale fade must be finite');
     }
     const progress = clamp01(semanticT);
-    const fade = clamp01(finaleFade);
     const currentDistance = routeDistanceAt(progress);
     const speedProbeStart = routeDistanceAt(Math.max(0, progress - 0.002));
     const speedProbeEnd = routeDistanceAt(Math.min(1, progress + 0.002));
     const physicalSpeed = speedProbeEnd - speedProbeStart;
     const boost = boostAt(progress);
     const trailLength = THREE.MathUtils.clamp(
-      22 + physicalSpeed * 0.9 + boost * 34,
+      8 + physicalSpeed * 0.6 + boost * 8,
       MIN_TRAIL_LENGTH,
       MAX_TRAIL_LENGTH,
     );
@@ -298,15 +381,12 @@ export class BikeTrailSampler {
 
     for (let index = 0; index < trailCount; index += 1) {
       const age = index / (trailCount - 1);
-      // Clamp to the route start: the trail exists only from where the bike began
+      // Clamp to the route start: the streak exists only from where the bike began
       // (distance 0) back from the head — never synthesized *before* the start.
-      // Otherwise a phantom ribbon sits on the road ahead of the merging bike and
-      // the bike looks like it re-attaches to a pre-existing trail.
       const distance = Math.max(0, currentDistance - trailLength * age);
       if (index === 0 && currentState) {
         this.position.copy(currentState.pos);
         this.routeQuaternion.copy(currentState.quat);
-        this.sampledSemantic = progress;
         this.sampledLean = currentState.pose.lean;
         this.sampledPitch = currentState.pose.pitch;
         mountedRearTireContactPoint(
@@ -341,41 +421,6 @@ export class BikeTrailSampler {
       this.output.trailDistances[index] = distance;
     }
 
-    const echoCount = boost > 0.3 ? BIKE_ECHO_POOL_SIZE : 6;
-    const echoSpacing = THREE.MathUtils.lerp(2.1, 1.05, boost);
-    const baseAlpha = THREE.MathUtils.lerp(0.22, 0.31, boost) * fade;
-    this.output.echoCount = echoCount;
-    for (let index = 0; index < BIKE_ECHO_POOL_SIZE; index += 1) {
-      const age = (index + 1) / (echoCount + 1);
-      const rawDistance = currentDistance - echoSpacing * (index + 1);
-      // Echoes before the route origin are hidden (see `visible` below) rather
-      // than synthesized backward onto the road ahead of the merging bike.
-      const distance = Math.max(0, rawDistance);
-      this.sampleHistory(distance);
-      this.leanQuaternion.setFromAxisAngle(this.axisX, this.sampledLean);
-      this.pitchQuaternion.setFromAxisAngle(this.axisZ, this.sampledPitch);
-      this.posedQuaternion.copy(this.routeQuaternion)
-        .multiply(this.leanQuaternion)
-        .multiply(this.pitchQuaternion);
-      this.side.set(0, BIKE_PITCH_PIVOT_Y, 0)
-        .applyQuaternion(this.leanQuaternion)
-        .applyQuaternion(this.routeQuaternion);
-      this.rear.set(0, BIKE_PITCH_PIVOT_Y, 0)
-        .applyQuaternion(this.posedQuaternion);
-      this.position.add(this.side).sub(this.rear);
-      this.matrix.compose(this.position, this.posedQuaternion, this.scale)
-        .toArray(this.output.echoMatrices, index * 16);
-      const visible = index < echoCount && rawDistance >= 0;
-      const alpha = visible
-        ? baseAlpha * THREE.MathUtils.lerp(1, 0.28, age)
-        : 0;
-      writeEchoColor(this.output.echoColors, index, age, alpha);
-      this.output.echoAges[index] = age;
-      this.output.echoDistances[index] = distance;
-      this.output.echoSemantic[index] = this.sampledSemantic;
-      this.output.echoLeans[index] = this.sampledLean;
-      this.output.echoPitches[index] = this.sampledPitch;
-    }
     return this.output;
   }
 }

@@ -133,7 +133,7 @@ export const RESUME: Resume = {
       stack: 'LangGraph · PEFT/LoRA · llama.cpp · vLLM',
       blurb:
         'An agentic pipeline that autonomously fine-tunes a phone-sized language ' +
-        'model for any task — task analysis, data curation, and a closed-loop LoRA ' +
+        'model for any task. Task analysis, data curation, and a closed-loop LoRA ' +
         'search across an 18-variant Qwen3.5 pool under real RAM and quantization ' +
         'limits. It lifted biomedical NER span-F1 from 0.03 to 0.86 and delivers a ' +
         'fully optimized on-device model for about $5 and a day of compute.',
@@ -207,23 +207,33 @@ export const RESUME: Resume = {
 
   experience: [
     {
-      role: 'Undergraduate Researcher',
+      role: 'AI Research Intern',
       org: 'Mobile Intelligence Lab, University of Washington',
       period: 'Spring 2026 – Present',
       detail:
-        'microLLM research under the MAM project — model compression and ' +
-        'on-device inference for mobile/edge, advised by Wen Cheng.'
+        'On-device LLM fine-tuning & compression — built SLM Factory, an ' +
+        'agentic PEFT/LoRA pipeline. Advised by Prof. Shyam Gollakota and ' +
+        'Wen Cheng.'
     },
     {
-      role: 'Associate',
+      role: 'Founding Developer',
+      org: 'KleoKlaw',
+      period: 'Mar 2026 – Present',
+      detail:
+        'Full-stack + the ATS automation engine (Python/FastAPI, Playwright) ' +
+        'for an AI job-application platform — 1,000+ applications submitted ' +
+        'for ~100 users on a 4-person founding team.'
+    },
+    {
+      role: 'Chief Technical Officer',
+      org: 'SWECC — Software Engineering Career Club, UW',
+      period: 'Spring 2026 – Present',
+      detail: 'Lead the club’s open-source software projects and technical infrastructure.'
+    },
+    {
+      role: 'Busboy, Dishwasher, Waiter',
       org: 'Panera Bread',
       period: 'Jun–Dec 2023 · Jun–Aug 2025',
-      detail: 'Issaquah, WA'
-    },
-    {
-      role: 'Retail Associate',
-      org: 'Ross Dress For Less',
-      period: 'Jun–Sep 2023',
       detail: 'Issaquah, WA'
     }
   ],

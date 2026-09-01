@@ -217,6 +217,14 @@ const DESCEND_SEMANTIC_WEIGHT = 3;
 // through the longer canyon keeps the same on-screen speed instead of speeding up.
 const RESEARCH_SEMANTIC_INTERVAL = Object.freeze([0.70, 0.84] as const);
 const RESEARCH_SEMANTIC_WEIGHT = 1.6;
+// The ramp lead-in (t 0.84→0.885) swings the camera from the research side-view
+// around to the straight-on moon look in one eased segment (see the research-bridge
+// keys in productionCameraRig). At ordinary weight that ~90° swing gets only ~0.017
+// of raw scroll — it snaps side→forward the instant the bike hits the ramp. Give it
+// heavy dwell, exactly like DESCEND above, so the same swing plays out as a slow
+// sweep under the finger instead of a sudden snap.
+const LIFT_SEMANTIC_INTERVAL = Object.freeze([0.84, 0.86] as const);
+const LIFT_SEMANTIC_WEIGHT = 3;
 const BASELINE_PINNED_TRAVEL_VH = 700;
 const CURRENT_PINNED_TRAVEL_VH = 1350;
 const LEGACY_SCROLL_REMAP = buildScrollRemap(ZONES, STUNT_FLIP_TIMINGS);
@@ -248,6 +256,10 @@ const CURRENT_SCROLL_REMAP = buildScrollRemap(
     {
       interval: RESEARCH_SEMANTIC_INTERVAL,
       weight: RESEARCH_SEMANTIC_WEIGHT,
+    },
+    {
+      interval: LIFT_SEMANTIC_INTERVAL,
+      weight: LIFT_SEMANTIC_WEIGHT,
     },
   ],
 );

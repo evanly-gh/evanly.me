@@ -3,7 +3,6 @@ import {
   HudNav,
   Reveal,
   RevealSection,
-  StatCounter,
   WorkGrid,
   type HudItem,
   type WorkItem,
@@ -43,25 +42,6 @@ const NAV_ITEMS: readonly HudItem[] = [
   { id: 'skills', idx: '04', label: 'Skills' },
   { id: 'contact', idx: '05', label: 'Contact' },
 ];
-
-interface Stat {
-  to: number;
-  decimals?: number;
-  prefix?: string;
-  suffix?: string;
-  label: string;
-  sub: string;
-}
-
-const STATS: readonly Stat[] = [
-  { to: 3.9, decimals: 1, label: 'GPA', sub: 'interdisc. honors' },
-  { to: 7, label: 'systems shipped', sub: '4 apps · 3 research' },
-  { to: 2.88, decimals: 2, suffix: '×', label: 'decode speedup', sub: 'SD on Qwen3.5' },
-  { to: 100, prefix: '~', label: 'KleoKlaw users', sub: 'founding dev' },
-];
-
-// The single strongest single-line credential gets a spotlight above the grid.
-const FEATURED = RESUME.projects.find((p) => p.title === 'RhetBench') ?? RESUME.projects[0];
 
 export function SkipToContent() {
   return (
@@ -160,45 +140,6 @@ export function NativePortfolio({ mode }: { mode: NativePortfolioMode }) {
         </header>
 
         {interactive && <HudNav items={NAV_ITEMS} animate={interactive} />}
-
-        {/* ── Stat strip ── */}
-        <div className="np-stats" role="list" aria-label="Key metrics">
-          {STATS.map((stat, index) => (
-            <Reveal
-              key={stat.label}
-              className="np-stat"
-              animate={interactive}
-              delayMs={index * 80}
-            >
-              <div role="listitem">
-                <StatCounter
-                  to={stat.to}
-                  decimals={stat.decimals}
-                  prefix={stat.prefix}
-                  suffix={stat.suffix}
-                  animate={interactive}
-                />
-                <span className="np-stat__label">{stat.label}</span>
-                <span className="np-stat__sub">{stat.sub}</span>
-              </div>
-            </Reveal>
-          ))}
-        </div>
-
-        {/* ── Featured spotlight ── */}
-        <RevealSection
-          id="featured"
-          labelledBy="featured-heading"
-          className="np-featured"
-          animate={interactive}
-        >
-          <p className="np-featured__badge">Featured · SWECCATHON 2026 — 1st</p>
-          <h2 id="featured-heading" className="np-featured__title">
-            {FEATURED.title}
-          </h2>
-          <p className="np-featured__stack">{FEATURED.stack}</p>
-          <p className="np-featured__blurb">{FEATURED.blurb}</p>
-        </RevealSection>
 
         {/* ── Work grid ── */}
         <RevealSection id="work" labelledBy="work-heading" animate={interactive}>

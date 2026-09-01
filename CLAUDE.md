@@ -68,10 +68,3 @@ camera/geometry change — this is the primary verification method right now.
   `?city&inspect` or `?shot=<t>&inspect` at the relevant t.
 - No commits/pushes were made until this handoff — `git log` on `phase1-assets` now
   reflects everything through the camera/geometry pass + repo cleanup described above.
-
-fill in empty space gaps
-fix lag
-camera smooth
-
-Update actual information
-Ugrade billboards

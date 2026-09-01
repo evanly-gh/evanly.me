@@ -1,6 +1,7 @@
 import type { Project } from '../content/resume';
 import { RESUME } from '../content/resume';
 import {
+  BILLBOARD_TITLE_FILL as TITLE_FILL,
   drawBrandLockup,
   drawCornerBrackets,
   drawCornerIndex,
@@ -462,7 +463,9 @@ export function renderResearchArt(
     maxWidth: maxW,
     maxLines: 3,
     sizePx: H * 0.11,
-    color: P.text,
+    // Slightly off pure-white so the 1.45x screen boost doesn't drive the large
+    // title far past the bloom threshold and blow out into a harsh halo.
+    color: TITLE_FILL,
     weight: '800',
     mono: false,
     glow: H * 0.03,
@@ -553,7 +556,7 @@ export function renderResearchPlaceholderImage(
     maxWidth: zoneW * 0.88,
     maxLines: 2,
     sizePx: H * 0.14,
-    color: P.text,
+    color: TITLE_FILL,
     weight: '800',
     mono: false,
     glow: H * 0.03,
