@@ -441,9 +441,15 @@ export function ProductionDirector({
           let tmin = 0;
           let tmax = Number.POSITIVE_INFINITY;
           let ok = true;
+          // Pad both local half-extents so a tower the backing ray merely grazes
+          // (canyon walls are ~16 m apart and rotated to face the road, so the
+          // centre ray can slip through a gap or just miss a side face) still
+          // counts — otherwise the camera backs THROUGH the wall and the tower
+          // fills the zoom frame. Padding is rotation-agnostic this way.
+          const PERP_PAD = 9;
           for (const [lo, ld, h] of [
-            [lox, ldx, o.hx] as const,
-            [loz, ldz, o.hz] as const,
+            [lox, ldx, o.hx + PERP_PAD] as const,
+            [loz, ldz, o.hz + PERP_PAD] as const,
           ]) {
             if (Math.abs(ld) < 1e-9) {
               if (lo < -h || lo > h) { ok = false; break; }
@@ -458,7 +464,7 @@ export function ProductionDirector({
           }
           if (ok && tmin > 0.5 && tmin < maxDist) maxDist = tmin;
         }
-        const usedDist = Math.max(12, Math.min(idealDist, maxDist - 4));
+        const usedDist = Math.max(12, Math.min(idealDist, maxDist - 3));
         to.position.copy(pose.target).addScaledVector(dir, usedDist);
         // fov that fits the whole board (both axes, small margin) at usedDist,
         // clamped to a natural range so open boards stay ~38° and boxed boards
@@ -470,7 +476,7 @@ export function ProductionDirector({
         to.fov = THREE.MathUtils.clamp(
           THREE.MathUtils.radToDeg(Math.max(fitH, fitW)),
           34,
-          60,
+          70,
         );
         zoomStartRef.current = performance.now();
       }
