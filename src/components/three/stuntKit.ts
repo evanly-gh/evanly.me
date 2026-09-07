@@ -1,11 +1,6 @@
 import * as THREE from 'three';
 import { PALETTE } from '../../theme';
-import {
-  STUNT_PROJECT_PANELS,
-  buildProjectArtLayout,
-  estimateProjectGalleryTextureBytes,
-  renderProjectArt,
-} from '../../world/stuntContent';
+import { STUNT_PROJECT_PANELS } from '../../world/stuntContent';
 import { PROJECT_PANEL_RENDER_CONFIG } from './stuntRender';
 import type {
   CommittedThreeAllocation,
@@ -13,13 +8,15 @@ import type {
 } from './useCommittedThreeResources';
 
 /**
- * Shared presentation kit for the per-project panels. Lifted from
- * <ProjectsPanels> in City.tsx so the shipping scene and the `?gallery`
- * billboard catalog build the same 5 canvas textures + materials + geometries.
+ * Shared presentation kit for the per-project panels. Each board's texture is the
+ * self-contained project poster (rememberme / openchinese / rhetbench / ttt-e2e),
+ * a complete plate with its own frame + copy baked in. The posters are loaded by
+ * the caller (drei useTexture) in STUNT_PROJECT_PANELS order and passed in; used
+ * directly as the screen map (no canvas compositing). Externally-loaded textures
+ * are NOT owned here (drei's cache manages them); only materials/geometries are.
  */
 
 export interface StuntPanelKitResources {
-  textures: THREE.CanvasTexture[];
   screenMaterials: THREE.MeshBasicMaterial[];
   backingMaterial: THREE.MeshStandardMaterial;
   attachmentMaterial: THREE.MeshStandardMaterial;
@@ -33,37 +30,17 @@ export interface StuntPanelKitResources {
 
 export function createProjectPanelResources(
   { own }: ThreeResourceScope,
+  // Poster textures in STUNT_PROJECT_PANELS order.
+  posters: readonly THREE.Texture[],
 ): CommittedThreeAllocation<StuntPanelKitResources> {
-  const textureEstimate = estimateProjectGalleryTextureBytes();
-  const textures = STUNT_PROJECT_PANELS.map((panel) => {
-    const art = buildProjectArtLayout(panel);
-    const canvas = document.createElement('canvas');
-    canvas.width = art.size.width;
-    canvas.height = art.size.height;
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error(`Project art canvas unavailable: ${panel.id}`);
-    renderProjectArt(context, art);
-    const texture = own(new THREE.CanvasTexture(canvas));
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.anisotropy = 8;
-    texture.generateMipmaps = true;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.magFilter = THREE.LinearFilter;
-    const estimate = textureEstimate.textures.find(
-      ({ panelId }) => panelId === panel.id,
-    );
-    if (!estimate) throw new Error(`Project texture estimate missing: ${panel.id}`);
-    texture.userData.projectGallery = {
-      ...estimate,
-      artAudit: {
-        regions: art.regions.filter(({ id }) => id !== 'background'),
-      },
-    };
-    return texture;
-  });
-  const screenMaterials = textures.map((map) => own(new THREE.MeshBasicMaterial({
+  const screenMaterials = STUNT_PROJECT_PANELS.map((_panel, index) => {
+    const map = posters[index];
+    map.colorSpace = THREE.SRGBColorSpace;
+    map.anisotropy = 8;
+    return own(new THREE.MeshBasicMaterial({
     map,
-    color: new THREE.Color(1.45, 1.45, 1.45), // overdrive so neon art blooms
+    // Neutral: posters carry their own baked neon; overdrive would blow them out.
+    color: new THREE.Color(1, 1, 1),
     side: PROJECT_PANEL_RENDER_CONFIG.screen.side,
     toneMapped: PROJECT_PANEL_RENDER_CONFIG.screen.toneMapped,
     depthTest: PROJECT_PANEL_RENDER_CONFIG.screen.depthTest,
@@ -74,7 +51,8 @@ export function createProjectPanelResources(
     opacity: PROJECT_PANEL_RENDER_CONFIG.screen.opacity,
     blending: PROJECT_PANEL_RENDER_CONFIG.screen.blending,
     depthWrite: PROJECT_PANEL_RENDER_CONFIG.screen.depthWrite,
-  })));
+    }));
+  });
   const backingMaterial = own(new THREE.MeshStandardMaterial({
     color: 0x050913,
     emissive: new THREE.Color(0x07111f),
@@ -112,7 +90,6 @@ export function createProjectPanelResources(
   const beamGeometry = own(new THREE.CylinderGeometry(0.3, 1, 1, 20, 1, true));
   return {
     value: {
-      textures,
       screenMaterials,
       backingMaterial,
       attachmentMaterial,
@@ -123,8 +100,8 @@ export function createProjectPanelResources(
       emitterGeometry,
       beamGeometry,
     },
+    // Poster textures are omitted — owned by drei's texture cache.
     resources: [
-      ...textures,
       ...screenMaterials,
       backingMaterial,
       attachmentMaterial,

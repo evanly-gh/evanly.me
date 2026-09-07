@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { PALETTE } from '../../theme';
-import { buildAboutArtLayout, renderAboutArt } from '../../content/aboutArt';
 import { ABOUT_HERO_RENDER_CONFIG } from './aboutRender';
 import type {
   CommittedThreeAllocation,
@@ -8,15 +7,16 @@ import type {
 } from './useCommittedThreeResources';
 
 /**
- * Shared presentation kit for the About hero billboard. Lifted from <AboutHero>
- * in City.tsx so the shipping scene and the `?gallery` billboard catalog build
- * the same 3072x2048 composited canvas texture + materials + geometries. The
- * portrait image itself is still loaded by the caller (drei useTexture) and
- * passed in, since that requires a React Suspense boundary.
+ * Shared presentation kit for the About hero billboard. The board texture is the
+ * self-contained About poster (about.png) — a complete plate with its own frame,
+ * portrait, and copy baked in — loaded by the caller (drei useTexture) and passed
+ * in, since that requires a React Suspense boundary. It is used directly as the
+ * screen map (no canvas compositing). The externally-loaded texture is NOT owned
+ * here (drei's cache manages its lifecycle); only the materials/geometries are.
  */
 
 export interface AboutHeroKitResources {
-  texture: THREE.CanvasTexture;
+  texture: THREE.Texture;
   screenMaterial: THREE.MeshBasicMaterial;
   backingMaterial: THREE.MeshStandardMaterial;
   attachmentMaterial: THREE.MeshStandardMaterial;
@@ -28,22 +28,15 @@ export interface AboutHeroKitResources {
 
 export function createAboutHeroResources(
   { own }: ThreeResourceScope,
-  portrait: THREE.Texture,
-  portraitSrc: string,
+  poster: THREE.Texture,
 ): CommittedThreeAllocation<AboutHeroKitResources> {
-  const art = buildAboutArtLayout(portraitSrc);
-  const canvas = document.createElement('canvas');
-  canvas.width = art.size.width;
-  canvas.height = art.size.height;
-  const context = canvas.getContext('2d');
-  if (!context) throw new Error('About hero canvas context is unavailable');
-  renderAboutArt(context, portrait.image as CanvasImageSource, art);
-  const texture = own(new THREE.CanvasTexture(canvas));
-  texture.colorSpace = ABOUT_HERO_RENDER_CONFIG.texture.colorSpace;
-  texture.anisotropy = ABOUT_HERO_RENDER_CONFIG.texture.anisotropy;
+  poster.colorSpace = ABOUT_HERO_RENDER_CONFIG.texture.colorSpace;
+  poster.anisotropy = ABOUT_HERO_RENDER_CONFIG.texture.anisotropy;
   const screenMaterial = own(new THREE.MeshBasicMaterial({
-    map: texture,
-    color: new THREE.Color(1.35, 1.35, 1.35), // overdrive so neon art blooms
+    map: poster,
+    // Neutral: the poster already carries its own baked neon; a colour overdrive
+    // here would blow the photographic art out under the bloom pass.
+    color: new THREE.Color(1, 1, 1),
     side: ABOUT_HERO_RENDER_CONFIG.screen.side,
     toneMapped: ABOUT_HERO_RENDER_CONFIG.screen.toneMapped,
     depthTest: ABOUT_HERO_RENDER_CONFIG.screen.depthTest,
@@ -72,7 +65,7 @@ export function createAboutHeroResources(
   }));
   const cylinder = own(new THREE.CylinderGeometry(1, 1, 1, 12));
   const value: AboutHeroKitResources = {
-    texture,
+    texture: poster,
     screenMaterial,
     backingMaterial,
     attachmentMaterial,
@@ -83,8 +76,8 @@ export function createAboutHeroResources(
   };
   return {
     value,
+    // `poster` is intentionally omitted — it is owned by drei's texture cache.
     resources: [
-      texture,
       screenMaterial,
       backingMaterial,
       attachmentMaterial,

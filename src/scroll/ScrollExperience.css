@@ -572,3 +572,40 @@ body,
     animation-duration: 0.01ms !important;
   }
 }
+
+/* ── Poster click-to-zoom overlay ─────────────────────────────────────────── */
+.poster-zoom-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+.poster-zoom-overlay__close {
+  position: absolute;
+  top: clamp(16px, 3vh, 32px);
+  right: clamp(16px, 3vw, 40px);
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  line-height: 1;
+  color: #d6f7ff;
+  background: rgba(6, 12, 20, 0.55);
+  border: 1.5px solid rgba(43, 253, 249, 0.7);
+  border-radius: 50%;
+  box-shadow: 0 0 18px rgba(43, 253, 249, 0.35), inset 0 0 10px rgba(43, 253, 249, 0.15);
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.poster-zoom-overlay__close:hover {
+  transform: scale(1.08);
+  background: rgba(10, 20, 32, 0.75);
+  box-shadow: 0 0 26px rgba(43, 253, 249, 0.6), inset 0 0 12px rgba(43, 253, 249, 0.25);
+}
+.poster-zoom-overlay__close:focus-visible {
+  outline: 2px solid #2bfdf9;
+  outline-offset: 3px;
+}

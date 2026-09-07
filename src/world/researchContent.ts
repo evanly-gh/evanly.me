@@ -179,20 +179,20 @@ interface ResearchBoardSpec {
 }
 
 const RESEARCH_BOARD_SPECS: readonly ResearchBoardSpec[] = [
-  // ── Bottom row: three large CONTENT cards spread the full length of the
-  //    canyon (front towers near the mouth, middle, and deep end). ──
-  // SLM (project 0) is pushed a couple of towers DEEPER (−442 → −474) so the
-  // first card doesn't greet the rider right at the canyon mouth.
-  { id: 'research-content-0', contentIndex: 0, kind: 'content', side: 1, row: 'front', targetZ: -474, y: 24, width: 60, height: 38 },
-  { id: 'research-content-1', contentIndex: 1, kind: 'content', side: 1, row: 'front', targetZ: -558, y: 24, width: 60, height: 38 },
-  { id: 'research-content-2', contentIndex: 2, kind: 'content', side: 1, row: 'front', targetZ: -666, y: 24, width: 60, height: 38 },
-  // ── Second row: three IMAGE (placeholder) boards mounted HIGH on the tallest
-  //    back-row towers, one per project, each just behind its content card.
-  //    Raised + enlarged (they were hard to read from across the canyon); the
-  //    SLM board also rides deeper (−458 → −490) to stay paired with its card. ──
-  { id: 'research-image-0', contentIndex: 0, kind: 'image', side: 1, row: 'back', targetZ: -490, y: 112, width: 80, height: 42 },
-  { id: 'research-image-1', contentIndex: 1, kind: 'image', side: 1, row: 'back', targetZ: -571, y: 112, width: 80, height: 42 },
-  { id: 'research-image-2', contentIndex: 2, kind: 'image', side: 1, row: 'back', targetZ: -665, y: 112, width: 80, height: 42 },
+  // Three ride-level poster boards, one per research project, spread the length of
+  // the canyon (front towers near the mouth, middle, deep end). Each board's
+  // texture is now the self-contained poster image (see researchKit) — width/height
+  // are set to the poster's aspect so it isn't stretched. Widened 60 → 66 for
+  // readability; the boards are floating facade plates (already far wider than
+  // their host tower faces), so the only limits are the ~80 m z-gap to the next
+  // board (plenty) and ground clearance (centre y=24, so height ≤ ~48).
+  // The elevated back-row IMAGE boards were removed — one poster per project now.
+  //   content-0 → SLM Factory (slm-factory.png, 1.599)
+  //   content-1 → RL on HRM-Text (rl-on-hrm.png, 1.5)
+  //   content-2 → SD on Qwen (sd-on-qwen.png, 1.5)
+  { id: 'research-content-0', contentIndex: 0, kind: 'content', side: 1, row: 'front', targetZ: -474, y: 24, width: 66, height: 41.3 },
+  { id: 'research-content-1', contentIndex: 1, kind: 'content', side: 1, row: 'front', targetZ: -558, y: 24, width: 66, height: 44 },
+  { id: 'research-content-2', contentIndex: 2, kind: 'content', side: 1, row: 'front', targetZ: -666, y: 24, width: 66, height: 44 },
 ];
 
 function boardPanels(): ResearchPanel[] {

@@ -12,7 +12,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { Canvas, useThree, useFrame } from '@react-three/fiber';
+import { Canvas, useThree, useFrame, type ThreeEvent } from '@react-three/fiber';
 import { GizmoHelper, GizmoViewport, OrbitControls, PointerLockControls, useEnvironment, useGLTF, useTexture } from '@react-three/drei';
 import {
   EffectComposer,
@@ -132,6 +132,7 @@ import { createShibuyaPanelResources } from './shibuyaKit';
 import { createProjectPanelResources } from './stuntKit';
 import { createResearchResources } from './researchKit';
 import { createAboutHeroResources } from './aboutKit';
+import { openPosterZoom, type PosterZoomTarget } from '../../choreography/posterZoom';
 import { MonorailBogie, MonorailCarBody } from './MonorailCar';
 import {
   CAR_GAP,
@@ -173,8 +174,6 @@ import {
   type Task5FacadeInspectionSubject,
   type Task5SceneSnapshot,
 } from './signRender';
-import { resolveAboutPortraitSrc } from '../../content/aboutArt';
-import { RESUME } from '../../content/resume';
 import { buildAboutHeroReveal } from '../../world/aboutReveal';
 import {
   ABOUT_HERO_RENDER_CONFIG,
@@ -185,6 +184,8 @@ import {
   type Task2SceneSnapshot,
 } from './aboutRender';
 import { buildScaffoldStructure } from '../../world/stuntLayout';
+import { STUNT_PROJECT_PANELS } from '../../world/stuntContent';
+import { RESEARCH_PANELS } from '../../world/researchContent';
 import {
   PROJECT_PANEL_RENDER_CONFIG,
   STUNT_SCENE_NAMES,
@@ -385,14 +386,25 @@ function GlowFrame({ matrix, color }: { matrix: THREE.Matrix4; color: string }) 
 }
 
 /** Per-project accent colours (matches each format's palette primary). */
-const PROJECT_GLOW = ['#39f6ff', '#ffbd42', '#bca2ff', '#d8ff45', '#ff4db8'];
+// Glow-rim colours matched to each poster's theme (STUNT_PROJECT_PANELS order):
+// RememberMe → blue, OpenChinese → violet, RhetBench → indigo, TTT-E2E → amber.
+const PROJECT_GLOW = ['#4c86ff', '#a86bff', '#6d7bff', '#ffb020'];
+
+// Project panel poster textures, in STUNT_PROJECT_PANELS order.
+const PROJECT_POSTER_SRCS = [
+  '/images/sections/rememberme.jpg',
+  '/images/sections/openchinese.png',
+  '/images/sections/rhetbench.png',
+  '/images/sections/ttt-e2e.png',
+];
 
 export function ProjectsPanels() {
   const assembly = useMemo(() => buildStuntPanelRenderAssembly(), []);
+  const posters = useTexture(PROJECT_POSTER_SRCS);
   const resources = useCommittedThreeResource(
     'stunt-project-panels',
-    createProjectPanelResources,
-    [],
+    (scope) => createProjectPanelResources(scope, posters),
+    [posters],
   );
   if (!resources) return null;
   return (
@@ -411,6 +423,13 @@ export function ProjectsPanels() {
               parentId: instance.parentId,
               screenToBackingFront: instance.screenToBackingFront,
             }}
+            {...posterZoomHandlers({
+              id: instance.id,
+              center: STUNT_PROJECT_PANELS[index].position,
+              rotationY: STUNT_PROJECT_PANELS[index].rotationY,
+              width: STUNT_PROJECT_PANELS[index].width,
+              height: STUNT_PROJECT_PANELS[index].height,
+            })}
             dispose={null}
           />
           <GlowFrame matrix={instance.matrix} color={PROJECT_GLOW[index % PROJECT_GLOW.length]} />
@@ -482,12 +501,20 @@ export function ProjectsPanels() {
   );
 }
 
+// Research canyon poster textures, indexed by panel.contentIndex.
+const RESEARCH_POSTER_SRCS = [
+  '/images/sections/slm-factory.png',
+  '/images/sections/rl-on-hrm.png',
+  '/images/sections/sd-on-qwen.png',
+];
+
 export function ResearchGateways() {
   const assembly = useMemo(() => buildResearchRenderAssembly(), []);
+  const posters = useTexture(RESEARCH_POSTER_SRCS);
   const resources = useCommittedThreeResource(
     'research-gateways',
-    createResearchResources,
-    [],
+    (scope) => createResearchResources(scope, posters),
+    [posters],
   );
   if (!resources) return null;
   const renderBoxes = (
@@ -537,6 +564,7 @@ export function ResearchGateways() {
               parentId: instance.parentId,
               screenToBackingFront: instance.screenToBackingFront,
             }}
+            {...posterZoomHandlers(researchZoomTarget(instance.id))}
             dispose={null}
           />
           <GlowFrame
@@ -565,6 +593,39 @@ export function ResearchGateways() {
   );
 }
 
+// The About board texture is the complete self-contained poster plate.
+const ABOUT_POSTER_SRC = '/images/sections/about.png';
+
+// Face-on zoom target for a research canyon panel, looked up by its screen id.
+function researchZoomTarget(id: string): PosterZoomTarget {
+  const panel = RESEARCH_PANELS.find((candidate) => candidate.id === id);
+  if (!panel) throw new Error(`Unknown research panel: ${id}`);
+  return {
+    id,
+    center: panel.position,
+    rotationY: panel.rotationY,
+    width: panel.width,
+    height: panel.height,
+  };
+}
+
+// Click/hover handlers that make a poster board open the face-on zoom view.
+function posterZoomHandlers(target: PosterZoomTarget) {
+  return {
+    onPointerOver: (event: ThreeEvent<PointerEvent>) => {
+      event.stopPropagation();
+      document.body.style.cursor = 'pointer';
+    },
+    onPointerOut: () => {
+      document.body.style.cursor = '';
+    },
+    onClick: (event: ThreeEvent<MouseEvent>) => {
+      event.stopPropagation();
+      openPosterZoom(target);
+    },
+  };
+}
+
 export function AboutHero() {
   const layout = useVisibilityLayout();
   const reveal = useMemo(
@@ -579,12 +640,11 @@ export function AboutHero() {
     () => buildAboutPlazaDressing(reveal.screen),
     [reveal],
   );
-  const portraitSrc = resolveAboutPortraitSrc(RESUME.about.faceImage);
-  const portrait = useTexture(portraitSrc);
+  const poster = useTexture(ABOUT_POSTER_SRC);
   const resources = useCommittedThreeResource(
     'about-hero',
-    (scope) => createAboutHeroResources(scope, portrait, portraitSrc),
-    [portrait, portraitSrc],
+    (scope) => createAboutHeroResources(scope, poster),
+    [poster],
   );
   if (!resources) return null;
   return (
@@ -597,6 +657,13 @@ export function AboutHero() {
         material={resources.screenMaterial}
         userData={{ contract: assembly.screen }}
         renderOrder={ABOUT_HERO_RENDER_CONFIG.screen.renderOrder}
+        {...posterZoomHandlers({
+          id: 'about',
+          center: reveal.screen.position,
+          rotationY: reveal.screen.rotationY,
+          width: reveal.screen.width,
+          height: reveal.screen.height,
+        })}
         dispose={null}
       />
       <GlowFrame matrix={assembly.screen.matrix} color="#2bfdf9" />
@@ -3265,8 +3332,10 @@ function City({
       <GpuPrewarm readyZones={readyZones} moonReady={moonReady} />
       <ShibuyaFacadePanels />
       <Suspense fallback={null}><Scaffold /></Suspense>
-      {activeZones.includes('projects') && <ProjectsPanels />}
-      <ResearchGateways />
+      {activeZones.includes('projects') && (
+        <Suspense fallback={null}><ProjectsPanels /></Suspense>
+      )}
+      <Suspense fallback={null}><ResearchGateways /></Suspense>
       <Signs />
       <StreetDressing />
       <Suspense fallback={null}><Pedestrians /></Suspense>

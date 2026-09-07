@@ -41,6 +41,12 @@ import {
   measureMountedSceneSubjects,
   type MountedSceneSubjectMeasurement,
 } from '../../choreography/productionSubjects';
+import {
+  faceOnPose,
+  getPosterZoomState,
+  setPosterZoomStatus,
+  type PosterZoomStatus,
+} from '../../choreography/posterZoom';
 
 const ADAPTER_ORDER = ['bike', 'camera', 'content', 'fx'] as const;
 const FRAME_SAMPLE_LIMIT = 600;
@@ -233,6 +239,22 @@ export function ProductionDirector({
   const bikeInitedRef = useRef(false);
   const frameSamplesRef = useRef<number[]>([]);
   const bikePath = useMemo(() => new BikePath(), []);
+  // Poster click-to-zoom: from = the ride pose the zoom opened from (returned to
+  // on close); to = the face-on pose; outFrom = pose captured when close begins.
+  const zoomFromRef = useRef({
+    position: new THREE.Vector3(), target: new THREE.Vector3(), fov: 50,
+  });
+  const zoomToRef = useRef({
+    position: new THREE.Vector3(), target: new THREE.Vector3(), fov: 38,
+  });
+  const zoomOutFromRef = useRef({
+    position: new THREE.Vector3(), target: new THREE.Vector3(), fov: 38,
+  });
+  const zoomStartRef = useRef(0);
+  const zoomPrevStatusRef = useRef<PosterZoomStatus>('idle');
+  const zoomScratchRef = useRef({
+    pos: new THREE.Vector3(), tgt: new THREE.Vector3(),
+  });
 
   // Seed the desired pose with the opening shot so the first frame starts framed.
   useMemo(() => {
@@ -379,6 +401,116 @@ export function ProductionDirector({
       }
       return;
     }
+
+    // ── Poster click-to-zoom ──────────────────────────────────────────────────
+    // While a poster is zoomed the ride freezes: the scroll-driven bike + camera
+    // updates below are skipped and the camera flies to a face-on view of the
+    // board, holds, then flies back to the exact pose it opened from on close.
+    const zoom = getPosterZoomState();
+    if (zoom.status !== 'idle' && zoom.target
+      && camera instanceof THREE.PerspectiveCamera) {
+      const ZOOM_MS = 850;
+      const from = zoomFromRef.current;
+      const to = zoomToRef.current;
+      const outFrom = zoomOutFromRef.current;
+      if (zoom.status === 'in' && zoomPrevStatusRef.current !== 'in') {
+        from.position.copy(camera.position);
+        from.target.copy(cameraTargetRef.current);
+        from.fov = camera.fov;
+        const aspect = size.width / Math.max(1, size.height);
+        const pose = faceOnPose(zoom.target, aspect);
+        to.target.copy(pose.target);
+        // Clip-safe backing: the ideal face-on distance can put the camera inside a
+        // building (narrow research canyon, boxed-in TTT board). March the backing
+        // ray against the building OBBs and stop short of the nearest one, then widen
+        // the lens just enough to still frame the board at that safe distance.
+        const dir = pose.position.clone().sub(pose.target).normalize();
+        const idealDist = pose.position.distanceTo(pose.target);
+        const centerY = pose.target.y;
+        let maxDist = idealDist;
+        for (const o of obbs) {
+          if (o.top <= centerY) continue;
+          const ox = pose.target.x - o.cx;
+          const oz = pose.target.z - o.cz;
+          const co = Math.cos(o.rot);
+          const so = Math.sin(o.rot);
+          const lox = ox * co + oz * so;
+          const loz = -ox * so + oz * co;
+          const ldx = dir.x * co + dir.z * so;
+          const ldz = -dir.x * so + dir.z * co;
+          let tmin = 0;
+          let tmax = Number.POSITIVE_INFINITY;
+          let ok = true;
+          for (const [lo, ld, h] of [
+            [lox, ldx, o.hx] as const,
+            [loz, ldz, o.hz] as const,
+          ]) {
+            if (Math.abs(ld) < 1e-9) {
+              if (lo < -h || lo > h) { ok = false; break; }
+            } else {
+              let t1 = (-h - lo) / ld;
+              let t2 = (h - lo) / ld;
+              if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+              tmin = Math.max(tmin, t1);
+              tmax = Math.min(tmax, t2);
+              if (tmin > tmax) { ok = false; break; }
+            }
+          }
+          if (ok && tmin > 0.5 && tmin < maxDist) maxDist = tmin;
+        }
+        const usedDist = Math.max(12, Math.min(idealDist, maxDist - 4));
+        to.position.copy(pose.target).addScaledVector(dir, usedDist);
+        // fov that fits the whole board (both axes, small margin) at usedDist,
+        // clamped to a natural range so open boards stay ~38° and boxed boards
+        // widen only modestly rather than going fisheye.
+        const fitH = 2 * Math.atan((zoom.target.height / 2 * 1.06) / usedDist);
+        const fitW = 2 * Math.atan(
+          (zoom.target.width / 2 * 1.06) / usedDist / aspect,
+        );
+        to.fov = THREE.MathUtils.clamp(
+          THREE.MathUtils.radToDeg(Math.max(fitH, fitW)),
+          34,
+          60,
+        );
+        zoomStartRef.current = performance.now();
+      }
+      if (zoom.status === 'out' && zoomPrevStatusRef.current !== 'out') {
+        outFrom.position.copy(camera.position);
+        outFrom.target.copy(cameraTargetRef.current);
+        outFrom.fov = camera.fov;
+        zoomStartRef.current = performance.now();
+      }
+      zoomPrevStatusRef.current = zoom.status;
+
+      const raw = zoom.status === 'held'
+        ? 1
+        : Math.min(1, (performance.now() - zoomStartRef.current) / ZOOM_MS);
+      const e = raw * raw * raw * (raw * (raw * 6 - 15) + 10); // smootherstep
+      const scratch = zoomScratchRef.current;
+      if (zoom.status === 'in' || zoom.status === 'held') {
+        scratch.pos.copy(from.position).lerp(to.position, e);
+        scratch.tgt.copy(from.target).lerp(to.target, e);
+        camera.fov = THREE.MathUtils.lerp(from.fov, to.fov, e);
+        if (zoom.status === 'in' && raw >= 1) setPosterZoomStatus('held');
+      } else {
+        scratch.pos.copy(outFrom.position).lerp(from.position, e);
+        scratch.tgt.copy(outFrom.target).lerp(from.target, e);
+        camera.fov = THREE.MathUtils.lerp(outFrom.fov, from.fov, e);
+        if (raw >= 1) setPosterZoomStatus('idle');
+      }
+      camera.position.copy(scratch.pos);
+      cameraTargetRef.current.copy(scratch.tgt);
+      camera.up.set(0, 1, 0);
+      camera.lookAt(cameraTargetRef.current);
+      camera.updateProjectionMatrix();
+      // Seed the scroll damp so the ride resumes from the frozen pose (no snap).
+      camInitedRef.current = true;
+      desiredPosRef.current.copy(from.position);
+      desiredTargetRef.current.copy(from.target);
+      desiredFovRef.current = from.fov;
+      return;
+    }
+    zoomPrevStatusRef.current = 'idle';
 
     const snapshot = store.read();
     const targetRaw = snapshot.raw;

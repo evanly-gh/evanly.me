@@ -103,10 +103,10 @@ const STUNT_PROJECT_PANEL_DEFINITIONS = Object.freeze([
     'flip-1',
     'stunt-backdrop-2',
     5,
-    31,
-    21,
+    37.5, // bigger + extended down a little (top held, bottom drops toward the road)
+    30, // shifted right (+z) so it grows rightward and frees room for OpenChinese
     40,
-    37,
+    60, // portrait 0.667 to match rememberme.jpg (1686×2528); enlarged
     RESUME.projects[0],
     'facade-portrait',
     'facade',
@@ -119,10 +119,10 @@ const STUNT_PROJECT_PANEL_DEFINITIONS = Object.freeze([
     'flip-1',
     'stunt-backdrop-3',
     5,
-    31,
-    6,
-    52,
-    29,
+    38, // moved up so the board clears the scaffold deck (y13) + extends upward
+    10, // extended right (+z) into the room RememberMe freed
+    64,
+    42.7, // 1.5 to match openchinese.png (1536×1024); enlarged
     RESUME.projects[1],
     'facade-hero',
     'facade',
@@ -135,10 +135,10 @@ const STUNT_PROJECT_PANEL_DEFINITIONS = Object.freeze([
     'flip-2',
     'stunt-backdrop-6',
     5,
-    36,
-    -2,
-    38,
-    39,
+    44, // moved up + extended upward
+    17, // extended right (+z); big clearance to OpenChinese so it's free to grow
+    64,
+    42.7, // 1.5 to match rhetbench.png (1536×1024); enlarged
     RESUME.projects[2],
     'floating-hologram',
     'facade',
@@ -151,10 +151,10 @@ const STUNT_PROJECT_PANEL_DEFINITIONS = Object.freeze([
     'flip-2',
     'stunt-backdrop-7',
     5,
-    25,
-    -9,
-    58,
-    26,
+    32, // moved up a little
+    -13.5, // shifted deeper (was -9) to open clearance from RhetBench
+    64,
+    42.7, // 1.5 to match ttt-e2e.png (1536×1024)
     RESUME.projects[3],
     'facade-ribbon',
     'facade',
@@ -286,9 +286,9 @@ const artTypography = (
 };
 
 const ART_PROFILES = Object.freeze({
-  // OpenChinese — 52x29 panel (aspect 1.793); amber editorial.
+  // OpenChinese — 50x33.3 panel (aspect 1.5, matches openchinese.png).
   'facade-hero': Object.freeze({
-    size: Object.freeze({ width: 1280, height: 714 }),
+    size: Object.freeze({ width: 1280, height: 853 }),
     typography: artTypography(714, 0.145, 0.085, 0.075),
     palette: Object.freeze({
       background: '#02070d',
@@ -299,9 +299,9 @@ const ART_PROFILES = Object.freeze({
       muted: '#b8d7df',
     }),
   }),
-  // RememberMe — 40x37 panel (aspect 1.081); near-square amber/cyan.
+  // RememberMe — 34x51 panel (aspect 0.667 portrait, matches rememberme.jpg).
   'facade-portrait': Object.freeze({
-    size: Object.freeze({ width: 984, height: 912 }),
+    size: Object.freeze({ width: 984, height: 1476 }),
     typography: artTypography(912, 0.14),
     palette: Object.freeze({
       background: '#120b04',
@@ -312,9 +312,9 @@ const ART_PROFILES = Object.freeze({
       muted: '#e3c99c',
     }),
   }),
-  // RhetBench — 38x39 panel (aspect 0.974); portrait violet holo.
+  // RhetBench — 48x32 panel (aspect 1.5, matches rhetbench.png); violet holo.
   'floating-hologram': Object.freeze({
-    size: Object.freeze({ width: 940, height: 964 }),
+    size: Object.freeze({ width: 1280, height: 853 }),
     typography: artTypography(964, 0.142, 0.085, 0.09),
     palette: Object.freeze({
       background: '#09051a',
@@ -338,9 +338,9 @@ const ART_PROFILES = Object.freeze({
       muted: '#d6dab9',
     }),
   }),
-  // TTT-E2E — 58x26 panel (aspect 2.231); wide magenta ribbon.
+  // TTT-E2E — 54x36 panel (aspect 1.5, matches ttt-e2e.png).
   'facade-ribbon': Object.freeze({
-    size: Object.freeze({ width: 1280, height: 574 }),
+    size: Object.freeze({ width: 1280, height: 853 }),
     typography: artTypography(574, 0.15, 0.09, 0.075),
     palette: Object.freeze({
       background: '#13030e',

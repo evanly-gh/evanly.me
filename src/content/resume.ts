@@ -100,8 +100,8 @@ export const RESUME: Resume = {
         'A shipped Chinese-learning app built on a from-scratch SM-2 ' +
         'spaced-repetition engine with offline-first cloud sync. Its AI tutor ' +
         'assembles each prompt live from your weakest cards and active grammar ' +
-        'through a JWT-gated Gemini edge function — real context engineering over ' +
-        '2,400 HSK cards, not a chatbot wrapper.',
+        'through a JWT-gated Gemini edge function. Real context engineering over ' +
+        '2,400 HSK cards.',
       image: { src: null, w: 1280, h: 714, label: 'OPENCHINESE' }
     },
     {

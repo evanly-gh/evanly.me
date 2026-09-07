@@ -33,6 +33,7 @@ import {
   SkipToContent,
 } from './NativePortfolio';
 import { CursorFx } from './CursorFx';
+import { PosterZoomOverlay } from './PosterZoomOverlay';
 import type { IntroPhase } from '../choreography/introSequence';
 import { detectWebGL2Support } from './webglSupport';
 import './ScrollExperience.css';
@@ -457,6 +458,7 @@ export default function ScrollExperience() {
           </section>
           <NativePortfolio mode="outro" />
           {!isShot && <CursorFx />}
+          <PosterZoomOverlay />
         </>
       ) : (
         <NativePortfolio mode={presentation} />

@@ -55,9 +55,15 @@ const PARENT_FILE = 'neocity/KB3D_NEC_BldgMD_C_Main.glb';
 // crosses the boulevard at z=0) visible in the lower frame. Sized up in step with
 // the dead-end being pushed further from the main road (facade z≈-74) so it keeps
 // filling the frame. Centred ~28.5m up so a level (pitch≈0) look lands centre.
-const SCREEN_WIDTH = 110;
-const SCREEN_HEIGHT = 70;
-const SCREEN_Y = 28.55;
+// Enlarged and 3:2-locked (width/height = 1.5) to match the About poster image
+// (about.png, 1536×1024) — the poster IS the board texture, so the plane aspect
+// must equal the image aspect or it stretches. Raised (SCREEN_Y 28.55 → 44) so the
+// full board clears the road plane; at the old height the bottom ~6.5 m sat below
+// y=0 and was occluded by the ground, cropping the poster. Sized to fill the
+// original (reverted) hero-camera framing (cam y≈9 looking up at the sign).
+const SCREEN_WIDTH = 120;
+const SCREEN_HEIGHT = 80;
+const SCREEN_Y = 44;
 const SCREEN_OFFSET = 0.5;
 const BACKING_FRONT_GAP = 0.08;
 const BACKING_DEPTH = 0.18;
