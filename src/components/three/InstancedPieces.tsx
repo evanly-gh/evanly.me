@@ -3,6 +3,7 @@ import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { calculateRenderedScale, BUILDING_CATALOG } from '../../world/buildingCatalog';
+import { resolveQuality } from '../../world/deviceQuality';
 import {
   buildModelSpatialBuckets,
   buildSpatialChunks,
@@ -573,7 +574,11 @@ function InstancedFile({
       material instanceof THREE.MeshStandardMaterial
       || material instanceof THREE.MeshPhysicalMaterial,
   ).length, [sourceMaterials]);
-  const chunks = useMemo(() => buildSpatialChunks(items), [items]);
+  // Chunk granularity is device-adaptive: weak (CPU-bound) tiers use larger
+  // chunks to submit fewer InstancedMesh draw calls, since their GPU sits idle
+  // and draw-call submission is the real per-frame cost (see deviceQuality).
+  const chunkSize = resolveQuality().instanceChunkSize;
+  const chunks = useMemo(() => buildSpatialChunks(items, chunkSize), [items, chunkSize]);
 
   if (!owned) return null;
 

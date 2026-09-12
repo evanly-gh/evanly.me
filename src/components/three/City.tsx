@@ -134,6 +134,7 @@ import { createResearchResources } from './researchKit';
 import { createAboutHeroResources } from './aboutKit';
 import { openPosterZoom, type PosterZoomTarget } from '../../choreography/posterZoom';
 import { MonorailBogie, MonorailCarBody } from './MonorailCar';
+import { BakedStatic } from './BakedStatic';
 import {
   CAR_GAP,
   CAR_HEIGHT,
@@ -320,24 +321,40 @@ function makeConcreteTexture(): THREE.CanvasTexture {
  */
 export function Signs() {
   const placed = useMemo(() => getAllAdPlacements(), []);
+  // Only the ground-anchored holo-floating billboards animate (a per-frame bob);
+  // every other mount is static, so its opaque structure (backings, brackets,
+  // neon rims, caps) can be baked into a handful of merged draws via BakedStatic.
+  // Screens (unique textures) and additive halos render live and are skipped.
+  const { staticPlacements, animatedPlacements } = useMemo(() => {
+    const isAnimated = (b: typeof placed[number]) =>
+      b.anchor !== 'center' && (b.mount ?? b.def.mount) === 'holo-floating';
+    return {
+      staticPlacements: placed.filter((b) => !isAnimated(b)),
+      animatedPlacements: placed.filter((b) => isAnimated(b)),
+    };
+  }, [placed]);
   useEffect(() => {
     // Dev: expose placed ad-sign slots for scripted camera framing.
     (window as unknown as { __AD_SIGNS__?: unknown }).__AD_SIGNS__ =
       placed.map((b) => ({ id: b.id, mount: b.mount, pos: b.position, rotationY: b.rotationY }));
   }, [placed]);
+  const renderBillboard = (b: typeof placed[number]) => (
+    <AdBillboard
+      key={b.id}
+      def={b.def}
+      mount={b.mount}
+      anchor={b.anchor}
+      position={b.position}
+      rotationY={b.rotationY}
+      fitBox={b.fitBox}
+    />
+  );
   return (
     <group dispose={null} name="ad-signs">
-      {placed.map((b) => (
-        <AdBillboard
-          key={b.id}
-          def={b.def}
-          mount={b.mount}
-          anchor={b.anchor}
-          position={b.position}
-          rotationY={b.rotationY}
-          fitBox={b.fitBox}
-        />
-      ))}
+      {/* Static billboards bake to a few merged draws; re-bake as the panel sizes
+          settle once their artwork textures load (true aspect). */}
+      <BakedStatic resettleMs={[1200, 3200]}>{staticPlacements.map(renderBillboard)}</BakedStatic>
+      {animatedPlacements.map(renderBillboard)}
     </group>
   );
 }
@@ -1014,12 +1031,16 @@ export function MonorailTrain() {
   if (!resources) return null;
   return (
     <group name="monorail-train" dispose={null}>
-      {cars.map((car, i) => (
-        <group key={i} position={car.position} rotation={[0, car.yaw, 0]} dispose={null}>
-          <MonorailCarBody res={resources} variant={car.variant} />
-          <MonorailBogie res={resources} topY={car.bogieTopLocal} housingH={0.5} wheelZ={0.7} />
-        </group>
-      ))}
+      {/* Static parked consist: bake its ~150 tiny single-material meshes down to
+          one merged mesh per material (~800 draws → a handful). */}
+      <BakedStatic>
+        {cars.map((car, i) => (
+          <group key={i} position={car.position} rotation={[0, car.yaw, 0]} dispose={null}>
+            <MonorailCarBody res={resources} variant={car.variant} />
+            <MonorailBogie res={resources} topY={car.bogieTopLocal} housingH={0.5} wheelZ={0.7} />
+          </group>
+        ))}
+      </BakedStatic>
     </group>
   );
 }
@@ -2190,6 +2211,10 @@ export function FinaleBridge() {
       name="lifecycle-finale-bridge-owned"
       dispose={null}
     >
+      {/* Static structure: bake the ~180 tiny posts/piers/pylons/rails (all one of
+          a few opaque materials) into merged meshes. Named deck meshes and the
+          transparent water are skipped automatically and render normally. */}
+      <BakedStatic>
       <mesh geometry={render.underSlab} material={underMaterial} />
       <mesh
         name={TASK4_SCENE_NAMES.bridgeDeck}
@@ -2324,6 +2349,7 @@ export function FinaleBridge() {
         geometry={retainingGeometry}
         material={structureMaterial}
       />
+      </BakedStatic>
     </group>
   );
 }
