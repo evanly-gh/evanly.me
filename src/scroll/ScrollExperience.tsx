@@ -349,9 +349,10 @@ export default function ScrollExperience() {
       {presentation === 'webgl-fallback' && (
         <div className="native-fallback-notice" role="status">
           <p>
-            Your browser isn&rsquo;t running the interactive 3D version, so
-            here&rsquo;s the full portfolio. To view the 3D experience, turn on
-            hardware acceleration in your browser settings, then retry.
+            Your browser is rendering without GPU acceleration, so here&rsquo;s
+            the full portfolio instead. To view the interactive 3D version, make
+            sure hardware acceleration is on <em>and</em> your graphics driver is
+            up to date (in Chrome, check <code>chrome://gpu</code>), then retry.
           </p>
           <button
             type="button"
