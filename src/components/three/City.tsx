@@ -826,6 +826,68 @@ function RenderDistance({ quality }: { quality: QualitySettings }) {
   return null;
 }
 
+// Dev perf readout (DOM overlay, enabled by ?perf) — shows the real numbers from
+// the actual device so weak-laptop lag can be diagnosed without a local repro:
+// GPU string, FPS, draw calls/frame, triangles/frame, dpr + canvas buffer, tier.
+function PerfHud() {
+  const [text, setText] = useState('');
+  useEffect(() => {
+    if (!new URLSearchParams(location.search).has('perf')) return;
+    let calls = 0;
+    let tris = 0;
+    const wrap = (Proto?: { prototype: WebGL2RenderingContext }) => {
+      const P = Proto?.prototype as unknown as {
+        drawElements: (...a: number[]) => void;
+        drawElementsInstanced?: (...a: number[]) => void;
+        drawArrays: (...a: number[]) => void;
+      };
+      if (!P) return;
+      const de = P.drawElements;
+      P.drawElements = function (this: WebGL2RenderingContext, m: number, c: number, t: number, o: number) { calls++; if (m === 4) tris += c / 3; return de.call(this, m, c, t, o); } as typeof P.drawElements;
+      const dei = P.drawElementsInstanced;
+      if (dei) P.drawElementsInstanced = function (this: WebGL2RenderingContext, m: number, c: number, t: number, o: number, i: number) { calls++; if (m === 4) tris += (c / 3) * i; return dei.call(this, m, c, t, o, i); } as typeof P.drawElementsInstanced;
+      const da = P.drawArrays;
+      P.drawArrays = function (this: WebGL2RenderingContext, m: number, f: number, c: number) { calls++; if (m === 4) tris += c / 3; return da.call(this, m, f, c); } as typeof P.drawArrays;
+    };
+    wrap(window.WebGL2RenderingContext as unknown as { prototype: WebGL2RenderingContext });
+    let renderer = '?';
+    try {
+      const probe = document.createElement('canvas').getContext('webgl2');
+      const dbg = probe?.getExtension('WEBGL_debug_renderer_info');
+      renderer = dbg ? String(probe?.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : 'masked';
+    } catch { /* ignore */ }
+    const q = resolveQuality();
+    let frames = 0;
+    let last = performance.now();
+    let raf = 0;
+    const loop = (now: number) => {
+      frames += 1;
+      if (now - last >= 500) {
+        const cv = document.querySelector('canvas');
+        const fps = Math.round((frames * 1000) / (now - last));
+        setText(
+          `FPS ${fps}   draws/f ${Math.round(calls / frames)}   tris/f ${Math.round(tris / frames / 1000)}k\n`
+          + `dpr ${(+window.devicePixelRatio).toFixed(2)}   buffer ${cv?.width}x${cv?.height}   tier ${q.tier} far ${q.cityFar}\n`
+          + `GPU: ${renderer}`,
+        );
+        frames = 0; calls = 0; tris = 0; last = now;
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  if (!text) return null;
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: 0, zIndex: 99999,
+      background: 'rgba(0,0,0,0.82)', color: '#39ff14',
+      font: '12px/1.45 ui-monospace, monospace', padding: '6px 10px',
+      whiteSpace: 'pre', pointerEvents: 'none', maxWidth: '100vw',
+    }}>{text}</div>
+  );
+}
+
 /**
  * FPS-style fly camera: pointer-lock mouse-look (yaw/pitch only, no roll) +
  * frame-rate-independent WASD movement, Q/E for down/up, Shift to boost.
@@ -3466,6 +3528,7 @@ function City({
         </div>
       </>
     )}
+    <PerfHud />
     </>
   );
 }
