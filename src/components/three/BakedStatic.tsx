@@ -178,6 +178,13 @@ export function BakedStatic({
   const excludeRef = useRef(exclude);
   excludeRef.current = exclude;
 
+  // A merged mesh is authored in the root's local space with an identity
+  // matrix. Ancestors may already be matrix-frozen (see staticMatrices), so
+  // force its world matrix once when it is attached.
+  useLayoutEffect(() => {
+    srcRef.current?.updateMatrixWorld(true);
+  }, [baked]);
+
   useLayoutEffect(() => {
     const disposeOwned = () => {
       for (const resource of ownedRef.current) resource.dispose();

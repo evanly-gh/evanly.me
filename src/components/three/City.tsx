@@ -127,6 +127,7 @@ import {
   styleShibuyaWallMaterial,
 } from './shibuyaMaterial';
 import { AdBillboard, subscribeBillboardTextures } from './AdBillboard';
+import { freezeStaticMatrices } from './staticMatrices';
 import { resolveQuality } from '../../world/deviceQuality';
 import { getAllAdPlacements } from '../../world/adBillboardPlacement';
 import { createShibuyaPanelResources } from './shibuyaKit';
@@ -3145,6 +3146,9 @@ function GpuPrewarm({
       // Pre-warming is best-effort; a failure just means the affected material
       // or texture warms lazily on first draw, exactly as it did before.
     }
+    // The world is settled by the time we warm shaders: stop three from
+    // re-composing every static object's matrix each frame.
+    freezeStaticMatrices(scene);
   }, [gl, scene, camera]);
   // Per-zone warm as each becomes ready (idle-gated).
   useEffect(() => scheduleCityIdle(warm), [warm, readyZones, moonReady]);

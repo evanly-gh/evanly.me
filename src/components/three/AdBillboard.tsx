@@ -253,8 +253,8 @@ function HoloFloating({ def, tex, w, h }: { def: AdBillboardDef; tex: THREE.Text
       <mesh position={[0, HOLO_EMITTER_Y + beamH / 2, 0]} material={beamMat(def.glow)}>
         <cylinderGeometry args={[w * 0.5, w * 0.28, beamH, 32, 1, true]} />
       </mesh>
-      {/* floating hologram panel */}
-      <group ref={bob} position={[0, panelY, 0]}>
+      {/* floating hologram panel (animated: excluded from static matrix freezing) */}
+      <group ref={bob} name="ad-holo-bob" position={[0, panelY, 0]}>
         <Halo w={w} h={h} color={def.glow} />
         <ScreenPlane tex={tex} w={w} h={h} additive doubleSide renderOrder={6} />
       </group>
