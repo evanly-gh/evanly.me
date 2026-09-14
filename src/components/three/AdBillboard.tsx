@@ -51,23 +51,41 @@ export function billboardBounds(def: AdBillboardDef): BillboardBounds {
 // Shared cache so the same reference texture is decoded once even when reused
 // across dozens of city billboards.
 const TEX_CACHE = new Map<string, THREE.Texture>();
+const TEX_PENDING = new Map<string, Promise<THREE.Texture>>();
+const textureListeners = new Set<() => void>();
+
+/** Notified whenever another billboard artwork finishes loading (BakedStatic
+ *  uses this to re-bake the screen atlas). */
+export function subscribeBillboardTextures(listener: () => void): () => void {
+  textureListeners.add(listener);
+  return () => { textureListeners.delete(listener); };
+}
+
+function loadBillboardTexture(image: string): Promise<THREE.Texture> {
+  const cached = TEX_CACHE.get(image);
+  if (cached) return Promise.resolve(cached);
+  let pending = TEX_PENDING.get(image);
+  if (!pending) {
+    pending = new Promise((resolve, reject) => {
+      new THREE.TextureLoader().load(`/images/billboards/${image}.png`, (t) => {
+        t.colorSpace = THREE.SRGBColorSpace;
+        t.anisotropy = 8;
+        TEX_CACHE.set(image, t);
+        TEX_PENDING.delete(image);
+        resolve(t);
+        for (const listener of textureListeners) listener();
+      }, undefined, reject);
+    });
+    TEX_PENDING.set(image, pending);
+  }
+  return pending;
+}
 
 function useBillboardTexture(image: string): THREE.Texture | null {
   const [tex, setTex] = useState<THREE.Texture | null>(() => TEX_CACHE.get(image) ?? null);
   useEffect(() => {
-    const cached = TEX_CACHE.get(image);
-    if (cached) {
-      setTex(cached);
-      return;
-    }
     let cancelled = false;
-    const loader = new THREE.TextureLoader();
-    loader.load(`/images/billboards/${image}.png`, (t) => {
-      t.colorSpace = THREE.SRGBColorSpace;
-      t.anisotropy = 8;
-      TEX_CACHE.set(image, t);
-      if (!cancelled) setTex(t);
-    });
+    loadBillboardTexture(image).then((t) => { if (!cancelled) setTex(t); }, () => {});
     return () => {
       cancelled = true;
     };

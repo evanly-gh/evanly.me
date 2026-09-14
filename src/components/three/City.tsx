@@ -126,7 +126,8 @@ import {
   styleRestaurantMaterial,
   styleShibuyaWallMaterial,
 } from './shibuyaMaterial';
-import { AdBillboard } from './AdBillboard';
+import { AdBillboard, subscribeBillboardTextures } from './AdBillboard';
+import { resolveQuality } from '../../world/deviceQuality';
 import { getAllAdPlacements } from '../../world/adBillboardPlacement';
 import { createShibuyaPanelResources } from './shibuyaKit';
 import { createProjectPanelResources } from './stuntKit';
@@ -338,6 +339,10 @@ export function Signs() {
     (window as unknown as { __AD_SIGNS__?: unknown }).__AD_SIGNS__ =
       placed.map((b) => ({ id: b.id, mount: b.mount, pos: b.position, rotationY: b.rotationY }));
   }, [placed]);
+  // Re-bake as artwork textures finish loading: each screen only joins the atlas
+  // once its image is decoded (and its panel has taken the true aspect).
+  const [textureRevision, setTextureRevision] = useState(0);
+  useEffect(() => subscribeBillboardTextures(() => setTextureRevision((n) => n + 1)), []);
   const renderBillboard = (b: typeof placed[number]) => (
     <AdBillboard
       key={b.id}
@@ -351,9 +356,18 @@ export function Signs() {
   );
   return (
     <group dispose={null} name="ad-signs">
-      {/* Static billboards bake to a few merged draws; re-bake as the panel sizes
-          settle once their artwork textures load (true aspect). */}
-      <BakedStatic resettleMs={[1200, 3200]}>{staticPlacements.map(renderBillboard)}</BakedStatic>
+      {/* Static billboards bake to a few merged draws: opaque structure per
+          material, additive halos/beams per material, and every screen into one
+          texture atlas. Re-bakes as artwork textures load (true aspect + atlas). */}
+      <BakedStatic
+        resettleMs={[1200, 3200]}
+        revision={textureRevision}
+        bakeBlended
+        atlasScreens
+        maxAtlasSize={resolveQuality().tier === 'low' ? 2048 : 4096}
+      >
+        {staticPlacements.map(renderBillboard)}
+      </BakedStatic>
       {animatedPlacements.map(renderBillboard)}
     </group>
   );
@@ -365,6 +379,26 @@ export function Signs() {
  *  edge accent so it reads as a powered display. (The old PanelGlow drew a big
  *  1.14×/1.5× additive glow panel + a thick emissive rim that bloom fattened
  *  into a heavy frame.) */
+// Shared per-colour rim materials so every frame bar of the same colour can be
+// merged into one draw by the surrounding BakedStatic (a fresh inline material
+// per bar would defeat that).
+const glowFrameMaterials = new Map<string, THREE.MeshStandardMaterial>();
+function glowFrameMaterial(color: string): THREE.MeshStandardMaterial {
+  let material = glowFrameMaterials.get(color);
+  if (!material) {
+    material = new THREE.MeshStandardMaterial({
+      color,
+      emissive: color,
+      emissiveIntensity: 1.2,
+      toneMapped: false,
+      roughness: 0.4,
+      metalness: 0.2,
+    });
+    glowFrameMaterials.set(color, material);
+  }
+  return material;
+}
+
 function GlowFrame({ matrix, color }: { matrix: THREE.Matrix4; color: string }) {
   const frame = useMemo(() => {
     const pos = new THREE.Vector3();
@@ -385,16 +419,8 @@ function GlowFrame({ matrix, color }: { matrix: THREE.Matrix4; color: string }) 
     <group position={frame.pos} quaternion={frame.quat}>
       <group position={[0, 0, 0.03]}>
         {bars.map(([x, y, bw, bh], i) => (
-          <mesh key={i} position={[x, y, 0]}>
+          <mesh key={i} position={[x, y, 0]} material={glowFrameMaterial(color)}>
             <boxGeometry args={[bw, bh, 0.1]} />
-            <meshStandardMaterial
-              color={color}
-              emissive={color}
-              emissiveIntensity={1.2}
-              toneMapped={false}
-              roughness={0.4}
-              metalness={0.2}
-            />
           </mesh>
         ))}
       </group>
@@ -425,6 +451,8 @@ export function ProjectsPanels() {
   );
   if (!resources) return null;
   return (
+    // Everything but the clickable poster screens is static structure: bake it.
+    <BakedStatic bakeNamed bakeBlended exclude={isPanelScreen}>
     <group dispose={null}>
       {assembly.screens.map((instance, index) => (
         <Fragment key={instance.id}>
@@ -515,7 +543,15 @@ export function ProjectsPanels() {
         />
       ))}
     </group>
+    </BakedStatic>
   );
+}
+
+// Poster screens carry click-to-zoom handlers, so they must stay live meshes.
+function isPanelScreen(mesh: THREE.Mesh): boolean {
+  return mesh.name === STUNT_SCENE_NAMES.panelScreen
+    || mesh.name === RESEARCH_SCENE_NAMES.panelScreen
+    || mesh.name === TASK2_SCENE_NAMES.screen;
 }
 
 // Research canyon poster textures, indexed by panel.contentIndex.
@@ -551,6 +587,7 @@ export function ResearchGateways() {
     />
   ));
   return (
+    <BakedStatic bakeNamed bakeBlended exclude={isPanelScreen}>
     <group name="research-gateways-owned" dispose={null}>
       {renderBoxes(
         assembly.beams,
@@ -607,6 +644,7 @@ export function ResearchGateways() {
         resources.structureMaterial,
       )}
     </group>
+    </BakedStatic>
   );
 }
 
@@ -665,6 +703,7 @@ export function AboutHero() {
   );
   if (!resources) return null;
   return (
+    <BakedStatic bakeNamed exclude={isPanelScreen}>
     <group name="about-hero-owned" dispose={null}>
       <mesh
         name={TASK2_SCENE_NAMES.screen}
@@ -739,6 +778,7 @@ export function AboutHero() {
         />
       ))}
     </group>
+    </BakedStatic>
   );
 }
 
@@ -961,26 +1001,28 @@ export function Pillars() {
       roughness: 0.7,
       metalness: 0.4,
     }));
-    const geometries = pillars.map((pillar) =>
-      own(new THREE.CylinderGeometry(2.2, pillar.radius, pillar.height, 8)));
+    // One merged geometry for the whole pillar field: every pillar shares the
+    // material, so ~50 draws collapse into one.
+    const parts = pillars.map((pillar) =>
+      new THREE.CylinderGeometry(2.2, pillar.radius, pillar.height, 8)
+        .translate(pillar.x, pillar.height / 2, pillar.z));
+    const merged = mergeGeometries(parts, false);
+    parts.forEach((part) => part.dispose());
+    if (!merged) throw new Error('Pillar geometries could not be merged');
+    const geometry = own(merged);
     return {
-      value: { material, geometries },
-      resources: [material, ...geometries],
+      value: { material, geometry },
+      resources: [material, geometry],
     };
   }, [pillars]);
   if (!resources) return null;
   return (
-    <group dispose={null}>
-      {pillars.map((p, i) => (
-        <mesh
-          key={i}
-          geometry={resources.geometries[i]}
-          material={resources.material}
-          position={[p.x, p.height / 2, p.z]}
-          dispose={null}
-        />
-      ))}
-    </group>
+    <mesh
+      geometry={resources.geometry}
+      material={resources.material}
+      matrixAutoUpdate={false}
+      dispose={null}
+    />
   );
 }
 
@@ -1959,6 +2001,7 @@ export function Ramp2() {
       position={RAMP2.base}
       rotation={[0, RAMP2.rotationY, 0]}
     >
+      <BakedStatic>
       <mesh geometry={resources.geometry} material={resources.deckMaterial} dispose={null} />
       {/* thin ride plate + amber centre stripes */}
       {[0.3, 0.6, 0.9].map((fraction, index) => {
@@ -2001,6 +2044,7 @@ export function Ramp2() {
             />
           );
         }))}
+      </BakedStatic>
     </group>
   );
 }
@@ -2026,6 +2070,9 @@ export function Scaffold() {
   const { metal, plank, rail, box } = resources;
   return (
     <group>
+      {/* The whole lattice is static: bake its ~90 box meshes (3 materials) into
+          3 draws. Named members stay in the graph (hidden) for dev inspection. */}
+      <BakedStatic bakeNamed>
       {/* deck slab + plank strips */}
       <mesh geometry={box} material={metal} position={[cx, y - S.deckThick / 2, cz]} scale={[w, S.deckThick, l]} dispose={null} />
       {[-w / 3, 0, w / 3].map((dx) => (
@@ -2097,6 +2144,7 @@ export function Scaffold() {
           dispose={null}
         />
       ))}
+      </BakedStatic>
     </group>
   );
 }
@@ -2973,43 +3021,58 @@ export function StreetDressing() {
     const dark = own(new THREE.MeshStandardMaterial({ color: 0x0a0c12, roughness: 0.6, metalness: 0.6 }));
     const cone = own(new THREE.MeshStandardMaterial({ color: 0x1a0d05, emissive: new THREE.Color(PALETTE.amber), emissiveIntensity: 0.8, toneMapped: false }));
     const can = own(new THREE.MeshStandardMaterial({ color: 0x1a1d24, roughness: 0.6, metalness: 0.5 }));
-    const manholeGeometries = layout.manholes.map((spot) =>
-      own(new THREE.CircleGeometry(spot.radius, 16)));
-    const coneGeometries = layout.cones.map((spot) =>
-      own(new THREE.ConeGeometry(spot.radius, 1, 8)));
-    const canGeometries = layout.cans.map((spot) =>
-      own(new THREE.CylinderGeometry(0.5, spot.radius, 1.2, 10)));
+    // Unit geometries scaled per instance: the ~250 dressing pieces become three
+    // InstancedMesh draws (manholes / cones / cans) instead of one draw each.
+    const manholeGeometry = own(new THREE.CircleGeometry(1, 16));
+    const coneGeometry = own(new THREE.ConeGeometry(1, 1, 8));
+    const canGeometry = own(new THREE.CylinderGeometry(0.5, 0.5, 1.2, 10));
     return {
-      value: {
-        dark,
-        cone,
-        can,
-        manholeGeometries,
-        coneGeometries,
-        canGeometries,
-      },
-      resources: [
-        dark,
-        cone,
-        can,
-        ...manholeGeometries,
-        ...coneGeometries,
-        ...canGeometries,
-      ],
+      value: { dark, cone, can, manholeGeometry, coneGeometry, canGeometry },
+      resources: [dark, cone, can, manholeGeometry, coneGeometry, canGeometry],
     };
-  }, [layout]);
+  }, []);
+  const manholeRef = useRef<THREE.InstancedMesh>(null);
+  const coneRef = useRef<THREE.InstancedMesh>(null);
+  const canRef = useRef<THREE.InstancedMesh>(null);
+  useLayoutEffect(() => {
+    const m = new THREE.Matrix4();
+    const p = new THREE.Vector3();
+    const q = new THREE.Quaternion();
+    const s = new THREE.Vector3();
+    const flat = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+    const upright = new THREE.Quaternion();
+    const fill = (
+      ref: THREE.InstancedMesh | null,
+      spots: Array<{ x: number; z: number; radius: number; rotationY?: number }>,
+      y: number,
+      rotation: 'flat' | 'upright',
+      scaleFor: (radius: number) => [number, number, number],
+    ) => {
+      if (!ref) return;
+      spots.forEach((spot, i) => {
+        const rot = rotation === 'flat'
+          ? flat
+          : (spot.rotationY ? q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), spot.rotationY) : upright);
+        const [sx, sy, sz] = scaleFor(spot.radius);
+        m.compose(p.set(spot.x, y, spot.z), rot, s.set(sx, sy, sz));
+        ref.setMatrixAt(i, m);
+      });
+      ref.count = spots.length;
+      ref.instanceMatrix.needsUpdate = true;
+      ref.computeBoundingSphere();
+    };
+    fill(manholeRef.current, layout.manholes, 0.04, 'flat', (r) => [r, r, 1]);
+    fill(coneRef.current, layout.cones, 0.5, 'upright', (r) => [r, 1, r]);
+    // Cans keep a fixed 0.5 top radius; scale the whole can by the spot radius
+    // so its footprint matches the layout (top tapers proportionally).
+    fill(canRef.current, layout.cans, 0.6, 'upright', (r) => [r / 0.5, 1, r / 0.5]);
+  }, [layout, resources]);
   if (!resources) return null;
   return (
     <group dispose={null}>
-      {layout.manholes.map((spot, i) => (
-        <mesh key={'mh' + i} geometry={resources.manholeGeometries[i]} material={resources.dark} position={[spot.x, 0.04, spot.z]} rotation={[-Math.PI / 2, 0, 0]} dispose={null} />
-      ))}
-      {layout.cones.map((spot, i) => (
-        <mesh key={'cn' + i} geometry={resources.coneGeometries[i]} material={resources.cone} position={[spot.x, 0.5, spot.z]} dispose={null} />
-      ))}
-      {layout.cans.map((spot, i) => (
-        <mesh key={'tc' + i} geometry={resources.canGeometries[i]} material={resources.can} position={[spot.x, 0.6, spot.z]} rotation={[0, spot.rotationY, 0]} dispose={null} />
-      ))}
+      <instancedMesh ref={manholeRef} args={[resources.manholeGeometry, resources.dark, Math.max(1, layout.manholes.length)]} matrixAutoUpdate={false} dispose={null} />
+      <instancedMesh ref={coneRef} args={[resources.coneGeometry, resources.cone, Math.max(1, layout.cones.length)]} matrixAutoUpdate={false} dispose={null} />
+      <instancedMesh ref={canRef} args={[resources.canGeometry, resources.can, Math.max(1, layout.cans.length)]} matrixAutoUpdate={false} dispose={null} />
     </group>
   );
 }
@@ -3334,14 +3397,18 @@ function City({
       <Ground />
       <WaterBasin />
       <FinaleAtmosphere />
-      <Roads />
+      {/* Road decks, curbs, glow strips, crosswalk stripes and indicators are all
+          static opaque meshes sharing a dozen materials: bake ~200 draws → ~12. */}
+      <BakedStatic><Roads /></BakedStatic>
       <ProceduralBuildingShells placements={pendingShells} />
       {!moonReady && <ProceduralMoonShell />}
       <FinaleBridge />
       <Pillars />
       <MonorailTrain />
       <StreetFurniture />
-      <JunkRamp loadAssets={activeZones.includes('projects')} />
+      <BakedStatic resettleMs={[1500, 4000]}>
+        <JunkRamp loadAssets={activeZones.includes('projects')} />
+      </BakedStatic>
       <Ramp2 />
       <CanyonFillers />
       {activeZones.map((zone) => (
@@ -3356,7 +3423,7 @@ function City({
       ))}
       <Suspense fallback={null}><AboutHero /></Suspense>
       <GpuPrewarm readyZones={readyZones} moonReady={moonReady} />
-      <ShibuyaFacadePanels />
+      <BakedStatic bakeNamed><ShibuyaFacadePanels /></BakedStatic>
       <Suspense fallback={null}><Scaffold /></Suspense>
       {activeZones.includes('projects') && (
         <Suspense fallback={null}><ProjectsPanels /></Suspense>
