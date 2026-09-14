@@ -232,11 +232,14 @@ function FlatWall({ def, tex, w, h }: { def: AdBillboardDef; tex: THREE.Texture 
   );
 }
 
-function HoloFloating({ def, tex, w, h }: { def: AdBillboardDef; tex: THREE.Texture | null; w: number; h: number }) {
+function HoloFloating({ def, tex, w, h, animate }: { def: AdBillboardDef; tex: THREE.Texture | null; w: number; h: number; animate: boolean }) {
   const bob = useRef<THREE.Group>(null);
   const panelY = HOLO_FLOAT + h / 2;
   const beamH = panelY - h / 2 - HOLO_EMITTER_Y;
   useFrame((state) => {
+    // Low tier: the bob is off so the hologram is static and bakes with the
+    // other billboards (and the paced frame loop has nothing to redraw for).
+    if (!animate) return;
     if (bob.current) bob.current.position.y = panelY + Math.sin(state.clock.elapsedTime * 1.1) * 0.25;
   });
   return (
@@ -254,7 +257,7 @@ function HoloFloating({ def, tex, w, h }: { def: AdBillboardDef; tex: THREE.Text
         <cylinderGeometry args={[w * 0.5, w * 0.28, beamH, 32, 1, true]} />
       </mesh>
       {/* floating hologram panel (animated: excluded from static matrix freezing) */}
-      <group ref={bob} name="ad-holo-bob" position={[0, panelY, 0]}>
+      <group ref={bob} name={animate ? 'ad-holo-bob' : undefined} position={[0, panelY, 0]}>
         <Halo w={w} h={h} color={def.glow} />
         <ScreenPlane tex={tex} w={w} h={h} additive doubleSide renderOrder={6} />
       </group>
@@ -386,6 +389,7 @@ export function AdBillboard({
   anchor = 'ground',
   fitBox,
   mount,
+  animate,
 }: {
   def: AdBillboardDef;
   position?: [number, number, number];
@@ -396,6 +400,8 @@ export function AdBillboard({
   fitBox?: [number, number];
   /** override the def's own mount so any artwork can use any mount. */
   mount?: BillboardMount;
+  /** Per-frame bob on floating holograms (off on the low quality tier). */
+  animate?: boolean;
 }) {
   const mnt = mount ?? def.mount;
   const tex = useBillboardTexture(def.image);
@@ -434,7 +440,7 @@ export function AdBillboard({
   return (
     <group position={position} rotation={[0, rotationY, 0]}>
       {mnt === 'flat-wall' && <FlatWall def={def} tex={tex} w={w} h={h} />}
-      {mnt === 'holo-floating' && <HoloFloating def={def} tex={tex} w={w} h={h} />}
+      {mnt === 'holo-floating' && <HoloFloating def={def} tex={tex} w={w} h={h} animate={animate ?? true} />}
       {mnt === 'hanging-blade' && <HangingBlade def={def} tex={tex} w={w} h={h} />}
       {mnt === 'freestanding-pillar' && <FreestandingPillar def={def} tex={tex} w={w} h={h} />}
     </group>

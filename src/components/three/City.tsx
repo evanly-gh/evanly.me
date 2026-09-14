@@ -128,6 +128,7 @@ import {
 } from './shibuyaMaterial';
 import { AdBillboard, subscribeBillboardTextures } from './AdBillboard';
 import { freezeStaticMatrices } from './staticMatrices';
+import { renderDemand } from '../../choreography/renderDemand';
 import { resolveQuality } from '../../world/deviceQuality';
 import { getAllAdPlacements } from '../../world/adBillboardPlacement';
 import { createShibuyaPanelResources } from './shibuyaKit';
@@ -327,14 +328,16 @@ export function Signs() {
   // every other mount is static, so its opaque structure (backings, brackets,
   // neon rims, caps) can be baked into a handful of merged draws via BakedStatic.
   // Screens (unique textures) and additive halos render live and are skipped.
+  const animateHolograms = resolveQuality().animatedHolograms;
   const { staticPlacements, animatedPlacements } = useMemo(() => {
     const isAnimated = (b: typeof placed[number]) =>
-      b.anchor !== 'center' && (b.mount ?? b.def.mount) === 'holo-floating';
+      animateHolograms
+      && b.anchor !== 'center' && (b.mount ?? b.def.mount) === 'holo-floating';
     return {
       staticPlacements: placed.filter((b) => !isAnimated(b)),
       animatedPlacements: placed.filter((b) => isAnimated(b)),
     };
-  }, [placed]);
+  }, [placed, animateHolograms]);
   useEffect(() => {
     // Dev: expose placed ad-sign slots for scripted camera framing.
     (window as unknown as { __AD_SIGNS__?: unknown }).__AD_SIGNS__ =
@@ -353,6 +356,7 @@ export function Signs() {
       position={b.position}
       rotationY={b.rotationY}
       fitBox={b.fitBox}
+      animate={animateHolograms}
     />
   );
   return (
@@ -815,14 +819,24 @@ function ExposureSync() {
 // while visible: an earlier FPS cap here introduced scroll judder on high-
 // refresh displays, so smoothness now comes from cutting per-frame work
 // elsewhere, not from throttling the loop.
-function RenderGate() {
+// Low tier (`paced`): the loop runs on demand instead — anything that changes
+// the picture calls renderDemand.mark() (scroll writes, damping still settling,
+// pointer parallax, intro animation) and this gate turns that into at most
+// `maxFps` renders per second. Idle costs nothing, and a steady 30 fps reads
+// better on a weak GPU than an uneven 40-60. High/mid keep "always".
+function RenderGate({ paced = false, maxFps = 0 }: { paced?: boolean; maxFps?: number }) {
   const setFrameloop = useThree((s) => s.setFrameloop);
+  const invalidate = useThree((s) => s.invalidate);
   const gl = useThree((s) => s.gl);
   useEffect(() => {
     const canvas = gl.domElement;
     let onScreen = true;
     let visible = !document.hidden;
-    const apply = () => setFrameloop(onScreen && visible ? 'always' : 'never');
+    const active = () => onScreen && visible;
+    const apply = () => {
+      setFrameloop(!active() ? 'never' : paced ? 'demand' : 'always');
+      if (paced && active()) renderDemand.mark();
+    };
 
     const io = new IntersectionObserver(
       ([entry]) => { onScreen = entry.isIntersecting; apply(); },
@@ -834,11 +848,27 @@ function RenderGate() {
     document.addEventListener('visibilitychange', onVisibility);
     apply();
 
+    let raf = 0;
+    if (paced) {
+      const minInterval = maxFps > 0 ? 1000 / maxFps : 0;
+      let last = Number.NEGATIVE_INFINITY;
+      const tick = (now: number) => {
+        raf = requestAnimationFrame(tick);
+        if (!active() || !renderDemand.dirty) return;
+        if (now - last < minInterval - 0.5) return;
+        last = now;
+        renderDemand.take();
+        invalidate();
+      };
+      raf = requestAnimationFrame(tick);
+    }
+
     return () => {
       io.disconnect();
       document.removeEventListener('visibilitychange', onVisibility);
+      if (raf) cancelAnimationFrame(raf);
     };
-  }, [setFrameloop, gl]);
+  }, [setFrameloop, invalidate, gl, paced, maxFps]);
   return null;
 }
 
@@ -3416,6 +3446,9 @@ function City({
       .flatMap((zone) => cityZones[zone]),
     [activeZones, cityZones, readyZones],
   );
+  // Device quality tier (see world/deviceQuality): fixed for the page load so
+  // the light count and composer format never change mid-ride.
+  const quality = resolveQuality();
   return (
     <>
     <Canvas
@@ -3426,9 +3459,13 @@ function City({
       // antialias:false because the EffectComposer resolves separately
       // (multisampling={0}), so an MSAA backbuffer here was pure waste.
       // high-performance steers multi-GPU laptops off the integrated chip.
-      dpr={[1, 1.25]}
-      // Renders at native refresh; RenderGate flips frameloop to "never" only
-      // when the canvas is scrolled off-screen or the tab is hidden.
+      // The low tier caps at 1.0 (36% fewer pixels at 125% OS scaling).
+      dpr={[1, quality.maxDpr]}
+      // High/mid render at native refresh; the low tier renders on demand and
+      // RenderGate paces it (the prop must match, because R3F re-applies the
+      // Canvas frameloop prop on every re-render). RenderGate still flips to
+      // "never" when the canvas is scrolled off-screen or the tab is hidden.
+      frameloop={quality.pacedFrameloop ? 'demand' : 'always'}
       gl={{
         antialias: false,
         powerPreference: 'high-performance',
@@ -3439,7 +3476,7 @@ function City({
       <VisibilityLayoutContext.Provider value={activeLayout}>
       <color attach="background" args={['#05060f']} />
       <fog attach="fog" args={['#0a0a1c', 260, 2100]} />
-      <RenderGate />
+      <RenderGate paced={quality.pacedFrameloop} maxFps={quality.maxFps} />
       <ExposureSync />
       <DeferredScene>
       <ambientLight intensity={LIGHTING.ambientIntensity} />
@@ -3450,12 +3487,17 @@ function City({
       <hemisphereLight args={[PALETTE.violet, '#050510', 0.06]} />
       {/* Faint magenta/cyan flank fills — deliberately dim so the BILLBOARDS (and
           window neon) carry the city's colour rather than a global wash. */}
-      <directionalLight position={[-320, 90, 120]} intensity={0.16} color={PALETTE.magenta} />
-      <directionalLight position={[340, 80, -280]} intensity={0.18} color={PALETTE.cyan} />
+      {quality.fillLights && (
+        <>
+          <directionalLight position={[-320, 90, 120]} intensity={0.16} color={PALETTE.magenta} />
+          <directionalLight position={[340, 80, -280]} intensity={0.18} color={PALETTE.cyan} />
+        </>
+      )}
       {/* 3 point lights shaded per-fragment on every PBR surface city-wide;
           only meaningful at the Shibuya crossing, so mount them with that zone
-          instead of paying for them across the whole ride. */}
-      {activeZones.includes('shibuya') && <ShibuyaWallLighting />}
+          instead of paying for them across the whole ride. The low tier drops
+          them entirely (measured -15% GPU frame time at t=0.2). */}
+      {quality.shibuyaPointLights && activeZones.includes('shibuya') && <ShibuyaWallLighting />}
       <Suspense fallback={null}><EnvMap onReady={markEnvReady} /></Suspense>
       {production && progressStore && (
         <>
@@ -3538,7 +3580,12 @@ function City({
             target={[40, 18, -130]}
             maxDistance={4000}
           />)}
-      <EffectComposer multisampling={0}>
+      {/* Low tier: 8-bit composer buffers (half the bandwidth of HalfFloat) and
+          a shallower bloom mip chain; high/mid keep the HDR pipeline. */}
+      <EffectComposer
+        multisampling={0}
+        frameBufferType={quality.halfFloatComposer ? THREE.HalfFloatType : THREE.UnsignedByteType}
+      >
         {/* resolutionScale 0.5 runs the whole bloom chain (luminance pass + mip
             blur) at quarter the pixels — a full-screen per-frame pass, so this
             is a direct GPU saving. Bloom is inherently soft, so half-res is
@@ -3548,6 +3595,7 @@ function City({
           luminanceThreshold={LIGHTING.bloomThreshold}
           radius={LIGHTING.bloomRadius}
           resolutionScale={0.5}
+          levels={quality.bloomLevels}
           mipmapBlur
         />
         {/* Colour grade for the moody cyberpunk look: punch up saturation so the

@@ -1,5 +1,6 @@
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
+import { renderDemand } from '../../choreography/renderDemand';
 import * as THREE from 'three';
 import { INTRO_CAM_POS, type IntroPhase } from '../../choreography/introSequence';
 
@@ -102,6 +103,7 @@ export function IntroBillboard({ phase }: { phase: IntroPhase }) {
   useFrame(() => {
     const target = phase === 'driving' || phase === 'live' ? 0 : 1;
     material.opacity += (target - material.opacity) * 0.08;
+    if (Math.abs(target - material.opacity) > 0.002) renderDemand.mark();
   });
 
   return (
