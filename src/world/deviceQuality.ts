@@ -67,15 +67,21 @@ export function detectQualityTier(win: Window = window): QualityTier {
   return 'mid';
 }
 
+// One chunk per file per BuildingZone on every tier. Spatial sub-chunking
+// produced ~700 InstancedMeshes averaging 3 instances each (349 of them held a
+// single instance), and draw submission — not vertex work — was the measured
+// per-frame cost. The zone partition already gives corridor-scale culling.
+const SINGLE_CHUNK = 1_000_000;
+
 export function qualityForTier(tier: QualityTier): QualitySettings {
   switch (tier) {
     case 'high':
-      return { tier, instanceChunkSize: 180 };
+      return { tier, instanceChunkSize: SINGLE_CHUNK };
     case 'mid':
-      return { tier, instanceChunkSize: 360 };
+      return { tier, instanceChunkSize: SINGLE_CHUNK };
     case 'low':
     default:
-      return { tier, instanceChunkSize: 560 };
+      return { tier, instanceChunkSize: SINGLE_CHUNK };
   }
 }
 
