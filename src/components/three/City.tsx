@@ -930,7 +930,7 @@ function PerfHud() {
         const cv = document.querySelector('canvas');
         const fps = Math.round((frames * 1000) / (now - last));
         setText(
-          `FPS ${fps}   draws/f ${Math.round(calls / frames)}   tris/f ${Math.round(tris / frames / 1000)}k\n`
+          `FPS ${fps}   draws/f ${Math.round(calls / frames)}   tris/f ${Math.round(tris / frames / 1000)}k   PerfMode ${PERF_MODE ? 'ON' : 'off'}\n`
           + `dpr ${(+window.devicePixelRatio).toFixed(2)}   buffer ${cv?.width}x${cv?.height}   tier ${q.tier} far ${q.cityFar}\n`
           + `GPU: ${renderer}`,
         );
