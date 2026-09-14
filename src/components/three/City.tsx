@@ -25,6 +25,7 @@ import {
 import * as THREE from 'three';
 import { PALETTE, LIGHTING } from '../../theme';
 import { resolveQuality, type QualitySettings } from '../../world/deviceQuality';
+import { detectSoftwareRenderer } from '../../scroll/webglSupport';
 import {
   buildAsphaltPixels,
   buildConcretePixels,
@@ -56,9 +57,12 @@ import {
 
 const URL_PARAMS = new URLSearchParams(location.search);
 const FREECAM = URL_PARAMS.has('freecam');
-// Performance Mode: drop bloom (and, wired below, downgrade materials) for a lighter,
-// software-renderable "one look". Currently opt-in via ?perfmode for A/B review.
-const PERF_MODE = URL_PARAMS.has('perfmode');
+// Performance Mode: drop bloom + downgrade the city's PBR materials to unlit, for a
+// lighter, software-renderable render (like the reference sites that run on no-GPU
+// machines). Auto-engages on software rasterizers (no usable GPU); `?perfmode` forces
+// it on and `?noperfmode` forces it off (for A/B on any device).
+const PERF_MODE = URL_PARAMS.has('perfmode')
+  || (!URL_PARAMS.has('noperfmode') && detectSoftwareRenderer(document));
 const VISIBILITY_RESIZE_DEBOUNCE_MS = 180;
 const IS_DEVELOPMENT = (
   import.meta as ImportMeta & {
@@ -795,6 +799,62 @@ function RenderGate() {
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [setFrameloop, gl]);
+  return null;
+}
+
+// Performance Mode material downgrade. Real-time PBR (MeshStandardMaterial) shades
+// every pixel with a full lighting + BRDF + env loop — the dominant cost when a CPU
+// software-renders the scene. This swaps the city's PBR materials for the much cheaper
+// MeshLambertMaterial: it keeps simple per-pixel diffuse lighting (so the dark night
+// mood AND the emissive neon are preserved) but drops the roughness/metalness/env-map
+// math. Runs after mount and re-runs briefly to catch zones/props that stream in.
+// Shader / already-basic / emissive-only materials are left alone.
+function PerfMaterials() {
+  const scene = useThree((s) => s.scene);
+  useEffect(() => {
+    const cache = new WeakMap<THREE.Material, THREE.MeshLambertMaterial>();
+    const toLambert = (src: THREE.MeshStandardMaterial): THREE.MeshLambertMaterial => {
+      const m = new THREE.MeshLambertMaterial();
+      m.color.copy(src.color);
+      m.map = src.map;
+      m.emissive.copy(src.emissive);
+      m.emissiveMap = src.emissiveMap;
+      m.emissiveIntensity = src.emissiveIntensity;
+      m.alphaMap = src.alphaMap;
+      m.aoMap = src.aoMap;
+      m.transparent = src.transparent;
+      m.opacity = src.opacity;
+      m.depthWrite = src.depthWrite;
+      m.depthTest = src.depthTest;
+      m.blending = src.blending;
+      m.side = src.side;
+      m.alphaTest = src.alphaTest;
+      m.vertexColors = src.vertexColors;
+      m.toneMapped = src.toneMapped;
+      m.fog = src.fog;
+      return m;
+    };
+    const swap = (mat: THREE.Material): THREE.Material => {
+      const std = mat as THREE.MeshStandardMaterial & { isMeshStandardMaterial?: boolean };
+      if (!std.isMeshStandardMaterial) return mat;
+      let next = cache.get(mat);
+      if (!next) { next = toLambert(std); cache.set(mat, next); }
+      return next;
+    };
+    const apply = () => {
+      scene.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        if (!mesh.material) return;
+        mesh.material = Array.isArray(mesh.material)
+          ? mesh.material.map(swap)
+          : swap(mesh.material);
+      });
+    };
+    apply();
+    const interval = window.setInterval(apply, 1500);
+    const stop = window.setTimeout(() => window.clearInterval(interval), 16000);
+    return () => { window.clearInterval(interval); window.clearTimeout(stop); };
+  }, [scene]);
   return null;
 }
 
@@ -3403,6 +3463,7 @@ function City({
       <fog attach="fog" args={['#0a0a1c', 260, quality.fogFar]} />
       <RenderGate />
       <RenderDistance quality={quality} />
+      {PERF_MODE && <PerfMaterials />}
       <ExposureSync />
       <DeferredScene>
       <ambientLight intensity={LIGHTING.ambientIntensity} />

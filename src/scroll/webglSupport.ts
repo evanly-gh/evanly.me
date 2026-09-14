@@ -37,9 +37,10 @@ export function isSoftwareRenderer(gl: WebGL2ProbeContext): boolean {
  * probe specifically for `webgl2` — probing for `webgl` would report a false
  * positive and let the canvas mount, then throw asynchronously.
  *
- * We ALSO reject software rasterizers (Microsoft Basic Render Driver / SwiftShader
- * / llvmpipe): they satisfy the WebGL2 probe but render on the CPU at ~1fps, so the
- * 2D fallback is a far better experience there.
+ * Software rasterizers DO satisfy this probe — and we keep them in the 3D path on
+ * purpose: with the light "Performance Mode" render (no bloom, unlit materials) a
+ * strong CPU can software-render the scene at a usable rate. The 2D fallback is
+ * reserved for browsers with no WebGL2 at all.
  *
  * The throwaway probe context is released immediately so it never counts against
  * the browser's live-context budget.
@@ -49,9 +50,22 @@ export function detectWebGL2Support(doc: WebGL2ProbeDocument): boolean {
     const canvas = doc.createElement('canvas');
     const gl = canvas.getContext('webgl2');
     if (!gl) return false;
+    (gl.getExtension?.('WEBGL_lose_context') as { loseContext?: () => void } | null)?.loseContext?.();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** True when this browser's WebGL2 is a software rasterizer (no usable GPU). Used
+ *  to auto-engage Performance Mode so the scene stays light enough for the CPU. */
+export function detectSoftwareRenderer(doc: WebGL2ProbeDocument): boolean {
+  try {
+    const gl = doc.createElement('canvas').getContext('webgl2');
+    if (!gl) return false;
     const software = isSoftwareRenderer(gl);
     (gl.getExtension?.('WEBGL_lose_context') as { loseContext?: () => void } | null)?.loseContext?.();
-    return !software;
+    return software;
   } catch {
     return false;
   }
