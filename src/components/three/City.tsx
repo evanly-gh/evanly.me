@@ -783,14 +783,22 @@ export function AboutHero() {
   );
 }
 
-function EnvMap() {
-  const texture = useEnvironment({ preset: 'night' });
+// The HDR is served from public/hdr (drei's `preset: 'night'` fetched the same
+// file from a third-party CDN at runtime). Every PBR program's cache key
+// changes when scene.environment appears, so if it arrived after the user
+// started scrolling the whole city recompiled mid-ride; keeping it local and
+// gating the prewarm on it means the programs compile once, with the env map.
+const ENV_HDR_URL = '/hdr/dikhololo_night_1k.hdr';
+
+function EnvMap({ onReady }: { onReady?: () => void }) {
+  const texture = useEnvironment({ files: ENV_HDR_URL });
   const { scene } = useThree();
   useEffect(() => {
     scene.environment = texture;
     scene.environmentIntensity = LIGHTING.envIntensity;
+    onReady?.();
     return () => { scene.environment = null; };
-  }, [scene, texture]);
+  }, [scene, texture, onReady]);
   return null;
 }
 
@@ -1550,7 +1558,7 @@ function CulledBuildingZone(props: {
       : progress >= start && progress <= end;
   });
   return (
-    <group ref={groupRef}>
+    <group ref={groupRef} userData={{ zoneCull: true }}>
       <BuildingZone {...props} />
     </group>
   );
@@ -3108,17 +3116,74 @@ function scheduleCityIdle(callback: () => void): () => void {
 function GpuPrewarm({
   readyZones,
   moonReady,
+  envReady,
 }: {
   readyZones: CityZoneId[];
   moonReady: boolean;
+  envReady: boolean;
 }) {
   const gl = useThree((state) => state.gl);
   const scene = useThree((state) => state.scene);
   const camera = useThree((state) => state.camera);
+  // The scene is only ever drawn into the EffectComposer's offscreen buffer,
+  // and three keys shader programs on the bound target (linear output colour
+  // space, no tone mapping) versus the canvas (sRGB, tone mapped). Compiling
+  // with the canvas bound produced the wrong variants: every material was
+  // recompiled on its first real draw — the buildings at load, the moon as a
+  // 0.5-2 s freeze when it first entered the frame mid-ride. Bind a scratch
+  // target while compiling so the prewarmed programs are the ones used.
+  const prewarmTargetRef = useRef<THREE.WebGLRenderTarget | null>(null);
+  useEffect(() => () => {
+    prewarmTargetRef.current?.dispose();
+    prewarmTargetRef.current = null;
+  }, []);
   const warm = useCallback(() => {
+    // renderer.compile only visits VISIBLE objects, so zones culled by story
+    // progress (research/finale at t=0) would otherwise compile on first draw
+    // mid-scroll. Reveal them for the duration of the compile.
+    const revealed: THREE.Object3D[] = [];
+    scene.traverse((object) => {
+      if (object.userData.zoneCull && !object.visible) {
+        object.visible = true;
+        revealed.push(object);
+      }
+    });
+    if (!prewarmTargetRef.current) {
+      prewarmTargetRef.current = new THREE.WebGLRenderTarget(2, 2, { type: THREE.HalfFloatType });
+    }
+    const previousTarget = gl.getRenderTarget();
+    gl.setRenderTarget(prewarmTargetRef.current);
     try {
-      // Compile shader programs for everything in the graph...
-      gl.compile(scene, camera);
+      // Compile shader programs for everything in the graph. This must be ONE
+      // call on the whole scene: renderer.compile(object, camera, scene) counts
+      // the object's own lights twice (once in the scene, once as the "new"
+      // object), so compiling subtrees that contain lights bakes the wrong
+      // light count into their programs and they recompile on first draw.
+      try {
+        gl.compile(scene, camera);
+      } catch (error) {
+        if (IS_DEVELOPMENT) console.warn('[prewarm] shader compile failed', error);
+      }
+      // compile() creates programs but uploads no vertex/index buffers; those
+      // still land on the first frame an object is drawn (measured 50-90 ms
+      // hitches as zones came into view). Draw everything once, unculled, into
+      // the 2x2 scratch target so every buffer is resident before the ride.
+      try {
+        const unculled: THREE.Object3D[] = [];
+        scene.traverse((object) => {
+          if ((object as THREE.Mesh).isMesh && object.frustumCulled) {
+            object.frustumCulled = false;
+            unculled.push(object);
+          }
+        });
+        try {
+          gl.render(scene, camera);
+        } finally {
+          for (const object of unculled) object.frustumCulled = true;
+        }
+      } catch (error) {
+        if (IS_DEVELOPMENT) console.warn('[prewarm] warm render failed', error);
+      }
       // ...then force every material texture onto the GPU. gl.compile creates
       // programs but does not upload all maps (notably the about hero's
       // 3072x2048 CanvasTexture), so without this the texture upload still
@@ -3145,20 +3210,27 @@ function GpuPrewarm({
     } catch {
       // Pre-warming is best-effort; a failure just means the affected material
       // or texture warms lazily on first draw, exactly as it did before.
+    } finally {
+      gl.setRenderTarget(previousTarget);
+      for (const object of revealed) object.visible = false;
     }
     // The world is settled by the time we warm shaders: stop three from
     // re-composing every static object's matrix each frame.
     freezeStaticMatrices(scene);
   }, [gl, scene, camera]);
-  // Per-zone warm as each becomes ready (idle-gated).
-  useEffect(() => scheduleCityIdle(warm), [warm, readyZones, moonReady]);
+  // Per-zone warm as each becomes ready (idle-gated). Programs are keyed on the
+  // environment map, so don't warm before it is in place.
+  useEffect(() => {
+    if (!envReady) return undefined;
+    return scheduleCityIdle(warm);
+  }, [warm, readyZones, moonReady, envReady]);
   // Once the whole city is ready, the progressive mount still commits its last
   // few meshes a tick or two AFTER onReady fires, so an idle warm keyed only to
   // readiness can miss them — they'd then upload on the first scroll frame (the
   // "lags a little on first scroll"). Fire guaranteed setTimeout passes (not
   // idle, which can be starved) that run after those late mounts settle, so
   // everything is resident before the viewer can scroll into it.
-  const fullyReady = readyZones.length >= CITY_ZONE_IDS.length && moonReady;
+  const fullyReady = readyZones.length >= CITY_ZONE_IDS.length && moonReady && envReady;
   useEffect(() => {
     if (!fullyReady) return undefined;
     const timers = [250, 900, 2000].map((delay) => window.setTimeout(warm, delay));
@@ -3261,6 +3333,8 @@ function City({
   );
   const [readyZones, setReadyZones] = useState<CityZoneId[]>([]);
   const [moonReady, setMoonReady] = useState(false);
+  const [envReady, setEnvReady] = useState(false);
+  const markEnvReady = useCallback(() => setEnvReady(true), []);
   const onZoneActiveRef = useRef(onZoneActive);
   onZoneActiveRef.current = onZoneActive;
   const loadingControllerRef = useRef<CityZoneLoadController | null>(null);
@@ -3382,7 +3456,7 @@ function City({
           only meaningful at the Shibuya crossing, so mount them with that zone
           instead of paying for them across the whole ride. */}
       {activeZones.includes('shibuya') && <ShibuyaWallLighting />}
-      <Suspense fallback={null}><EnvMap /></Suspense>
+      <Suspense fallback={null}><EnvMap onReady={markEnvReady} /></Suspense>
       {production && progressStore && (
         <>
           <BikeRider ref={bikeRef} />
@@ -3426,7 +3500,7 @@ function City({
         </Suspense>
       ))}
       <Suspense fallback={null}><AboutHero /></Suspense>
-      <GpuPrewarm readyZones={readyZones} moonReady={moonReady} />
+      <GpuPrewarm readyZones={readyZones} moonReady={moonReady} envReady={envReady} />
       <BakedStatic bakeNamed><ShibuyaFacadePanels /></BakedStatic>
       <Suspense fallback={null}><Scaffold /></Suspense>
       {activeZones.includes('projects') && (
