@@ -23,6 +23,7 @@ import {
 } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { PALETTE, LIGHTING } from '../../theme';
+import { resolveQuality, type QualitySettings } from '../../world/deviceQuality';
 import {
   buildAsphaltPixels,
   buildConcretePixels,
@@ -790,6 +791,38 @@ function RenderGate() {
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [setFrameloop, gl]);
+  return null;
+}
+
+// Render-distance culling. Drives the camera far-clip (and matching fog far) from
+// story progress: short during the CITY ride so three.js frustum-culls distant
+// buildings (the big weak-device win — fewer objects to submit AND shade), then
+// ramps back up through the descend so the finale bridge and the moon (z≈-3300)
+// are never clipped. The fog is pulled in to the same distance so geometry fades
+// out instead of popping at the clip plane. In non-ride modes (inspect/orbit,
+// where contentProgress is unset) it stays at full distance.
+function RenderDistance({ quality }: { quality: QualitySettings }) {
+  const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
+  const scene = useThree((s) => s.scene);
+  useFrame(() => {
+    const progress = scene.userData.contentProgress;
+    let far: number;
+    let fogFar: number;
+    if (typeof progress !== 'number') {
+      far = 8000;
+      fogFar = 2100;
+    } else {
+      const k = THREE.MathUtils.smoothstep(progress, 0.55, 0.8);
+      far = THREE.MathUtils.lerp(quality.cityFar, 8000, k);
+      fogFar = THREE.MathUtils.lerp(quality.fogFar, 2100, k);
+    }
+    if (Math.abs(camera.far - far) > 0.5) {
+      camera.far = far;
+      camera.updateProjectionMatrix();
+    }
+    const fog = scene.fog as THREE.Fog | null;
+    if (fog && Math.abs(fog.far - fogFar) > 0.5) fog.far = fogFar;
+  });
   return null;
 }
 
@@ -3119,6 +3152,8 @@ function City({
   introPhase,
   onIntroComplete,
 }: CityProps) {
+  // Device tier → render distance (+ instanced chunk size). Detected once.
+  const quality = useMemo(() => resolveQuality(), []);
   const [activeProfile, setActiveProfile] = useState(
     REQUESTED_VISIBILITY_PROFILE,
   );
@@ -3285,7 +3320,9 @@ function City({
       // antialias:false because the EffectComposer resolves separately
       // (multisampling={0}), so an MSAA backbuffer here was pure waste.
       // high-performance steers multi-GPU laptops off the integrated chip.
-      dpr={[1, 1.25]}
+      // Floor is 1.0 (native) — never below, so it never softens; weak tiers just
+      // drop the 1.25× supersample a HiDPI screen would otherwise pay for.
+      dpr={[1, quality.dprMax]}
       // Renders at native refresh; RenderGate flips frameloop to "never" only
       // when the canvas is scrolled off-screen or the tab is hidden.
       gl={{
@@ -3293,12 +3330,13 @@ function City({
         powerPreference: 'high-performance',
         toneMapping: THREE.ACESFilmicToneMapping,
       }}
-      camera={{ position: [-30, 92, 250], fov: 58, near: 1, far: 8000 }}
+      camera={{ position: [-30, 92, 250], fov: 58, near: 1, far: quality.cityFar }}
     >
       <VisibilityLayoutContext.Provider value={activeLayout}>
       <color attach="background" args={['#05060f']} />
-      <fog attach="fog" args={['#0a0a1c', 260, 2100]} />
+      <fog attach="fog" args={['#0a0a1c', 260, quality.fogFar]} />
       <RenderGate />
+      <RenderDistance quality={quality} />
       <ExposureSync />
       <DeferredScene>
       <ambientLight intensity={LIGHTING.ambientIntensity} />

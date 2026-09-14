@@ -1,10 +1,8 @@
 // Adaptive quality tiers. There is no automated test suite; verify perf changes
 // visually + via the ?shot measurement harness (see agent notes).
 //
-// This only carries INVISIBLE, draw-call-only knobs now: the resolution/bloom
-// tiering was reverted because it visibly softened the image on integrated GPUs.
-// The device is classified into a tier from cheap synchronous signals; the only
-// thing derived from it is the instanced-building chunk size (see instanceChunkSize).
+// The device is classified into a tier from cheap synchronous signals. Resolution
+// and bloom are NOT scaled (that visibly softened the image and was reverted).
 // `?quality=high|mid|low` overrides the detection.
 
 export type QualityTier = 'high' | 'mid' | 'low';
@@ -16,6 +14,19 @@ export interface QualitySettings {
    *  frustum culling — a good trade on CPU-bound weak devices whose GPU is idle.
    *  Visually identical (only affects when off-screen instances get culled). */
   instanceChunkSize: number;
+  /** Camera far-clip (render distance) during the CITY ride, in world units.
+   *  Buildings beyond this are frustum-culled by three.js — the render-distance
+   *  lever. High tier sits past the fog so it's lossless (only culls fully-fogged
+   *  geometry the camera used to waste-draw out to far=8000); weak tiers pull it
+   *  in for far fewer objects. Ramps back up to reach the moon/bridge at the finale. */
+  cityFar: number;
+  /** Fog far, pulled in to match cityFar so buildings fade out instead of popping
+   *  at the clip plane. */
+  fogFar: number;
+  /** Max device-pixel-ratio. NEVER below 1.0 (that blurs — the reverted mistake);
+   *  weak tiers cap at native 1.0 to drop the supersampling a HiDPI laptop would
+   *  otherwise do at 1.25×, which is a big GPU-fill saving with no softening. */
+  dprMax: number;
 }
 
 function readRendererString(): string {
@@ -70,12 +81,13 @@ export function detectQualityTier(win: Window = window): QualityTier {
 export function qualityForTier(tier: QualityTier): QualitySettings {
   switch (tier) {
     case 'high':
-      return { tier, instanceChunkSize: 180 };
+      // cityFar past the fog (2100) → only culls fully-fogged geometry: lossless.
+      return { tier, instanceChunkSize: 180, cityFar: 2600, fogFar: 2100, dprMax: 1.25 };
     case 'mid':
-      return { tier, instanceChunkSize: 360 };
+      return { tier, instanceChunkSize: 360, cityFar: 1700, fogFar: 1550, dprMax: 1.0 };
     case 'low':
     default:
-      return { tier, instanceChunkSize: 560 };
+      return { tier, instanceChunkSize: 560, cityFar: 1200, fogFar: 1080, dprMax: 1.0 };
   }
 }
 
