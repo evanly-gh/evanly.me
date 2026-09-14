@@ -10,6 +10,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactElement,
   type ReactNode,
 } from 'react';
 import { Canvas, useThree, useFrame, type ThreeEvent } from '@react-three/fiber';
@@ -55,6 +56,9 @@ import {
 
 const URL_PARAMS = new URLSearchParams(location.search);
 const FREECAM = URL_PARAMS.has('freecam');
+// Performance Mode: drop bloom (and, wired below, downgrade materials) for a lighter,
+// software-renderable "one look". Currently opt-in via ?perfmode for A/B review.
+const PERF_MODE = URL_PARAMS.has('perfmode');
 const VISIBILITY_RESIZE_DEBOUNCE_MS = 180;
 const IS_DEVELOPMENT = (
   import.meta as ImportMeta & {
@@ -3494,23 +3498,25 @@ function City({
             maxDistance={4000}
           />)}
       <EffectComposer multisampling={0}>
-        {/* resolutionScale 0.5 runs the whole bloom chain (luminance pass + mip
-            blur) at quarter the pixels — a full-screen per-frame pass, so this
-            is a direct GPU saving. Bloom is inherently soft, so half-res is
-            visually indistinguishable at this glow radius. */}
-        <Bloom
-          intensity={LIGHTING.bloomIntensity}
-          luminanceThreshold={LIGHTING.bloomThreshold}
-          radius={LIGHTING.bloomRadius}
-          resolutionScale={0.5}
-          mipmapBlur
-        />
-        {/* Colour grade for the moody cyberpunk look: punch up saturation so the
-            neon reads vibrant, deepen contrast so unlit surfaces crush toward
-            black, and a vignette to pull focus into the lit street. */}
-        <HueSaturation saturation={0.32} />
-        <BrightnessContrast brightness={-0.04} contrast={0.18} />
-        <Vignette eskil={false} offset={0.28} darkness={0.62} />
+        {([
+          /* Bloom is the heaviest per-pixel pass — dropped in Performance Mode
+             (software renderers / "one simpler look"), which loses the soft neon
+             halo but keeps the emissive neon itself bright. */
+          PERF_MODE ? null : (
+            <Bloom
+              key="bloom"
+              intensity={LIGHTING.bloomIntensity}
+              luminanceThreshold={LIGHTING.bloomThreshold}
+              radius={LIGHTING.bloomRadius}
+              resolutionScale={0.5}
+              mipmapBlur
+            />
+          ),
+          /* Colour grade for the moody cyberpunk look. */
+          <HueSaturation key="hs" saturation={0.32} />,
+          <BrightnessContrast key="bc" brightness={-0.04} contrast={0.18} />,
+          <Vignette key="vig" eskil={false} offset={0.28} darkness={0.62} />,
+        ].filter(Boolean) as ReactElement[])}
       </EffectComposer>
       </DeferredScene>
       </VisibilityLayoutContext.Provider>
