@@ -67,7 +67,7 @@ function loadBillboardTexture(image: string): Promise<THREE.Texture> {
   let pending = TEX_PENDING.get(image);
   if (!pending) {
     pending = new Promise((resolve, reject) => {
-      new THREE.TextureLoader().load(`/images/billboards/${image}.png`, (t) => {
+      new THREE.TextureLoader().load(`/images/billboards/${image}.webp`, (t) => {
         t.colorSpace = THREE.SRGBColorSpace;
         t.anisotropy = 8;
         TEX_CACHE.set(image, t);

@@ -23,14 +23,14 @@
       },
       "optimization": {
         "resize": {
-          "width": 4096,
-          "height": 2048,
+          "width": 2048,
+          "height": 1024,
           "fit": "fill",
           "kernel": "lanczos3"
         },
         "grayscale": false,
         "webp": {
-          "quality": 82,
+          "quality": 90,
           "effort": 6,
           "smartSubsample": true
         }
@@ -38,10 +38,10 @@
       "output": {
         "file": "moon-albedo.webp",
         "format": "webp",
-        "width": 4096,
-        "height": 2048,
-        "bytes": 944542,
-        "sha256": "4cccf8ce1791d22780ba184968913648e1cefa89331adf94b10c74688418e57c"
+        "width": 2048,
+        "height": 1024,
+        "bytes": 411300,
+        "sha256": "97489273c398fbdfd24d6137a2c7e3165b74871e5fb00fbfdca57f260754b791"
       }
     },
     {

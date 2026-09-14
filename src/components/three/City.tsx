@@ -440,10 +440,10 @@ const PROJECT_GLOW = ['#4c86ff', '#a86bff', '#6d7bff', '#ffb020'];
 
 // Project panel poster textures, in STUNT_PROJECT_PANELS order.
 const PROJECT_POSTER_SRCS = [
-  '/images/sections/rememberme.jpg',
-  '/images/sections/openchinese.png',
-  '/images/sections/rhetbench.png',
-  '/images/sections/ttt-e2e.png',
+  '/images/sections/rememberme.webp',
+  '/images/sections/openchinese.webp',
+  '/images/sections/rhetbench.webp',
+  '/images/sections/ttt-e2e.webp',
 ];
 
 export function ProjectsPanels() {
@@ -561,9 +561,9 @@ function isPanelScreen(mesh: THREE.Mesh): boolean {
 
 // Research canyon poster textures, indexed by panel.contentIndex.
 const RESEARCH_POSTER_SRCS = [
-  '/images/sections/slm-factory.png',
-  '/images/sections/rl-on-hrm.png',
-  '/images/sections/sd-on-qwen.png',
+  '/images/sections/slm-factory.webp',
+  '/images/sections/rl-on-hrm.webp',
+  '/images/sections/sd-on-qwen.webp',
 ];
 
 export function ResearchGateways() {
@@ -654,7 +654,7 @@ export function ResearchGateways() {
 }
 
 // The About board texture is the complete self-contained poster plate.
-const ABOUT_POSTER_SRC = '/images/sections/about.png';
+const ABOUT_POSTER_SRC = '/images/sections/about.webp';
 
 // Face-on zoom target for a research canyon panel, looked up by its screen id.
 function researchZoomTarget(id: string): PosterZoomTarget {
