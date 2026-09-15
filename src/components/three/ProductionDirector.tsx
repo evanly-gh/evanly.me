@@ -47,6 +47,7 @@ import {
   setPosterZoomStatus,
   type PosterZoomStatus,
 } from '../../choreography/posterZoom';
+import { renderDemand } from '../../choreography/renderDemand';
 
 const ADAPTER_ORDER = ['bike', 'camera', 'content', 'fx'] as const;
 const FRAME_SAMPLE_LIMIT = 600;
@@ -399,6 +400,7 @@ export function ProductionDirector({
         introDoneRef.current = true;
         onIntroCompleteRef.current?.();
       }
+      renderDemand.mark(); // intro is a continuous animation
       return;
     }
 
@@ -514,6 +516,7 @@ export function ProductionDirector({
       desiredPosRef.current.copy(from.position);
       desiredTargetRef.current.copy(from.target);
       desiredFovRef.current = from.fov;
+      renderDemand.mark(); // zoom fly-in/out is a continuous animation
       return;
     }
     zoomPrevStatusRef.current = 'idle';
@@ -628,12 +631,28 @@ export function ProductionDirector({
       camera.rotateX(-mouse.y * PARALLAX_PITCH);
       camera.updateProjectionMatrix();
     }
+
+    // Paced (low-tier) loop: keep rendering while any damped quantity is still
+    // moving toward its target; once everything has settled the next frame is
+    // only requested by a scroll write or pointer move.
+    const settling = smoothRawRef.current !== targetRaw
+      || bikeSmoothSemanticRef.current !== bikeTargetSemanticRef.current
+      || camera.position.distanceToSquared(desiredPosRef.current) > 1e-4
+      || cameraTargetRef.current.distanceToSquared(desiredTargetRef.current) > 1e-4
+      || (camera instanceof THREE.PerspectiveCamera
+        && Math.abs(camera.fov - desiredFovRef.current) > 1e-3)
+      || Math.abs(mouse.x - mouseTarget.x) + Math.abs(mouse.y - mouseTarget.y) > 1e-3;
+    if (settling) renderDemand.mark();
   }, -100);
+
+  // Every scroll write is a reason to render the next paced frame.
+  useEffect(() => store.subscribe(() => renderDemand.mark()), [store]);
 
   useEffect(() => {
     const onMove = (event: PointerEvent) => {
       mouseTargetRef.current.x = (event.clientX / window.innerWidth) * 2 - 1;
       mouseTargetRef.current.y = (event.clientY / window.innerHeight) * 2 - 1;
+      renderDemand.mark();
     };
     window.addEventListener('pointermove', onMove, { passive: true });
     return () => window.removeEventListener('pointermove', onMove);

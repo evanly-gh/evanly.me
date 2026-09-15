@@ -609,3 +609,52 @@ body,
   outline: 2px solid #2bfdf9;
   outline-offset: 3px;
 }
+
+/* Graphics-quality toggle: the visible fallback for automatic tier detection. */
+.quality-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6em;
+  margin-top: 0.4rem;
+  padding: 0.45em 0.9em;
+  border: 1px solid rgba(43, 253, 249, 0.45);
+  border-radius: 999px;
+  background: rgba(4, 10, 18, 0.72);
+  color: #cdeffd;
+  font: inherit;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.quality-toggle:hover,
+.quality-toggle:focus-visible {
+  border-color: #2bfdf9;
+  background: rgba(8, 22, 34, 0.9);
+  outline: none;
+}
+
+.quality-toggle__label {
+  color: #ffbf45;
+}
+
+.quality-toggle--compact {
+  margin: 0;
+  padding: 0.35em 0.7em;
+  font-size: 0.68rem;
+  opacity: 0.55;
+}
+
+.quality-toggle--compact:hover,
+.quality-toggle--compact:focus-visible {
+  opacity: 1;
+}
+
+.city-quality-corner {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 30;
+}

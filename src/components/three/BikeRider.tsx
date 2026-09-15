@@ -104,10 +104,18 @@ function captureBikeFadeMaterials(asset: BikeAsset): BikeFadeMaterialState[] {
       : [object.material]) {
       if (seen.has(material)) continue;
       seen.add(material);
+      // Flip every bike material to `transparent` up front, once, at load. three
+      // keys its shader-program cache on transparency, so toggling it during the
+      // finale fade recompiled every bike program mid-scroll — a 2 s freeze on
+      // an integrated GPU's driver. With depthWrite kept on until the fade the
+      // bike still renders as a solid object; it just lives in the transparent
+      // pass from the start, and the prewarm compiles the right programs.
+      material.transparent = true;
+      material.needsUpdate = true;
       states.push({
         material,
         opacity: material.opacity,
-        transparent: material.transparent,
+        transparent: true,
         depthWrite: material.depthWrite,
       });
     }
@@ -122,15 +130,11 @@ export function applyBikeFinaleOpacity(
   const fade = THREE.MathUtils.clamp(finaleOpacity, 0, 1);
   for (const state of BIKE_FADE_MATERIALS.get(asset) ?? []) {
     const fading = fade < 1;
-    const transparent = fading ? true : state.transparent;
+    // depthWrite is render state, not part of the program cache key, so this
+    // toggle never triggers a shader compile (transparency is fixed at load).
     const depthWrite = fading ? false : state.depthWrite;
-    if (
-      state.material.transparent !== transparent
-      || state.material.depthWrite !== depthWrite
-    ) {
-      state.material.transparent = transparent;
+    if (state.material.depthWrite !== depthWrite) {
       state.material.depthWrite = depthWrite;
-      state.material.needsUpdate = true;
     }
     state.material.opacity = state.opacity * fade;
   }

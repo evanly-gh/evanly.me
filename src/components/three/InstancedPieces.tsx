@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -15,6 +15,13 @@ import {
   type HumanVariantId,
 } from '../../world/crowdLayout';
 import { useCommittedThreeResource } from './useCommittedThreeResources';
+import {
+  KITBASH_EMISSIVE_SCALE,
+  KITBASH_PACKED_ATTRIBUTE,
+  kitbashArrayMaterial,
+  kitbashPartEmissive,
+  kitbashTextureArray,
+} from './kitbashArrayMaterial';
 
 export {
   buildModelSpatialBuckets,
@@ -129,12 +136,17 @@ function tuneClonedMaterial(c: THREE.Material): THREE.Material {
     && (standard.emissiveMap || EMISSIVE_HINT.test(standard.name || ''))) {
     standard.emissiveIntensity = 1.6;
   }
-  // Render both faces so hollow KitBash shells (no interior/back walls) don't
-  // read as see-through windows — with FrontSide you could look straight through
-  // a building and see it was empty inside.
-  standard.side = THREE.DoubleSide;
+  // FrontSide: backface culling halves the rasterized fragments on every
+  // building (measured -20% GPU frame time at t=0.2 on an integrated Radeon).
+  // Files whose shells are genuinely hollow and read see-through from the ride
+  // are listed in DOUBLE_SIDED_FILES and keep both faces.
+  standard.side = THREE.FrontSide;
   return c;
 }
+
+/** KitBash files whose open shells look see-through with backface culling
+ *  (verified by scouting the ride); everything else renders FrontSide. */
+const DOUBLE_SIDED_FILES = new Set<string>([]);
 
 /**
  * Clone before applying any optional per-instancer styling so cached useGLTF
@@ -144,11 +156,14 @@ export function cloneInstancedMaterial(
   material: THREE.Material,
   transform?: InstancedMaterialTransform,
   materialVariant = 'default',
+  file?: string,
 ): THREE.Material {
   const cloned = material.clone();
-  return transform
+  const tuned = transform
     ? transform(cloned, materialVariant)
     : tuneClonedMaterial(cloned);
+  if (file && DOUBLE_SIDED_FILES.has(file)) tuned.side = THREE.DoubleSide;
+  return tuned;
 }
 
 /**
@@ -378,7 +393,9 @@ function InstancedMergedChunk({
 }: {
   chunk: SpatialChunk<Placement>;
   geometry: THREE.BufferGeometry;
-  materials: THREE.Material[];
+  /** A material array for grouped geometry, or one material for a groupless
+   *  (texture-array merged) geometry. */
+  materials: THREE.Material[] | THREE.Material;
   footRadius: number;
   height: number;
   targetHeight?: number;
@@ -513,10 +530,102 @@ function InstancedFile({
     `instanced:${file}`,
     ({ own }) => {
       const resources: Array<THREE.Material | THREE.BufferGeometry> = [];
-      const parts = sourceParts.map((part) => {
+      // Texture-array path (see kitbashArrayMaterial): every opaque PBR part of
+      // the file merges into ONE geometry drawn with ONE shared material, so the
+      // whole building is a single draw per zone instead of one per material
+      // part. Parts the array can't express (transparent, alpha-tested,
+      // emissive-mapped, multi-material draw ranges) stay on the per-part path.
+      let arrayGeometries: THREE.BufferGeometry[] = [];
+      let arrayMaterial: THREE.Material | null = null;
+      let remainingParts = sourceParts;
+      if (!materialTransform && !instanceColor) {
+        const array = kitbashTextureArray();
+        const merged: THREE.BufferGeometry[] = [];
+        const rest: typeof sourceParts = [];
+        for (const part of sourceParts) {
+          const sm = part.sourceMaterial as THREE.MeshStandardMaterial;
+          const eligible = sm.isMeshStandardMaterial
+            && !part.drawRange
+            && !sm.transparent
+            && sm.alphaTest === 0
+            && !sm.emissiveMap
+            && !sm.alphaMap
+            && part.geometry.getAttribute('position') !== undefined;
+          const layer = eligible
+            ? (sm.map ? array.layerForTexture(sm.map) : array.layerForColor(sm.color))
+            : -1;
+          if (!eligible || layer < 0) { rest.push(part); continue; }
+          const g = part.geometry.clone();
+          for (const name of Object.keys(g.attributes)) {
+            if (name !== 'position' && name !== 'normal' && name !== 'uv') g.deleteAttribute(name);
+          }
+          if (!g.getAttribute('normal')) g.computeVertexNormals();
+          const count = g.getAttribute('position').count;
+          if (!g.getAttribute('uv')) {
+            g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(count * 2), 2));
+          }
+          const emissive = kitbashPartEmissive(sm);
+          const q = (v: number) => Math.round(THREE.MathUtils.clamp(v * KITBASH_EMISSIVE_SCALE, 0, 255));
+          const er = q(emissive.r); const eg = q(emissive.g); const eb = q(emissive.b);
+          const packed = new Uint8Array(count * 4);
+          for (let i = 0; i < count; i += 1) {
+            packed[i * 4] = layer;
+            packed[i * 4 + 1] = er;
+            packed[i * 4 + 2] = eg;
+            packed[i * 4 + 3] = eb;
+          }
+          g.setAttribute(KITBASH_PACKED_ATTRIBUTE, new THREE.BufferAttribute(packed, 4, false));
+          g.applyMatrix4(part.local);
+          g.clearGroups();
+          merged.push(g);
+        }
+        if (merged.length > 0) {
+          // mergeGeometries needs all-indexed or all-non-indexed input. Give the
+          // few non-indexed parts a trivial index rather than expanding every
+          // indexed part (which would triple the vertex work on the GPU).
+          for (const g of merged) {
+            if (g.index) continue;
+            const count = g.getAttribute('position').count;
+            const index = count > 65535 ? new Uint32Array(count) : new Uint16Array(count);
+            for (let i = 0; i < count; i += 1) index[i] = i;
+            g.setIndex(new THREE.BufferAttribute(index, 1));
+          }
+          // Batch parts so each merged geometry stays under 65,535 vertices and
+          // keeps a 16-bit index: one 32-bit index for a whole tower doubled the
+          // index bandwidth and showed up as +2 ms GPU on an integrated Radeon.
+          const UINT16_LIMIT = 65535;
+          const sorted = [...merged].sort(
+            (a, b) => b.getAttribute('position').count - a.getAttribute('position').count,
+          );
+          const batches: THREE.BufferGeometry[][] = [];
+          for (const g of sorted) {
+            const n = g.getAttribute('position').count;
+            const batch = batches.find((b) =>
+              b.reduce((sum, x) => sum + x.getAttribute('position').count, 0) + n <= UINT16_LIMIT);
+            if (batch) batch.push(g); else batches.push([g]);
+          }
+          const fusedAll: THREE.BufferGeometry[] = [];
+          for (const batch of batches) {
+            const fused = batch.length === 1 ? batch[0] : mergeGeometries(batch, false);
+            if (fused) fusedAll.push(fused);
+          }
+          for (const g of merged) if (!fusedAll.includes(g)) g.dispose();
+          if (fusedAll.length > 0) {
+            arrayGeometries = fusedAll.map((g) => own(g));
+            resources.push(...fusedAll);
+            arrayMaterial = kitbashArrayMaterial(
+              DOUBLE_SIDED_FILES.has(file) ? THREE.DoubleSide : THREE.FrontSide,
+            );
+            remainingParts = rest;
+          }
+        }
+      }
+      const parts = remainingParts.map((part) => {
         const material = own(cloneInstancedMaterial(
           part.sourceMaterial,
           materialTransform,
+          'default',
+          file,
         ));
         const geometry = part.drawRange
           ? own(createGeometryView(
@@ -554,9 +663,9 @@ function InstancedFile({
           baked.forEach((g) => g.dispose());
         }
       }
-      return { value: { parts, merged }, resources };
+      return { value: { parts, merged, arrayGeometries, arrayMaterial }, resources };
     },
-    [sourceParts, materialTransform, instanceColor],
+    [sourceParts, materialTransform, instanceColor, file],
   );
   const parts = owned?.parts ?? [];
   const sourceMaterials = useMemo(
@@ -583,30 +692,42 @@ function InstancedFile({
   if (!owned) return null;
 
   const merged = owned.merged;
+  const { arrayGeometries, arrayMaterial } = owned;
   const content = (
     <>
       {chunks.map((chunk) => (
-        merged ? (
-          <InstancedMergedChunk
-            key={chunk.id}
-            chunk={chunk}
-            geometry={merged.geometry}
-            materials={merged.materials}
-            footRadius={footRadius}
-            height={height}
-            targetHeight={targetHeight}
-          />
-        ) : (
-          <InstancedSpatialChunk
-            key={chunk.id}
-            chunk={chunk}
-            parts={parts}
-            footRadius={footRadius}
-            height={height}
-            targetHeight={targetHeight}
-            instanceColor={instanceColor}
-          />
-        )
+        <Fragment key={chunk.id}>
+          {arrayMaterial && arrayGeometries.map((geometry, index) => (
+            <InstancedMergedChunk
+              key={index}
+              chunk={chunk}
+              geometry={geometry}
+              materials={arrayMaterial}
+              footRadius={footRadius}
+              height={height}
+              targetHeight={targetHeight}
+            />
+          ))}
+          {merged ? (
+            <InstancedMergedChunk
+              chunk={chunk}
+              geometry={merged.geometry}
+              materials={merged.materials}
+              footRadius={footRadius}
+              height={height}
+              targetHeight={targetHeight}
+            />
+          ) : parts.length > 0 ? (
+            <InstancedSpatialChunk
+              chunk={chunk}
+              parts={parts}
+              footRadius={footRadius}
+              height={height}
+              targetHeight={targetHeight}
+              instanceColor={instanceColor}
+            />
+          ) : null}
+        </Fragment>
       ))}
     </>
   );

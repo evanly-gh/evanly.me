@@ -1,93 +1,135 @@
 // Adaptive quality tiers. There is no automated test suite; verify perf changes
-// visually + via the ?shot measurement harness (see agent notes).
+// with the harness in tools/verification/perf (ride.mjs / ablate.mjs / shot.mjs).
 //
-// This only carries INVISIBLE, draw-call-only knobs now: the resolution/bloom
-// tiering was reverted because it visibly softened the image on integrated GPUs.
-// The device is classified into a tier from cheap synchronous signals; the only
-// thing derived from it is the instanced-building chunk size (see instanceChunkSize).
-// `?quality=high|mid|low` overrides the detection.
+// Everyone defaults to the high tier — an earlier GPU-benchmark auto-detection
+// pass (see git history on perf/low-end-devices before this commit) showed
+// little real-world difference between tiers, so guessing a visitor's device
+// down to low isn't worth the risk of misclassifying a capable machine. The
+// low tier still exists for anyone who wants it: `?quality=low` in the URL, or
+// the visible Quality toggle, both stored in localStorage and read back on
+// every load. High and mid are visually identical; mid is kept only as a
+// harmless `?quality=mid` alias.
 
 export type QualityTier = 'high' | 'mid' | 'low';
+export type QualityPreference = 'auto' | QualityTier;
+
+export const QUALITY_STORAGE_KEY = 'evanly-quality';
 
 export interface QualitySettings {
   tier: QualityTier;
-  /** Spatial chunk size (world units) for instanced building batches. Larger =
-   *  fewer InstancedMesh draw calls (less CPU submission) at the cost of coarser
-   *  frustum culling — a good trade on CPU-bound weak devices whose GPU is idle.
-   *  Visually identical (only affects when off-screen instances get culled). */
+  /** Spatial chunk size (world units) for instanced building batches. One
+   *  chunk per file per BuildingZone on every tier (see instanceBuckets). */
   instanceChunkSize: number;
+  /** Upper bound for the canvas device-pixel ratio. */
+  maxDpr: number;
+  /** Bloom mip levels; each level is a pair of half-res passes. */
+  bloomLevels: number;
+  /** HalfFloat (HDR) composer buffers; 8-bit halves the bandwidth on weak GPUs. */
+  halfFloatComposer: boolean;
+  /** The two faint magenta/cyan directional fills. */
+  fillLights: boolean;
+  /** The three Shibuya wall point lights (each is shaded on every PBR fragment
+   *  city-wide, so dropping them is a shader-wide saving). */
+  shibuyaPointLights: boolean;
+  /** Per-frame bob on the floating hologram billboards (static when false, so
+   *  they bake into the merged billboard draws). */
+  animatedHolograms: boolean;
+  /** Render only when something changed, paced to `maxFps`. */
+  pacedFrameloop: boolean;
+  /** Frame cap while paced (0 = display rate). */
+  maxFps: number;
+  /** Largest billboard screen atlas dimension. */
+  atlasSize: number;
 }
 
-function readRendererString(): string {
-  try {
-    const canvas = document.createElement('canvas');
-    const gl = (canvas.getContext('webgl2')
-      || canvas.getContext('webgl')) as WebGLRenderingContext | null;
-    if (!gl) return '';
-    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-    const raw = dbg
-      ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) ?? '')
-      : String(gl.getParameter(gl.RENDERER) ?? '');
-    const lose = gl.getExtension('WEBGL_lose_context');
-    lose?.loseContext();
-    return raw.toLowerCase();
-  } catch {
-    return '';
-  }
-}
-
-export function detectQualityTier(win: Window = window): QualityTier {
-  const nav = win.navigator;
-  const ua = (nav.userAgent || '').toLowerCase();
-  const renderer = readRendererString();
-  const cores = nav.hardwareConcurrency || 4;
-  // deviceMemory is Chromium-only; treat missing as unknown (don't penalize).
-  const mem = (nav as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
-  const mobile = /android|iphone|ipad|ipod|mobile|windows phone/.test(ua)
-    // iPadOS 13+ reports as desktop Safari; catch it via touch + Mac.
-    || (/macintosh/.test(ua) && (nav.maxTouchPoints ?? 0) > 1);
-
-  // Software / clearly-weak GPUs (integrated / mobile / software rasterizers).
-  const software = /swiftshader|llvmpipe|softpipe|software|basic render/.test(renderer);
-  const weakGpu = software
-    || /\bmali\b|adreno|powervr|videocore|apple a\d/.test(renderer)
-    || /intel.*\b(hd|uhd|iris)\b.*graphics/.test(renderer)
-    // AMD integrated APUs report "Radeon(TM) Graphics" or "Radeon Vega" (no RX/Pro).
-    || /radeon(\(tm\))?\s+(graphics|vega)/.test(renderer)
-    || /amd radeon\(tm\) graphics/.test(renderer);
-
-  // Strong discrete GPUs.
-  const discrete = /\brtx\b|geforce (gtx|rtx)|radeon rx|radeon pro|arc a\d|quadro/
-    .test(renderer);
-
-  if (mobile) return 'low';
-  if (software) return 'low';
-  if (weakGpu || cores <= 4 || mem <= 4) return 'low';
-  if (discrete && cores >= 8 && mem >= 8) return 'high';
-  return 'mid';
-}
+// One chunk per file per BuildingZone on every tier. Spatial sub-chunking
+// produced ~700 InstancedMeshes averaging 3 instances each (349 of them held a
+// single instance), and draw submission — not vertex work — was the measured
+// per-frame cost. The zone partition already gives corridor-scale culling.
+const SINGLE_CHUNK = 1_000_000;
 
 export function qualityForTier(tier: QualityTier): QualitySettings {
   switch (tier) {
     case 'high':
-      return { tier, instanceChunkSize: 180 };
+      return {
+        tier,
+        instanceChunkSize: SINGLE_CHUNK,
+        maxDpr: 1.25,
+        bloomLevels: 8,
+        halfFloatComposer: true,
+        fillLights: true,
+        shibuyaPointLights: true,
+        animatedHolograms: true,
+        pacedFrameloop: false,
+        maxFps: 0,
+        atlasSize: 4096,
+      };
     case 'mid':
-      return { tier, instanceChunkSize: 360 };
+      return {
+        tier,
+        instanceChunkSize: SINGLE_CHUNK,
+        maxDpr: 1.25,
+        bloomLevels: 8,
+        halfFloatComposer: true,
+        fillLights: true,
+        shibuyaPointLights: true,
+        animatedHolograms: true,
+        pacedFrameloop: false,
+        maxFps: 0,
+        atlasSize: 4096,
+      };
     case 'low':
     default:
-      return { tier, instanceChunkSize: 560 };
+      return {
+        tier,
+        instanceChunkSize: SINGLE_CHUNK,
+        maxDpr: 1,
+        bloomLevels: 4,
+        halfFloatComposer: false,
+        fillLights: false,
+        shibuyaPointLights: false,
+        animatedHolograms: false,
+        pacedFrameloop: true,
+        maxFps: 30,
+        atlasSize: 2048,
+      };
+  }
+}
+
+export function readQualityPreference(): QualityPreference {
+  try {
+    const stored = window.localStorage.getItem(QUALITY_STORAGE_KEY);
+    if (stored === 'high' || stored === 'mid' || stored === 'low' || stored === 'auto') return stored;
+  } catch {
+    // storage unavailable (private mode / blocked) — fall through to auto
+  }
+  return 'auto';
+}
+
+export function writeQualityPreference(preference: QualityPreference): void {
+  try {
+    if (preference === 'auto') window.localStorage.removeItem(QUALITY_STORAGE_KEY);
+    else window.localStorage.setItem(QUALITY_STORAGE_KEY, preference);
+  } catch {
+    // ignore: the toggle still works for this page load via reload
   }
 }
 
 let cached: QualitySettings | null = null;
 
-/** Detect once and memoize for the session. Allows ?quality=high|mid|low override. */
+/** Detect once and memoize for the session. `?quality=high|mid|low` beats the
+ *  stored preference, which beats the default (high — see file header). */
 export function resolveQuality(search = typeof location !== 'undefined' ? location.search : ''): QualitySettings {
   if (cached) return cached;
   const forced = new URLSearchParams(search).get('quality');
-  const tier: QualityTier = forced === 'high' || forced === 'mid' || forced === 'low'
-    ? forced
-    : detectQualityTier();
+  const preference = readQualityPreference();
+  let tier: QualityTier;
+  if (forced === 'high' || forced === 'mid' || forced === 'low') tier = forced;
+  else if (preference !== 'auto') tier = preference;
+  else tier = 'high';
   cached = qualityForTier(tier);
+  if (typeof window !== 'undefined') {
+    (window as Window & { __EVANLY_QUALITY__?: unknown }).__EVANLY_QUALITY__ = { tier, preference, forced };
+  }
   return cached;
 }

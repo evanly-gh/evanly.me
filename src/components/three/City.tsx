@@ -126,7 +126,10 @@ import {
   styleRestaurantMaterial,
   styleShibuyaWallMaterial,
 } from './shibuyaMaterial';
-import { AdBillboard } from './AdBillboard';
+import { AdBillboard, subscribeBillboardTextures } from './AdBillboard';
+import { freezeStaticMatrices } from './staticMatrices';
+import { renderDemand } from '../../choreography/renderDemand';
+import { resolveQuality } from '../../world/deviceQuality';
 import { getAllAdPlacements } from '../../world/adBillboardPlacement';
 import { createShibuyaPanelResources } from './shibuyaKit';
 import { createProjectPanelResources } from './stuntKit';
@@ -325,19 +328,25 @@ export function Signs() {
   // every other mount is static, so its opaque structure (backings, brackets,
   // neon rims, caps) can be baked into a handful of merged draws via BakedStatic.
   // Screens (unique textures) and additive halos render live and are skipped.
+  const animateHolograms = resolveQuality().animatedHolograms;
   const { staticPlacements, animatedPlacements } = useMemo(() => {
     const isAnimated = (b: typeof placed[number]) =>
-      b.anchor !== 'center' && (b.mount ?? b.def.mount) === 'holo-floating';
+      animateHolograms
+      && b.anchor !== 'center' && (b.mount ?? b.def.mount) === 'holo-floating';
     return {
       staticPlacements: placed.filter((b) => !isAnimated(b)),
       animatedPlacements: placed.filter((b) => isAnimated(b)),
     };
-  }, [placed]);
+  }, [placed, animateHolograms]);
   useEffect(() => {
     // Dev: expose placed ad-sign slots for scripted camera framing.
     (window as unknown as { __AD_SIGNS__?: unknown }).__AD_SIGNS__ =
       placed.map((b) => ({ id: b.id, mount: b.mount, pos: b.position, rotationY: b.rotationY }));
   }, [placed]);
+  // Re-bake as artwork textures finish loading: each screen only joins the atlas
+  // once its image is decoded (and its panel has taken the true aspect).
+  const [textureRevision, setTextureRevision] = useState(0);
+  useEffect(() => subscribeBillboardTextures(() => setTextureRevision((n) => n + 1)), []);
   const renderBillboard = (b: typeof placed[number]) => (
     <AdBillboard
       key={b.id}
@@ -347,13 +356,23 @@ export function Signs() {
       position={b.position}
       rotationY={b.rotationY}
       fitBox={b.fitBox}
+      animate={animateHolograms}
     />
   );
   return (
     <group dispose={null} name="ad-signs">
-      {/* Static billboards bake to a few merged draws; re-bake as the panel sizes
-          settle once their artwork textures load (true aspect). */}
-      <BakedStatic resettleMs={[1200, 3200]}>{staticPlacements.map(renderBillboard)}</BakedStatic>
+      {/* Static billboards bake to a few merged draws: opaque structure per
+          material, additive halos/beams per material, and every screen into one
+          texture atlas. Re-bakes as artwork textures load (true aspect + atlas). */}
+      <BakedStatic
+        resettleMs={[1200, 3200]}
+        revision={textureRevision}
+        bakeBlended
+        atlasScreens
+        maxAtlasSize={resolveQuality().tier === 'low' ? 2048 : 4096}
+      >
+        {staticPlacements.map(renderBillboard)}
+      </BakedStatic>
       {animatedPlacements.map(renderBillboard)}
     </group>
   );
@@ -365,6 +384,26 @@ export function Signs() {
  *  edge accent so it reads as a powered display. (The old PanelGlow drew a big
  *  1.14×/1.5× additive glow panel + a thick emissive rim that bloom fattened
  *  into a heavy frame.) */
+// Shared per-colour rim materials so every frame bar of the same colour can be
+// merged into one draw by the surrounding BakedStatic (a fresh inline material
+// per bar would defeat that).
+const glowFrameMaterials = new Map<string, THREE.MeshStandardMaterial>();
+function glowFrameMaterial(color: string): THREE.MeshStandardMaterial {
+  let material = glowFrameMaterials.get(color);
+  if (!material) {
+    material = new THREE.MeshStandardMaterial({
+      color,
+      emissive: color,
+      emissiveIntensity: 1.2,
+      toneMapped: false,
+      roughness: 0.4,
+      metalness: 0.2,
+    });
+    glowFrameMaterials.set(color, material);
+  }
+  return material;
+}
+
 function GlowFrame({ matrix, color }: { matrix: THREE.Matrix4; color: string }) {
   const frame = useMemo(() => {
     const pos = new THREE.Vector3();
@@ -385,16 +424,8 @@ function GlowFrame({ matrix, color }: { matrix: THREE.Matrix4; color: string }) 
     <group position={frame.pos} quaternion={frame.quat}>
       <group position={[0, 0, 0.03]}>
         {bars.map(([x, y, bw, bh], i) => (
-          <mesh key={i} position={[x, y, 0]}>
+          <mesh key={i} position={[x, y, 0]} material={glowFrameMaterial(color)}>
             <boxGeometry args={[bw, bh, 0.1]} />
-            <meshStandardMaterial
-              color={color}
-              emissive={color}
-              emissiveIntensity={1.2}
-              toneMapped={false}
-              roughness={0.4}
-              metalness={0.2}
-            />
           </mesh>
         ))}
       </group>
@@ -409,10 +440,10 @@ const PROJECT_GLOW = ['#4c86ff', '#a86bff', '#6d7bff', '#ffb020'];
 
 // Project panel poster textures, in STUNT_PROJECT_PANELS order.
 const PROJECT_POSTER_SRCS = [
-  '/images/sections/rememberme.jpg',
-  '/images/sections/openchinese.png',
-  '/images/sections/rhetbench.png',
-  '/images/sections/ttt-e2e.png',
+  '/images/sections/rememberme.webp',
+  '/images/sections/openchinese.webp',
+  '/images/sections/rhetbench.webp',
+  '/images/sections/ttt-e2e.webp',
 ];
 
 export function ProjectsPanels() {
@@ -425,6 +456,8 @@ export function ProjectsPanels() {
   );
   if (!resources) return null;
   return (
+    // Everything but the clickable poster screens is static structure: bake it.
+    <BakedStatic bakeNamed bakeBlended exclude={isPanelScreen}>
     <group dispose={null}>
       {assembly.screens.map((instance, index) => (
         <Fragment key={instance.id}>
@@ -515,14 +548,22 @@ export function ProjectsPanels() {
         />
       ))}
     </group>
+    </BakedStatic>
   );
+}
+
+// Poster screens carry click-to-zoom handlers, so they must stay live meshes.
+function isPanelScreen(mesh: THREE.Mesh): boolean {
+  return mesh.name === STUNT_SCENE_NAMES.panelScreen
+    || mesh.name === RESEARCH_SCENE_NAMES.panelScreen
+    || mesh.name === TASK2_SCENE_NAMES.screen;
 }
 
 // Research canyon poster textures, indexed by panel.contentIndex.
 const RESEARCH_POSTER_SRCS = [
-  '/images/sections/slm-factory.png',
-  '/images/sections/rl-on-hrm.png',
-  '/images/sections/sd-on-qwen.png',
+  '/images/sections/slm-factory.webp',
+  '/images/sections/rl-on-hrm.webp',
+  '/images/sections/sd-on-qwen.webp',
 ];
 
 export function ResearchGateways() {
@@ -551,6 +592,7 @@ export function ResearchGateways() {
     />
   ));
   return (
+    <BakedStatic bakeNamed bakeBlended exclude={isPanelScreen}>
     <group name="research-gateways-owned" dispose={null}>
       {renderBoxes(
         assembly.beams,
@@ -607,11 +649,12 @@ export function ResearchGateways() {
         resources.structureMaterial,
       )}
     </group>
+    </BakedStatic>
   );
 }
 
 // The About board texture is the complete self-contained poster plate.
-const ABOUT_POSTER_SRC = '/images/sections/about.png';
+const ABOUT_POSTER_SRC = '/images/sections/about.webp';
 
 // Face-on zoom target for a research canyon panel, looked up by its screen id.
 function researchZoomTarget(id: string): PosterZoomTarget {
@@ -665,6 +708,7 @@ export function AboutHero() {
   );
   if (!resources) return null;
   return (
+    <BakedStatic bakeNamed exclude={isPanelScreen}>
     <group name="about-hero-owned" dispose={null}>
       <mesh
         name={TASK2_SCENE_NAMES.screen}
@@ -739,17 +783,26 @@ export function AboutHero() {
         />
       ))}
     </group>
+    </BakedStatic>
   );
 }
 
-function EnvMap() {
-  const texture = useEnvironment({ preset: 'night' });
+// The HDR is served from public/hdr (drei's `preset: 'night'` fetched the same
+// file from a third-party CDN at runtime). Every PBR program's cache key
+// changes when scene.environment appears, so if it arrived after the user
+// started scrolling the whole city recompiled mid-ride; keeping it local and
+// gating the prewarm on it means the programs compile once, with the env map.
+const ENV_HDR_URL = '/hdr/dikhololo_night_1k.hdr';
+
+function EnvMap({ onReady }: { onReady?: () => void }) {
+  const texture = useEnvironment({ files: ENV_HDR_URL });
   const { scene } = useThree();
   useEffect(() => {
     scene.environment = texture;
     scene.environmentIntensity = LIGHTING.envIntensity;
+    onReady?.();
     return () => { scene.environment = null; };
-  }, [scene, texture]);
+  }, [scene, texture, onReady]);
   return null;
 }
 
@@ -766,14 +819,24 @@ function ExposureSync() {
 // while visible: an earlier FPS cap here introduced scroll judder on high-
 // refresh displays, so smoothness now comes from cutting per-frame work
 // elsewhere, not from throttling the loop.
-function RenderGate() {
+// Low tier (`paced`): the loop runs on demand instead — anything that changes
+// the picture calls renderDemand.mark() (scroll writes, damping still settling,
+// pointer parallax, intro animation) and this gate turns that into at most
+// `maxFps` renders per second. Idle costs nothing, and a steady 30 fps reads
+// better on a weak GPU than an uneven 40-60. High/mid keep "always".
+function RenderGate({ paced = false, maxFps = 0 }: { paced?: boolean; maxFps?: number }) {
   const setFrameloop = useThree((s) => s.setFrameloop);
+  const invalidate = useThree((s) => s.invalidate);
   const gl = useThree((s) => s.gl);
   useEffect(() => {
     const canvas = gl.domElement;
     let onScreen = true;
     let visible = !document.hidden;
-    const apply = () => setFrameloop(onScreen && visible ? 'always' : 'never');
+    const active = () => onScreen && visible;
+    const apply = () => {
+      setFrameloop(!active() ? 'never' : paced ? 'demand' : 'always');
+      if (paced && active()) renderDemand.mark();
+    };
 
     const io = new IntersectionObserver(
       ([entry]) => { onScreen = entry.isIntersecting; apply(); },
@@ -785,11 +848,27 @@ function RenderGate() {
     document.addEventListener('visibilitychange', onVisibility);
     apply();
 
+    let raf = 0;
+    if (paced) {
+      const minInterval = maxFps > 0 ? 1000 / maxFps : 0;
+      let last = Number.NEGATIVE_INFINITY;
+      const tick = (now: number) => {
+        raf = requestAnimationFrame(tick);
+        if (!active() || !renderDemand.dirty) return;
+        if (now - last < minInterval - 0.5) return;
+        last = now;
+        renderDemand.take();
+        invalidate();
+      };
+      raf = requestAnimationFrame(tick);
+    }
+
     return () => {
       io.disconnect();
       document.removeEventListener('visibilitychange', onVisibility);
+      if (raf) cancelAnimationFrame(raf);
     };
-  }, [setFrameloop, gl]);
+  }, [setFrameloop, invalidate, gl, paced, maxFps]);
   return null;
 }
 
@@ -961,26 +1040,28 @@ export function Pillars() {
       roughness: 0.7,
       metalness: 0.4,
     }));
-    const geometries = pillars.map((pillar) =>
-      own(new THREE.CylinderGeometry(2.2, pillar.radius, pillar.height, 8)));
+    // One merged geometry for the whole pillar field: every pillar shares the
+    // material, so ~50 draws collapse into one.
+    const parts = pillars.map((pillar) =>
+      new THREE.CylinderGeometry(2.2, pillar.radius, pillar.height, 8)
+        .translate(pillar.x, pillar.height / 2, pillar.z));
+    const merged = mergeGeometries(parts, false);
+    parts.forEach((part) => part.dispose());
+    if (!merged) throw new Error('Pillar geometries could not be merged');
+    const geometry = own(merged);
     return {
-      value: { material, geometries },
-      resources: [material, ...geometries],
+      value: { material, geometry },
+      resources: [material, geometry],
     };
   }, [pillars]);
   if (!resources) return null;
   return (
-    <group dispose={null}>
-      {pillars.map((p, i) => (
-        <mesh
-          key={i}
-          geometry={resources.geometries[i]}
-          material={resources.material}
-          position={[p.x, p.height / 2, p.z]}
-          dispose={null}
-        />
-      ))}
-    </group>
+    <mesh
+      geometry={resources.geometry}
+      material={resources.material}
+      matrixAutoUpdate={false}
+      dispose={null}
+    />
   );
 }
 
@@ -1507,7 +1588,7 @@ function CulledBuildingZone(props: {
       : progress >= start && progress <= end;
   });
   return (
-    <group ref={groupRef}>
+    <group ref={groupRef} userData={{ zoneCull: true }}>
       <BuildingZone {...props} />
     </group>
   );
@@ -1959,6 +2040,7 @@ export function Ramp2() {
       position={RAMP2.base}
       rotation={[0, RAMP2.rotationY, 0]}
     >
+      <BakedStatic>
       <mesh geometry={resources.geometry} material={resources.deckMaterial} dispose={null} />
       {/* thin ride plate + amber centre stripes */}
       {[0.3, 0.6, 0.9].map((fraction, index) => {
@@ -2001,6 +2083,7 @@ export function Ramp2() {
             />
           );
         }))}
+      </BakedStatic>
     </group>
   );
 }
@@ -2026,6 +2109,9 @@ export function Scaffold() {
   const { metal, plank, rail, box } = resources;
   return (
     <group>
+      {/* The whole lattice is static: bake its ~90 box meshes (3 materials) into
+          3 draws. Named members stay in the graph (hidden) for dev inspection. */}
+      <BakedStatic bakeNamed>
       {/* deck slab + plank strips */}
       <mesh geometry={box} material={metal} position={[cx, y - S.deckThick / 2, cz]} scale={[w, S.deckThick, l]} dispose={null} />
       {[-w / 3, 0, w / 3].map((dx) => (
@@ -2097,6 +2183,7 @@ export function Scaffold() {
           dispose={null}
         />
       ))}
+      </BakedStatic>
     </group>
   );
 }
@@ -2973,43 +3060,58 @@ export function StreetDressing() {
     const dark = own(new THREE.MeshStandardMaterial({ color: 0x0a0c12, roughness: 0.6, metalness: 0.6 }));
     const cone = own(new THREE.MeshStandardMaterial({ color: 0x1a0d05, emissive: new THREE.Color(PALETTE.amber), emissiveIntensity: 0.8, toneMapped: false }));
     const can = own(new THREE.MeshStandardMaterial({ color: 0x1a1d24, roughness: 0.6, metalness: 0.5 }));
-    const manholeGeometries = layout.manholes.map((spot) =>
-      own(new THREE.CircleGeometry(spot.radius, 16)));
-    const coneGeometries = layout.cones.map((spot) =>
-      own(new THREE.ConeGeometry(spot.radius, 1, 8)));
-    const canGeometries = layout.cans.map((spot) =>
-      own(new THREE.CylinderGeometry(0.5, spot.radius, 1.2, 10)));
+    // Unit geometries scaled per instance: the ~250 dressing pieces become three
+    // InstancedMesh draws (manholes / cones / cans) instead of one draw each.
+    const manholeGeometry = own(new THREE.CircleGeometry(1, 16));
+    const coneGeometry = own(new THREE.ConeGeometry(1, 1, 8));
+    const canGeometry = own(new THREE.CylinderGeometry(0.5, 0.5, 1.2, 10));
     return {
-      value: {
-        dark,
-        cone,
-        can,
-        manholeGeometries,
-        coneGeometries,
-        canGeometries,
-      },
-      resources: [
-        dark,
-        cone,
-        can,
-        ...manholeGeometries,
-        ...coneGeometries,
-        ...canGeometries,
-      ],
+      value: { dark, cone, can, manholeGeometry, coneGeometry, canGeometry },
+      resources: [dark, cone, can, manholeGeometry, coneGeometry, canGeometry],
     };
-  }, [layout]);
+  }, []);
+  const manholeRef = useRef<THREE.InstancedMesh>(null);
+  const coneRef = useRef<THREE.InstancedMesh>(null);
+  const canRef = useRef<THREE.InstancedMesh>(null);
+  useLayoutEffect(() => {
+    const m = new THREE.Matrix4();
+    const p = new THREE.Vector3();
+    const q = new THREE.Quaternion();
+    const s = new THREE.Vector3();
+    const flat = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+    const upright = new THREE.Quaternion();
+    const fill = (
+      ref: THREE.InstancedMesh | null,
+      spots: Array<{ x: number; z: number; radius: number; rotationY?: number }>,
+      y: number,
+      rotation: 'flat' | 'upright',
+      scaleFor: (radius: number) => [number, number, number],
+    ) => {
+      if (!ref) return;
+      spots.forEach((spot, i) => {
+        const rot = rotation === 'flat'
+          ? flat
+          : (spot.rotationY ? q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), spot.rotationY) : upright);
+        const [sx, sy, sz] = scaleFor(spot.radius);
+        m.compose(p.set(spot.x, y, spot.z), rot, s.set(sx, sy, sz));
+        ref.setMatrixAt(i, m);
+      });
+      ref.count = spots.length;
+      ref.instanceMatrix.needsUpdate = true;
+      ref.computeBoundingSphere();
+    };
+    fill(manholeRef.current, layout.manholes, 0.04, 'flat', (r) => [r, r, 1]);
+    fill(coneRef.current, layout.cones, 0.5, 'upright', (r) => [r, 1, r]);
+    // Cans keep a fixed 0.5 top radius; scale the whole can by the spot radius
+    // so its footprint matches the layout (top tapers proportionally).
+    fill(canRef.current, layout.cans, 0.6, 'upright', (r) => [r / 0.5, 1, r / 0.5]);
+  }, [layout, resources]);
   if (!resources) return null;
   return (
     <group dispose={null}>
-      {layout.manholes.map((spot, i) => (
-        <mesh key={'mh' + i} geometry={resources.manholeGeometries[i]} material={resources.dark} position={[spot.x, 0.04, spot.z]} rotation={[-Math.PI / 2, 0, 0]} dispose={null} />
-      ))}
-      {layout.cones.map((spot, i) => (
-        <mesh key={'cn' + i} geometry={resources.coneGeometries[i]} material={resources.cone} position={[spot.x, 0.5, spot.z]} dispose={null} />
-      ))}
-      {layout.cans.map((spot, i) => (
-        <mesh key={'tc' + i} geometry={resources.canGeometries[i]} material={resources.can} position={[spot.x, 0.6, spot.z]} rotation={[0, spot.rotationY, 0]} dispose={null} />
-      ))}
+      <instancedMesh ref={manholeRef} args={[resources.manholeGeometry, resources.dark, Math.max(1, layout.manholes.length)]} matrixAutoUpdate={false} dispose={null} />
+      <instancedMesh ref={coneRef} args={[resources.coneGeometry, resources.cone, Math.max(1, layout.cones.length)]} matrixAutoUpdate={false} dispose={null} />
+      <instancedMesh ref={canRef} args={[resources.canGeometry, resources.can, Math.max(1, layout.cans.length)]} matrixAutoUpdate={false} dispose={null} />
     </group>
   );
 }
@@ -3044,17 +3146,74 @@ function scheduleCityIdle(callback: () => void): () => void {
 function GpuPrewarm({
   readyZones,
   moonReady,
+  envReady,
 }: {
   readyZones: CityZoneId[];
   moonReady: boolean;
+  envReady: boolean;
 }) {
   const gl = useThree((state) => state.gl);
   const scene = useThree((state) => state.scene);
   const camera = useThree((state) => state.camera);
+  // The scene is only ever drawn into the EffectComposer's offscreen buffer,
+  // and three keys shader programs on the bound target (linear output colour
+  // space, no tone mapping) versus the canvas (sRGB, tone mapped). Compiling
+  // with the canvas bound produced the wrong variants: every material was
+  // recompiled on its first real draw — the buildings at load, the moon as a
+  // 0.5-2 s freeze when it first entered the frame mid-ride. Bind a scratch
+  // target while compiling so the prewarmed programs are the ones used.
+  const prewarmTargetRef = useRef<THREE.WebGLRenderTarget | null>(null);
+  useEffect(() => () => {
+    prewarmTargetRef.current?.dispose();
+    prewarmTargetRef.current = null;
+  }, []);
   const warm = useCallback(() => {
+    // renderer.compile only visits VISIBLE objects, so zones culled by story
+    // progress (research/finale at t=0) would otherwise compile on first draw
+    // mid-scroll. Reveal them for the duration of the compile.
+    const revealed: THREE.Object3D[] = [];
+    scene.traverse((object) => {
+      if (object.userData.zoneCull && !object.visible) {
+        object.visible = true;
+        revealed.push(object);
+      }
+    });
+    if (!prewarmTargetRef.current) {
+      prewarmTargetRef.current = new THREE.WebGLRenderTarget(2, 2, { type: THREE.HalfFloatType });
+    }
+    const previousTarget = gl.getRenderTarget();
+    gl.setRenderTarget(prewarmTargetRef.current);
     try {
-      // Compile shader programs for everything in the graph...
-      gl.compile(scene, camera);
+      // Compile shader programs for everything in the graph. This must be ONE
+      // call on the whole scene: renderer.compile(object, camera, scene) counts
+      // the object's own lights twice (once in the scene, once as the "new"
+      // object), so compiling subtrees that contain lights bakes the wrong
+      // light count into their programs and they recompile on first draw.
+      try {
+        gl.compile(scene, camera);
+      } catch (error) {
+        if (IS_DEVELOPMENT) console.warn('[prewarm] shader compile failed', error);
+      }
+      // compile() creates programs but uploads no vertex/index buffers; those
+      // still land on the first frame an object is drawn (measured 50-90 ms
+      // hitches as zones came into view). Draw everything once, unculled, into
+      // the 2x2 scratch target so every buffer is resident before the ride.
+      try {
+        const unculled: THREE.Object3D[] = [];
+        scene.traverse((object) => {
+          if ((object as THREE.Mesh).isMesh && object.frustumCulled) {
+            object.frustumCulled = false;
+            unculled.push(object);
+          }
+        });
+        try {
+          gl.render(scene, camera);
+        } finally {
+          for (const object of unculled) object.frustumCulled = true;
+        }
+      } catch (error) {
+        if (IS_DEVELOPMENT) console.warn('[prewarm] warm render failed', error);
+      }
       // ...then force every material texture onto the GPU. gl.compile creates
       // programs but does not upload all maps (notably the about hero's
       // 3072x2048 CanvasTexture), so without this the texture upload still
@@ -3081,17 +3240,27 @@ function GpuPrewarm({
     } catch {
       // Pre-warming is best-effort; a failure just means the affected material
       // or texture warms lazily on first draw, exactly as it did before.
+    } finally {
+      gl.setRenderTarget(previousTarget);
+      for (const object of revealed) object.visible = false;
     }
+    // The world is settled by the time we warm shaders: stop three from
+    // re-composing every static object's matrix each frame.
+    freezeStaticMatrices(scene);
   }, [gl, scene, camera]);
-  // Per-zone warm as each becomes ready (idle-gated).
-  useEffect(() => scheduleCityIdle(warm), [warm, readyZones, moonReady]);
+  // Per-zone warm as each becomes ready (idle-gated). Programs are keyed on the
+  // environment map, so don't warm before it is in place.
+  useEffect(() => {
+    if (!envReady) return undefined;
+    return scheduleCityIdle(warm);
+  }, [warm, readyZones, moonReady, envReady]);
   // Once the whole city is ready, the progressive mount still commits its last
   // few meshes a tick or two AFTER onReady fires, so an idle warm keyed only to
   // readiness can miss them — they'd then upload on the first scroll frame (the
   // "lags a little on first scroll"). Fire guaranteed setTimeout passes (not
   // idle, which can be starved) that run after those late mounts settle, so
   // everything is resident before the viewer can scroll into it.
-  const fullyReady = readyZones.length >= CITY_ZONE_IDS.length && moonReady;
+  const fullyReady = readyZones.length >= CITY_ZONE_IDS.length && moonReady && envReady;
   useEffect(() => {
     if (!fullyReady) return undefined;
     const timers = [250, 900, 2000].map((delay) => window.setTimeout(warm, delay));
@@ -3194,6 +3363,8 @@ function City({
   );
   const [readyZones, setReadyZones] = useState<CityZoneId[]>([]);
   const [moonReady, setMoonReady] = useState(false);
+  const [envReady, setEnvReady] = useState(false);
+  const markEnvReady = useCallback(() => setEnvReady(true), []);
   const onZoneActiveRef = useRef(onZoneActive);
   onZoneActiveRef.current = onZoneActive;
   const loadingControllerRef = useRef<CityZoneLoadController | null>(null);
@@ -3275,6 +3446,9 @@ function City({
       .flatMap((zone) => cityZones[zone]),
     [activeZones, cityZones, readyZones],
   );
+  // Device quality tier (see world/deviceQuality): fixed for the page load so
+  // the light count and composer format never change mid-ride.
+  const quality = resolveQuality();
   return (
     <>
     <Canvas
@@ -3285,9 +3459,13 @@ function City({
       // antialias:false because the EffectComposer resolves separately
       // (multisampling={0}), so an MSAA backbuffer here was pure waste.
       // high-performance steers multi-GPU laptops off the integrated chip.
-      dpr={[1, 1.25]}
-      // Renders at native refresh; RenderGate flips frameloop to "never" only
-      // when the canvas is scrolled off-screen or the tab is hidden.
+      // The low tier caps at 1.0 (36% fewer pixels at 125% OS scaling).
+      dpr={[1, quality.maxDpr]}
+      // High/mid render at native refresh; the low tier renders on demand and
+      // RenderGate paces it (the prop must match, because R3F re-applies the
+      // Canvas frameloop prop on every re-render). RenderGate still flips to
+      // "never" when the canvas is scrolled off-screen or the tab is hidden.
+      frameloop={quality.pacedFrameloop ? 'demand' : 'always'}
       gl={{
         antialias: false,
         powerPreference: 'high-performance',
@@ -3298,7 +3476,7 @@ function City({
       <VisibilityLayoutContext.Provider value={activeLayout}>
       <color attach="background" args={['#05060f']} />
       <fog attach="fog" args={['#0a0a1c', 260, 2100]} />
-      <RenderGate />
+      <RenderGate paced={quality.pacedFrameloop} maxFps={quality.maxFps} />
       <ExposureSync />
       <DeferredScene>
       <ambientLight intensity={LIGHTING.ambientIntensity} />
@@ -3309,13 +3487,18 @@ function City({
       <hemisphereLight args={[PALETTE.violet, '#050510', 0.06]} />
       {/* Faint magenta/cyan flank fills — deliberately dim so the BILLBOARDS (and
           window neon) carry the city's colour rather than a global wash. */}
-      <directionalLight position={[-320, 90, 120]} intensity={0.16} color={PALETTE.magenta} />
-      <directionalLight position={[340, 80, -280]} intensity={0.18} color={PALETTE.cyan} />
+      {quality.fillLights && (
+        <>
+          <directionalLight position={[-320, 90, 120]} intensity={0.16} color={PALETTE.magenta} />
+          <directionalLight position={[340, 80, -280]} intensity={0.18} color={PALETTE.cyan} />
+        </>
+      )}
       {/* 3 point lights shaded per-fragment on every PBR surface city-wide;
           only meaningful at the Shibuya crossing, so mount them with that zone
-          instead of paying for them across the whole ride. */}
-      {activeZones.includes('shibuya') && <ShibuyaWallLighting />}
-      <Suspense fallback={null}><EnvMap /></Suspense>
+          instead of paying for them across the whole ride. The low tier drops
+          them entirely (measured -15% GPU frame time at t=0.2). */}
+      {quality.shibuyaPointLights && activeZones.includes('shibuya') && <ShibuyaWallLighting />}
+      <Suspense fallback={null}><EnvMap onReady={markEnvReady} /></Suspense>
       {production && progressStore && (
         <>
           <BikeRider ref={bikeRef} />
@@ -3334,14 +3517,18 @@ function City({
       <Ground />
       <WaterBasin />
       <FinaleAtmosphere />
-      <Roads />
+      {/* Road decks, curbs, glow strips, crosswalk stripes and indicators are all
+          static opaque meshes sharing a dozen materials: bake ~200 draws → ~12. */}
+      <BakedStatic><Roads /></BakedStatic>
       <ProceduralBuildingShells placements={pendingShells} />
       {!moonReady && <ProceduralMoonShell />}
       <FinaleBridge />
       <Pillars />
       <MonorailTrain />
       <StreetFurniture />
-      <JunkRamp loadAssets={activeZones.includes('projects')} />
+      <BakedStatic resettleMs={[1500, 4000]}>
+        <JunkRamp loadAssets={activeZones.includes('projects')} />
+      </BakedStatic>
       <Ramp2 />
       <CanyonFillers />
       {activeZones.map((zone) => (
@@ -3355,8 +3542,8 @@ function City({
         </Suspense>
       ))}
       <Suspense fallback={null}><AboutHero /></Suspense>
-      <GpuPrewarm readyZones={readyZones} moonReady={moonReady} />
-      <ShibuyaFacadePanels />
+      <GpuPrewarm readyZones={readyZones} moonReady={moonReady} envReady={envReady} />
+      <BakedStatic bakeNamed><ShibuyaFacadePanels /></BakedStatic>
       <Suspense fallback={null}><Scaffold /></Suspense>
       {activeZones.includes('projects') && (
         <Suspense fallback={null}><ProjectsPanels /></Suspense>
@@ -3393,7 +3580,12 @@ function City({
             target={[40, 18, -130]}
             maxDistance={4000}
           />)}
-      <EffectComposer multisampling={0}>
+      {/* Low tier: 8-bit composer buffers (half the bandwidth of HalfFloat) and
+          a shallower bloom mip chain; high/mid keep the HDR pipeline. */}
+      <EffectComposer
+        multisampling={0}
+        frameBufferType={quality.halfFloatComposer ? THREE.HalfFloatType : THREE.UnsignedByteType}
+      >
         {/* resolutionScale 0.5 runs the whole bloom chain (luminance pass + mip
             blur) at quarter the pixels — a full-screen per-frame pass, so this
             is a direct GPU saving. Bloom is inherently soft, so half-res is
@@ -3403,6 +3595,7 @@ function City({
           luminanceThreshold={LIGHTING.bloomThreshold}
           radius={LIGHTING.bloomRadius}
           resolutionScale={0.5}
+          levels={quality.bloomLevels}
           mipmapBlur
         />
         {/* Colour grade for the moody cyberpunk look: punch up saturation so the

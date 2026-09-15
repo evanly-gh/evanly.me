@@ -1,6 +1,6 @@
 /**
  * Data model for the cyberpunk ad billboards. Each entry maps a sliced neon
- * reference texture (public/images/billboards/<image>.png, produced by
+ * reference texture (public/images/billboards/<image>.webp, produced by
  * tools/slice-billboards.mjs) onto a 3D billboard prefab with a mount type,
  * aspect ratio, glow colour and world height. The <AdBillboard> component
  * renders these; the gallery catalog and (phase 2) the city consume the list.

@@ -8,7 +8,7 @@ import type {
 
 /**
  * Shared presentation kit for the About hero billboard. The board texture is the
- * self-contained About poster (about.png) — a complete plate with its own frame,
+ * self-contained About poster (about.webp) — a complete plate with its own frame,
  * portrait, and copy baked in — loaded by the caller (drei useTexture) and passed
  * in, since that requires a React Suspense boundary. It is used directly as the
  * screen map (no canvas compositing). The externally-loaded texture is NOT owned
