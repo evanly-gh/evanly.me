@@ -1683,6 +1683,17 @@ function ProceduralMoonShell() {
   );
 }
 
+// NOTE: this is mounted for the whole ride, not just while the camera is near
+// the Shibuya crossing (activeZones — see below — only ever grows, so
+// `activeZones.includes('shibuya')` is true the moment that zone's assets
+// finish loading and stays true forever). That reads like a bug against the
+// comment below, but it is deliberately NOT fixed by toggling this group's
+// visibility live: point-light count is baked into every PBR material's
+// shader cache key, so even with both permutations prewarmed, the one-time
+// moment the count actually changes mid-scroll still forces every affected
+// material to re-bind its program and uniforms in a single frame — measured
+// as a ~280 ms hitch, worse than the small always-on cost it would save. See
+// tools/verification/perf and CLAUDE.md's "never toggle lights mid-ride" note.
 function ShibuyaWallLighting() {
   const { warm, magenta, cyan } = SHIBUYA_WALL_LIGHTS;
   return (
