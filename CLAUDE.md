@@ -68,3 +68,25 @@ camera/geometry change — this is the primary verification method right now.
   `?city&inspect` or `?shot=<t>&inspect` at the relevant t.
 - No commits/pushes were made until this handoff — `git log` on `phase1-assets` now
   reflects everything through the camera/geometry pass + repo cleanup described above.
+
+## Performance architecture (added 2026-09-15, branch perf/low-end-devices)
+
+- `src/world/deviceQuality.ts` — quality tiers (low/mid/high) chosen by a fill-rate
+  benchmark + heuristics, overridable via `?quality=` or the visible toggle
+  (`src/scroll/QualityToggle.tsx`, localStorage `evanly-quality`). Low tier: dpr 1,
+  8-bit composer, 4 bloom levels, 4 lights instead of 9, static holograms, on-demand
+  loop paced to 30 fps (`src/choreography/renderDemand.ts` + `RenderGate` in City).
+  Light count and composer format must stay fixed for a page load (program cache).
+- `src/components/three/BakedStatic.tsx` — merges static meshes per material; modes
+  `bakeBlended` (additive only), `atlasScreens` (billboard screens → canvas atlas),
+  `bakeNamed` + `exclude`. Wrap any new static decoration in it.
+- `src/components/three/kitbashArrayMaterial.ts` — one MeshStandardMaterial for all
+  KitBash buildings via a DataArrayTexture (per-vertex packed layer/emissive);
+  InstancedPieces merges a file's opaque parts into ≤65,535-vertex batches.
+- `GpuPrewarm` (City.tsx) compiles with a scratch render target bound, reveals
+  zone-culled groups, warm-renders once unculled, then `freezeStaticMatrices`.
+  Never toggle `material.transparent` or mount/unmount lights mid-ride.
+- Verification: `tools/verification/perf/` (gitignored) — `ride.mjs --headless`
+  (per-section JS/GPU ms, "programs compiled DURING ride" must be 0), `shot.mjs`,
+  `ablate.mjs`, `census.mjs`, probes. Interleave baseline/candidate runs; this
+  laptop's throughput drifts with battery state.
